@@ -1,0 +1,96 @@
+2026-03-08 19:04:02,787 [INFO] ━━━ Gen3 Batch 시작: 2026-03-08 ━━━
+2026-03-08 19:04:02,801 [INFO] [Step1] 레짐: BULL
+2026-03-08 19:04:02,805 [INFO] [Step2] 유니버스: 10개
+2026-03-08 19:04:02,851 [INFO] [Step3] 스코어링 완료: 5개
+2026-03-08 19:04:02,853 [INFO] [Step4] 신호 파일 저장: signals_20260308.csv
+2026-03-08 19:04:02,853 [INFO] ━━━ Gen3 Batch 완료: 2026-03-08 ━━━
+2026-03-08 19:13:21,706 [INFO] ━━━ Gen3 Batch 시작: 2026-03-08 ━━━
+2026-03-08 19:13:21,714 [INFO] [Step1] 레짐: BULL
+2026-03-08 19:13:21,715 [INFO] [Step2] 유니버스: 10개
+2026-03-08 19:13:21,755 [INFO] [Step3] 스코어링 완료: 5개
+2026-03-08 19:13:21,757 [INFO] [Step4] 신호 파일 저장: signals_20260308.csv
+2026-03-08 19:13:21,757 [INFO] ━━━ Gen3 Batch 완료: 2026-03-08 ━━━
+2026-03-08 19:25:27,653 [INFO] ━━━ Gen3 Batch 시작: 2026-03-08 ━━━
+2026-03-08 19:25:27,660 [ERROR] [Batch] 예외 발생: No module named 'pandas'
+Traceback (most recent call last):
+  File "C:\Q-TRON-32_ARCHIVE\Gen03-02\batch\batch_runner.py", line 73, in run
+    regime = self._detect_regime()
+  File "C:\Q-TRON-32_ARCHIVE\Gen03-02\batch\batch_runner.py", line 100, in _detect_regime
+    from strategy.regime_detector import RegimeDetector
+  File "C:\Q-TRON-32_ARCHIVE\Gen03-02\strategy\regime_detector.py", line 22, in <module>
+    import pandas as pd
+ModuleNotFoundError: No module named 'pandas'
+2026-03-08 19:25:27,662 [INFO] ━━━ Gen3 Batch 완료: 2026-03-08 ━━━
+2026-03-08 19:27:53,028 [INFO] ━━━ Gen3 Batch 시작: 2026-03-08 ━━━
+2026-03-08 19:27:53,030 [ERROR] [Batch] 예외 발생: No module named 'pandas'
+Traceback (most recent call last):
+  File "C:\Q-TRON-32_ARCHIVE\Gen03-02\batch\batch_runner.py", line 73, in run
+    regime = self._detect_regime()
+  File "C:\Q-TRON-32_ARCHIVE\Gen03-02\batch\batch_runner.py", line 100, in _detect_regime
+    from strategy.regime_detector import RegimeDetector
+  File "C:\Q-TRON-32_ARCHIVE\Gen03-02\strategy\regime_detector.py", line 22, in <module>
+    import pandas as pd
+ModuleNotFoundError: No module named 'pandas'
+2026-03-08 19:27:53,031 [INFO] ━━━ Gen3 Batch 완료: 2026-03-08 ━━━
+2026-03-08 19:30:27,296 [INFO] ━━━ Gen3 Batch 시작: 2026-03-08 ━━━
+2026-03-08 19:30:27,741 [WARNING] [Step1] provider 없음 → SIDEWAYS 가정
+2026-03-08 19:30:27,741 [INFO] [Step1] 레짐: SIDEWAYS
+2026-03-08 19:30:27,742 [WARNING] [Step2] provider 없음 → 빈 유니버스
+2026-03-08 19:30:27,742 [INFO] [Step2] 유니버스: 0개
+2026-03-08 19:30:27,744 [INFO] [Step3] 스코어링 완료: 0개
+2026-03-08 19:30:27,745 [INFO] [Step4] 신호 파일 저장: signals_20260308.csv
+2026-03-08 19:30:27,745 [INFO] ━━━ Gen3 Batch 완료: 2026-03-08 ━━━
+2026-03-08 19:31:53,633 [INFO] ━━━ Gen3 Batch 시작: 2026-03-08 ━━━
+2026-03-08 19:31:53,795 [INFO] Expecting value: line 15 column 3 (char 33)
+2026-03-08 19:31:53,850 [INFO] Expecting value: line 15 column 3 (char 33)
+2026-03-08 19:31:54,322 [INFO] Expecting value: line 15 column 3 (char 33)
+2026-03-08 19:31:54,671 [INFO] [Step1] 레짐: BULL
+2026-03-08 19:31:54,740 [INFO] Expecting value: line 15 column 3 (char 33)
+2026-03-08 19:31:55,102 [INFO] Expecting value: line 15 column 3 (char 33)
+2026-03-08 19:31:55,442 [INFO] [Step2] 유니버스: 0개
+2026-03-08 19:31:55,444 [INFO] [Step3] 스코어링 완료: 0개
+2026-03-08 19:31:55,446 [INFO] [Step4] 신호 파일 저장: signals_20260308.csv
+2026-03-08 19:31:55,446 [INFO] ━━━ Gen3 Batch 완료: 2026-03-08 ━━━
+2026-03-08 19:34:42,489 [INFO] ━━━ Gen3 Batch 시작: 2026-03-08 ━━━
+2026-03-08 19:34:42,558 [INFO] Expecting value: line 1 column 1 (char 0)
+2026-03-08 19:34:42,610 [INFO] Expecting value: line 1 column 1 (char 0)
+2026-03-08 19:34:43,026 [INFO] Expecting value: line 1 column 1 (char 0)
+2026-03-08 19:34:43,376 [INFO] [Step1] 레짐: BULL
+2026-03-08 19:34:43,429 [INFO] Expecting value: line 1 column 1 (char 0)
+2026-03-08 19:34:43,775 [INFO] Expecting value: line 1 column 1 (char 0)
+2026-03-08 19:34:44,088 [INFO] [Step2] 유니버스: 0개
+2026-03-08 19:34:44,090 [INFO] [Step3] 스코어링 완료: 0개
+2026-03-08 19:34:44,091 [INFO] [Step4] 신호 파일 저장: signals_20260308.csv
+2026-03-08 19:34:44,092 [INFO] ━━━ Gen3 Batch 완료: 2026-03-08 ━━━
+2026-03-08 23:34:51,351 [INFO] ━━━ Gen3 Batch 시작: 2026-03-08 ━━━
+2026-03-08 23:34:51,353 [WARNING] [KiwoomProvider] 업종일봉요청(opt20006) 비활성화 설정 - index=KOSPI, days=200. RegimeDetector는 SIDEWAYS로 폴백해야 함.
+2026-03-08 23:34:51,353 [WARNING] [RegimeDetector] KOSPI 분석 실패: [KiwoomProvider] 업종일봉요청(opt20006) 비활성화 설정 - index=KOSPI, days=200. RegimeDetector는 SIDEWAYS로 폴백해야 함.
+2026-03-08 23:34:51,353 [WARNING] [KiwoomProvider] 업종일봉요청(opt20006) 비활성화 설정 - index=KOSDAQ, days=200. RegimeDetector는 SIDEWAYS로 폴백해야 함.
+2026-03-08 23:34:51,353 [WARNING] [RegimeDetector] KOSDAQ 분석 실패: [KiwoomProvider] 업종일봉요청(opt20006) 비활성화 설정 - index=KOSDAQ, days=200. RegimeDetector는 SIDEWAYS로 폴백해야 함.
+2026-03-08 23:34:51,353 [WARNING] [RegimeDetector] 모든 지수 분석 실패 → SIDEWAYS (보수적)
+2026-03-08 23:34:51,353 [INFO] [Step1] 레짐: SIDEWAYS
+2026-03-08 23:35:16,342 [WARNING] [TR 타임아웃] 주식일봉차트조회(opt10081) - 20초 응답 없음 (1/3회)
+2026-03-08 23:35:37,019 [WARNING] [TR 타임아웃] 주식일봉차트조회(opt10081) - 20초 응답 없음 (1/3회)
+2026-03-08 23:35:57,719 [WARNING] [TR 타임아웃] 주식일봉차트조회(opt10081) - 20초 응답 없음 (1/3회)
+2026-03-08 23:36:18,436 [WARNING] [TR 타임아웃] 주식일봉차트조회(opt10081) - 20초 응답 없음 (1/3회)
+2026-03-08 23:36:39,141 [WARNING] [TR 타임아웃] 주식일봉차트조회(opt10081) - 20초 응답 없음 (1/3회)
+2026-03-08 23:36:59,830 [WARNING] [TR 타임아웃] 주식일봉차트조회(opt10081) - 20초 응답 없음 (1/3회)
+2026-03-08 23:37:20,532 [WARNING] [TR 타임아웃] 주식일봉차트조회(opt10081) - 20초 응답 없음 (1/3회)
+2026-03-08 23:37:41,174 [WARNING] [TR 타임아웃] 주식일봉차트조회(opt10081) - 20초 응답 없음 (1/3회)
+2026-03-08 23:38:01,813 [WARNING] [TR 타임아웃] 주식일봉차트조회(opt10081) - 20초 응답 없음 (1/3회)
+2026-03-08 23:38:22,519 [WARNING] [TR 타임아웃] 주식일봉차트조회(opt10081) - 20초 응답 없음 (1/3회)
+2026-03-08 23:38:43,208 [WARNING] [TR 타임아웃] 주식일봉차트조회(opt10081) - 20초 응답 없음 (1/3회)
+2026-03-08 23:39:03,909 [WARNING] [TR 타임아웃] 주식일봉차트조회(opt10081) - 20초 응답 없음 (1/3회)
+2026-03-08 23:39:24,597 [WARNING] [TR 타임아웃] 주식일봉차트조회(opt10081) - 20초 응답 없음 (1/3회)
+2026-03-08 23:39:45,252 [WARNING] [TR 타임아웃] 주식일봉차트조회(opt10081) - 20초 응답 없음 (1/3회)
+2026-03-08 23:43:02,590 [INFO] ━━━ Gen3 Batch 시작: 2026-03-08 ━━━
+2026-03-08 23:43:02,769 [INFO] Expecting value: line 1 column 1 (char 0)
+2026-03-08 23:43:02,825 [INFO] Expecting value: line 1 column 1 (char 0)
+2026-03-08 23:43:03,253 [INFO] Expecting value: line 1 column 1 (char 0)
+2026-03-08 23:43:03,611 [INFO] [Step1] 레짐: BULL
+2026-03-08 23:43:03,657 [INFO] Expecting value: line 1 column 1 (char 0)
+2026-03-08 23:43:04,012 [INFO] Expecting value: line 1 column 1 (char 0)
+2026-03-08 23:43:04,321 [INFO] [Step2] 유니버스: 0개
+2026-03-08 23:43:04,359 [INFO] [Step3] 스코어링 완료: 0개
+2026-03-08 23:43:04,362 [INFO] [Step4] 신호 파일 저장: signals_20260308.csv
+2026-03-08 23:43:04,362 [INFO] ━━━ Gen3 Batch 완료: 2026-03-08 ━━━

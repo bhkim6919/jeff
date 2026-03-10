@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<title>Q-TRON 메인 리포트 대시보드 (데모)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<style>
+:root{
+  --bg:#020617;
+  --card:#0b1220;
+  --card-soft:#020617;
+  --bd:#1f2937;
+  --fg:#e5e7eb;
+  --muted:#9ca3af;
+  --accent:#4f46e5;
+  --accent-soft:#1d243c;
+  --danger:#f97373;
+  --success:#22c55e;
+  --warn:#facc15;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  font-family:'Malgun Gothic','Apple SD Gothic Neo',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:radial-gradient(circle at top,#111827 0,#020617 55%);
+  color:var(--fg);
+}
+.page{
+  max-width:1100px;
+  margin:0 auto;
+  padding:18px 14px 40px;
+}
+
+/* 헤더 */
+.header{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:14px;
+}
+.logo-area{
+  display:flex;
+  align-items:center;
+  gap:9px;
+}
+.logo-mark{
+  width:28px;height:28px;
+  border-radius:10px;
+  background:conic-gradient(from 180deg,#22c55e,#4f46e5,#0ea5e9,#22c55e);
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 18px rgba(79,70,229,0.7);
+}
+.logo-mark span{
+  font-size:14px;font-weight:700;color:#0b1220;
+}
+.logo-text-main{
+  font-size:17px;font-weight:700;
+}
+.logo-text-sub{
+  font-size:11px;color:var(--muted);
+}
+.header-right{
+  text-align:right;font-size:11px;color:var(--muted);
+}
+.badge-env{
+  display:inline-block;
+  padding:2px 8px;
+  border-radius:999px;
+  border:1px solid #22c55e;
+  color:#bbf7d0;
+  font-size:10px;
+  margin-left:4px;
+}
+
+/* 탭 */
+.tabs{
+  display:flex;
+  border-bottom:1px solid var(--bd);
+  margin-bottom:12px;
+}
+.tab{
+  padding:6px 12px;
+  font-size:12px;
+  cursor:pointer;
+  color:var(--muted);
+  border-bottom:2px solid transparent;
+}
+.tab.active{
+  color:#e5e7eb;
+  border-color:var(--accent);
+}
+
+/* 레이아웃 */
+.grid{
+  display:grid;
+  grid-template-columns:2fr 1.4fr;
+  gap:10px;
+  margin-bottom:10px;
+}
+@media (max-width:900px){
+  .grid{grid-template-columns:1fr;}
+}
+
+/* 카드 공통 */
+.card{
+  background:var(--card);
+  border-radius:10px;
+  border:1px solid var(--bd);
+  padding:10px 11px;
+  box-shadow:0 12px 35px rgba(15,23,42,0.85);
+}
+.card-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:6px;
+}
+.card-title{
+  font-size:12px;
+  font-weight:600;
+}
+.card-sub{
+  font-size:10px;
+  color:var(--muted);
+}
+
+/* KPI 카드 */
+.kpi-row{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:8px;
+  margin-top:4px;
+}
+@media (max-width:900px){
+  .kpi-row{grid-template-columns:repeat(2,1fr);}
+}
+.kpi{
+  background:var(--card-soft);
+  border-radius:8px;
+  border:1px solid #111827;
+  padding:6px 8px;
+}
+.kpi-label{
+  font-size:11px;
+  color:var(--muted);
+  margin-bottom:2px;
+}
+.kpi-value{
+  font-size:13px;
+  font-weight:700;
+}
+.kpi-value.pos{color:var(--success);}
+.kpi-value.neg{color:var(--danger);}
+.kpi-badge{
+  font-size:10px;
+  color:var(--muted);
+}
+
+/* 테이블 */
+.table-wrap{
+  margin-top:6px;
+  border-radius:8px;
+  border:1px solid #111827;
+  overflow:hidden;
+}
+table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:11px;
+}
+th,td{
+  padding:6px 8px;
+  border-bottom:1px solid #0b1120;
+}
+th{
+  background:#020617;
+  color:var(--muted);
+  font-weight:500;
+  text-align:left;
+}
+tbody tr:nth-child(even){
+  background:#020617;
+}
+tbody tr:hover{
+  background:#020617;
+}
+.link{
+  color:#a5b4fc;
+  text-decoration:none;
+}
+.link:hover{text-decoration:underline;}
+
+/* 태그/뱃지 */
+.tag{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  padding:2px 6px;
+  border-radius:999px;
+  font-size:10px;
+  border:1px solid #1e293b;
+  background:#020617;
+  color:#e5e7eb;
+}
+.tag-dot{
+  width:6px;height:6px;border-radius:999px;background:#22c55e;
+}
+.tag-theme{border-color:#7c3aed;background:#111827;}
+.tag-theme .tag-dot{background:#7c3aed;}
+.tag-risk{border-color:#facc15;background:#1f2937;}
+.tag-risk .tag-dot{background:#facc15;}
+
+/* 탭 콘텐츠 */
+.tab-panel{display:none;}
+.tab-panel.active{display:block;}
+
+/* Early 섹션 */
+.early-block{
+  margin-top:4px;
+  border-radius:8px;
+  border:1px solid #1d293b;
+  padding:8px 9px;
+  background:#020617;
+}
+.early-title{
+  font-size:12px;
+  font-weight:600;
+  margin-bottom:3px;
+}
+.early-metrics{
+  font-size:11px;
+  color:var(--muted);
+  line-height:1.5;
+}
+.early-comment{
+  font-size:11px;
+  margin-top:3px;
+}
+
+/* 푸터 */
+.footer{
+  margin-top:14px;
+  font-size:10px;
+  color:var(--muted);
+  text-align:right;
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- 헤더 -->
+  <div class="header">
+    <div class="logo-area">
+      <div class="logo-mark"><span>Q</span></div>
+      <div>
+        <div class="logo-text-main">Q-TRON Gen2 메인 리포트</div>
+        <div class="logo-text-sub">Gen2 Core v1.0 · MAX_POS=20 · ATR 4.0 / 1.0 · Regime MA200</div>
+      </div>
+    </div>
+    <div class="header-right">
+      기준일: 2026-03-02 20:20<br/>
+      모드: MOCK
+      <span class="badge-env">안정화 점검 단계</span>
+    </div>
+  </div>
+
+  <!-- 탭 -->
+  <div class="tabs">
+    <div class="tab active" data-tab="overview">요약 대시보드</div>
+    <div class="tab" data-tab="daily">일일 리포트 목록</div>
+    <div class="tab" data-tab="period">주간/월간 리포트</div>
+  </div>
+
+  <!-- 탭 1: 요약 대시보드 -->
+  <div class="tab-panel active" id="tab-overview">
+
+    <div class="grid">
+      <!-- 좌측: 성과/테마 -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">포트폴리오 성과 요약</div>
+            <div class="card-sub">최근 1개월 기준 · Q-TRON Gen2 + Early Entry</div>
+          </div>
+          <span class="tag">
+            <span class="tag-dot"></span>
+            <span>리스크 모드: NORMAL</span>
+          </span>
+        </div>
+
+        <div class="kpi-row">
+          <div class="kpi">
+            <div class="kpi-label">최근 1개월 수익률</div>
+            <div class="kpi-value pos">+3.2%</div>
+            <div class="kpi-badge">KOSPI: +1.1%</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">연환산 추정 수익률</div>
+            <div class="kpi-value pos">+11.8%</div>
+            <div class="kpi-badge">Calmar: 1.25</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">최대 낙폭 (MDD)</div>
+            <div class="kpi-value neg">-4.7%</div>
+            <div class="kpi-badge">최근 3개월 기준</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">노출도</div>
+            <div class="kpi-value">23.5%</div>
+            <div class="kpi-badge">보유종목 6개</div>
+          </div>
+        </div>
+
+        <div style="margin-top:10px;">
+          <div class="card-sub" style="margin-bottom:4px;">현재 주력 테마</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            <span class="tag tag-theme">
+              <span class="tag-dot"></span>
+              반도체 · 비중 34%
+            </span>
+            <span class="tag tag-theme">
+              <span class="tag-dot"></span>
+              2차전지 · 비중 18%
+            </span>
+            <span class="tag tag-risk">
+              <span class="tag-dot"></span>
+              방어 섹터 비중 12% (헬스케어/필수소비)
+            </span>
+          </div>
+
+          <div class="early-block">
+            <div class="early-title">Early Entry 선반영 테마 요약</div>
+            <div class="early-metrics">
+              ■ 전기전자 (반도체)<br/>
+              - Breadth Jump: 27.4% (기준 ≥ 20%p)<br/>
+              - Volume Surge: 142.3% (기준 ≥ 130%)<br/>
+              - New High Ratio: 9.1% (기준 ≥ 7%)<br/>
+              → 3개 조건 모두 충족 (Early Entry 활성)
+            </div>
+            <div class="early-comment">
+              이 조건들을 충족하여, 기존 Gen2 신호보다 평균 약 6.1일 빠르게
+              반도체 테마를 선반영하도록 설계되었습니다. 현재 BULL 레짐에서
+              과도한 추격이 아닌 초기 확산 구간에 해당하는 것으로 판단합니다.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 우측: 계좌 요약 -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">계좌 상태 요약 (오늘 마감 기준)</div>
+            <div class="card-sub">Q-TRON이 인식하는 현재 포지션</div>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <tbody>
+              <tr>
+                <th style="width:45%;">총 평가금액</th>
+                <td>100,000,000원</td>
+              </tr>
+              <tr>
+                <th>현금</th>
+                <td>76,480,000원</td>
+              </tr>
+              <tr>
+                <th>보유 종목 수</th>
+                <td>6개</td>
+              </tr>
+              <tr>
+                <th>총 노출도</th>
+                <td>23.5%</td>
+              </tr>
+              <tr>
+                <th>당일 손익</th>
+                <td><span style="color:#22c55e;">+0.4%</span></td>
+              </tr>
+              <tr>
+                <th>월간 누적 DD</th>
+                <td>-1.2%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="margin-top:8px;">
+          <div class="card-sub">리스크 관련 메모 (예시)</div>
+          <ul style="margin-top:3px;padding-left:16px;font-size:11px;color:var(--muted);line-height:1.5;">
+            <li>단일 종목 최대 비중 7.9% (삼성전자) · MAX_POS=20 준수</li>
+            <li>테마 편중: 반도체+2차전지 합산 52% → 필요 시 점진 분산 예정</li>
+            <li>월간 손익 기준, 추가 리스크 확대 여지는 보수적으로 1단계 남음</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- 아래: 리포트 요약 카드 두 개 -->
+    <div class="grid" style="margin-top:8px;">
+      <!-- 최근 일일 리포트 하이라이트 -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">최근 5일 일일 리포트 하이라이트 (예시)</div>
+            <div class="card-sub">아래 링크는 logs 폴더의 report_daily_*.html 과 연결</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>날짜</th>
+                <th>당일 수익률</th>
+                <th>체결/거부</th>
+                <th>레짐</th>
+                <th>리포트</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>2026-03-02</td>
+                <td><span style="color:#22c55e;">+0.4%</span></td>
+                <td>2 / 1</td>
+                <td>BULL</td>
+                <td><a class="link" href="report_daily_20260302_201430.html">열기</a></td>
+              </tr>
+              <tr>
+                <td>2026-02-28</td>
+                <td><span style="color:#22c55e;">+0.2%</span></td>
+                <td>1 / 0</td>
+                <td>SIDEWAYS</td>
+                <td><a class="link" href="report_daily_20260228_200102.html">열기</a></td>
+              </tr>
+              <tr>
+                <td>2026-02-27</td>
+                <td><span style="color:#f97373;">-0.3%</span></td>
+                <td>0 / 2</td>
+                <td>SIDEWAYS</td>
+                <td><a class="link" href="report_daily_20260227_195530.html">열기</a></td>
+              </tr>
+              <tr>
+                <td>2026-02-26</td>
+                <td>+0.0%</td>
+                <td>0 / 0</td>
+                <td>BEAR</td>
+                <td><a class="link" href="report_daily_20260226_200005.html">열기</a></td>
+              </tr>
+              <tr>
+                <td>2026-02-25</td>
+                <td><span style="color:#22c55e;">+0.6%</span></td>
+                <td>3 / 0</td>
+                <td>BULL</td>
+                <td><a class="link" href="report_daily_20260225_201500.html">열기</a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- summary_daily.csv 전망 카드 (예시) -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">최근 Early 테마 히스토리 (요약 예시)</div>
+            <div class="card-sub">summary_daily.csv 기준, 최근 10일 Early 활성 섹터</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>날짜</th>
+                <th>시장상태</th>
+                <th>Early 활성 섹터</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>2026-03-02</td>
+                <td>BULL</td>
+                <td>전기전자; 2차전지</td>
+              </tr>
+              <tr>
+                <td>2026-02-28</td>
+                <td>SIDEWAYS</td>
+                <td>화학</td>
+              </tr>
+              <tr>
+                <td>2026-02-27</td>
+                <td>SIDEWAYS</td>
+                <td>없음</td>
+              </tr>
+              <tr>
+                <td>2026-02-26</td>
+                <td>BEAR</td>
+                <td>방어소비재</td>
+              </tr>
+              <tr>
+                <td>2026-02-25</td>
+                <td>BULL</td>
+                <td>전기전자</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card-sub" style="margin-top:5px;">
+          실제 운용 시에는 summary_daily.csv 를 읽어 위 표를 자동 생성할 수 있습니다.
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 탭 2: 일일 리포트 목록 -->
+  <div class="tab-panel" id="tab-daily">
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">일일 리포트 전체 목록 (예시)</div>
+          <div class="card-sub">logs 폴더의 report_daily_*.html 파일과 연결</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>날짜</th>
+              <th>시장상태</th>
+              <th>당일 수익률</th>
+              <th>체결/거부</th>
+              <th>Early 섹터</th>
+              <th>리포트</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>2026-03-02</td>
+              <td>BULL</td>
+              <td><span style="color:#22c55e;">+0.4%</span></td>
+              <td>2 / 1</td>
+              <td>전기전자; 2차전지</td>
+              <td><a class="link" href="report_daily_20260302_201430.html">report_daily_20260302_201430.html</a></td>
+            </tr>
+            <tr>
+              <td>2026-02-28</td>
+              <td>SIDEWAYS</td>
+              <td>+0.2%</td>
+              <td>1 / 0</td>
+              <td>화학</td>
+              <td><a class="link" href="report_daily_20260228_200102.html">report_daily_20260228_200102.html</a></td>
+            </tr>
+            <tr>
+              <td>2026-02-27</td>
+              <td>SIDEWAYS</td>
+              <td><span style="color:#f97373;">-0.3%</span></td>
+              <td>0 / 2</td>
+              <td>없음</td>
+              <td><a class="link" href="report_daily_20260227_195530.html">report_daily_20260227_195530.html</a></td>
+            </tr>
+            <tr>
+              <td>2026-02-26</td>
+              <td>BEAR</td>
+              <td>+0.0%</td>
+              <td>0 / 0</td>
+              <td>방어소비재</td>
+              <td><a class="link" href="report_daily_20260226_200005.html">report_daily_20260226_200005.html</a></td>
+            </tr>
+            <tr>
+              <td>2026-02-25</td>
+              <td>BULL</td>
+              <td><span style="color:#22c55e;">+0.6%</span></td>
+              <td>3 / 0</td>
+              <td>전기전자</td>
+              <td><a class="link" href="report_daily_20260225_201500.html">report_daily_20260225_201500.html</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card-sub" style="margin-top:5px;">
+        추후에는 summary_daily.csv / equity_log.csv 를 이용해서 이 표를 자동 생성하는 스크립트를 붙일 수 있습니다.
+      </div>
+    </div>
+  </div>
+
+  <!-- 탭 3: 기간 리포트 -->
+  <div class="tab-panel" id="tab-period">
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">주간 · 월간 · 분기 · 연간 리포트 (예시)</div>
+          <div class="card-sub">Stage7 자동 생성 report_weekly_*/report_monthly_* 와 연동</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>구분</th>
+              <th>기간</th>
+              <th>누적 수익률</th>
+              <th>MDD</th>
+              <th>Calmar</th>
+              <th>리포트 파일</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>주간</td>
+              <td>2026-02-24 ~ 2026-02-28</td>
+              <td><span style="color:#22c55e;">+1.1%</span></td>
+              <td>-0.8%</td>
+              <td>1.37</td>
+              <td><a class="link" href="report_weekly_20260228_235750.html">report_weekly_20260228_235750.html</a></td>
+            </tr>
+            <tr>
+              <td>월간</td>
+              <td>2026-02-01 ~ 2026-02-28</td>
+              <td><span style="color:#22c55e;">+3.2%</span></td>
+              <td>-2.9%</td>
+              <td>1.10</td>
+              <td><a class="link" href="report_monthly_20260228_235900.html">report_monthly_20260228_235900.html</a></td>
+            </tr>
+            <tr>
+              <td>분기</td>
+              <td>2026-01-01 ~ 2026-03-31</td>
+              <td>+4.5%</td>
+              <td>-3.8%</td>
+              <td>1.18</td>
+              <td><a class="link" href="report_quarterly_20260331_235959.html">report_quarterly_20260331_235959.html</a></td>
+            </tr>
+            <tr>
+              <td>연간</td>
+              <td>2026-01-01 ~ 2026-12-31</td>
+              <td>+11.8%</td>
+              <td>-6.9%</td>
+              <td>1.71</td>
+              <td><a class="link" href="report_annual_20261231_235959.html">report_annual_20261231_235959.html</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card-sub" style="margin-top:5px;">
+        Calmar, MDD, 누적수익률은 equity_log.csv 를 기반으로 계산한 값을 표시하는 자리에 해당합니다.
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    이 페이지는 Q-TRON Gen2 메인 리포트의 데모 레이아웃입니다. 숫자와 링크는 예시 값이므로,
+    실제 운용 데이터에 맞춰 report_*.html, summary_daily.csv, equity_log.csv 를 읽어 동적으로 채우는 구조로 확장 가능합니다.
+  </div>
+</div>
+
+<script>
+// 간단 탭 전환 스크립트
+document.querySelectorAll('.tab').forEach(function(tab){
+  tab.addEventListener('click', function(){
+    var name = this.getAttribute('data-tab');
+    document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});
+    document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});
+    this.classList.add('active');
+    document.getElementById('tab-' + name).classList.add('active');
+  });
+});
+</script>
+</body>
+</html>

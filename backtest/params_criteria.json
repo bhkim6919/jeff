@@ -1,0 +1,24 @@
+{
+  "_comment": "최적화 통과 기준. 이 조건을 모두 만족하는 조합만 best 후보로 등록.",
+
+  "monthly_return_min": 0.005,
+  "_monthly_return_min_desc": "월 평균 수익률 최소 0.5% 이상",
+
+  "monthly_return_max": 0.03,
+  "_monthly_return_max_desc": "월 평균 수익률 최대 3.0% 이하 (과적합 방지)",
+
+  "mdd_max": -0.20,
+  "_mdd_max_desc": "최대 낙폭(MDD) -20% 이내",
+
+  "sharpe_min": 0.3,
+  "_sharpe_min_desc": "Sharpe 비율 0.3 이상",
+
+  "n_trades_min": 5,
+  "_n_trades_min_desc": "최소 거래 5회 이상 (통계적 신뢰성)",
+
+  "monthly_neg_rate_max": 0.35,
+  "_monthly_neg_rate_max_desc": "월별 손실 발생 비율 35% 이하",
+
+  "rank_by": "sharpe",
+  "_rank_by_desc": "best 선정 기준: sharpe | cagr | monthly_ret_mean | mdd"
+}

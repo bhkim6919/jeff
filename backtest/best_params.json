@@ -1,0 +1,15 @@
+{
+  "_comment": "최적화 결과 자동 저장. run_backtest.py --mode optimize 실행 후 갱신됨. 직접 수정 후 --mode run 으로 재테스트 가능.",
+  "_generated_at": "초기값 (최적화 미실행)",
+  "_train_metrics": {},
+  "_test_metrics": {},
+
+  "min_avg_volume":          10000000000,
+  "bull_momentum_min":       0.05,
+  "sideways_momentum_min":   0.0,
+  "atr_ratio_max":           0.05,
+  "tp_pct":                  0.05,
+  "sl_pct":                  -0.02,
+  "bull_threshold":          2.5,
+  "bear_threshold":          1.5
+}

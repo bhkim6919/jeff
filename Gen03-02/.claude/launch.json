@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "batch",
+      "runtimeExecutable": "C:\\Q-TRON-32_ARCHIVE\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": ["main.py", "--batch"],
+      "port": 0
+    },
+    {
+      "name": "mock",
+      "runtimeExecutable": "C:\\Q-TRON-32_ARCHIVE\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": ["main.py", "--mock"],
+      "port": 0
+    },
+    {
+      "name": "pykrx",
+      "runtimeExecutable": "C:\\Q-TRON-32_ARCHIVE\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": ["main.py", "--pykrx"],
+      "port": 0
+    },
+    {
+      "name": "live",
+      "runtimeExecutable": "C:\\Q-TRON-32_ARCHIVE\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": ["main.py"],
+      "port": 0
+    }
+  ]
+}

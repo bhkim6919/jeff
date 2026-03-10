@@ -1,0 +1,36 @@
+2026-03-10 00:02:09,234 [INFO] ━━━ Gen3 Batch 시작: 2026-03-10 ━━━
+2026-03-10 00:02:09,238 [WARNING] [KiwoomProvider] 업종일봉요청(opt20006) 비활성화 설정 - index=KOSPI, days=200. RegimeDetector는 SIDEWAYS로 폴백해야 함.
+2026-03-10 00:02:09,238 [WARNING] [RegimeDetector] KOSPI 분석 실패: [KiwoomProvider] 업종일봉요청(opt20006) 비활성화 설정 - index=KOSPI, days=200. RegimeDetector는 SIDEWAYS로 폴백해야 함.
+2026-03-10 00:02:09,238 [WARNING] [KiwoomProvider] 업종일봉요청(opt20006) 비활성화 설정 - index=KOSDAQ, days=200. RegimeDetector는 SIDEWAYS로 폴백해야 함.
+2026-03-10 00:02:09,238 [WARNING] [RegimeDetector] KOSDAQ 분석 실패: [KiwoomProvider] 업종일봉요청(opt20006) 비활성화 설정 - index=KOSDAQ, days=200. RegimeDetector는 SIDEWAYS로 폴백해야 함.
+2026-03-10 00:02:09,238 [WARNING] [RegimeDetector] 모든 지수 분석 실패 → SIDEWAYS (보수적)
+2026-03-10 00:02:09,238 [INFO] [Step1] 레짐: SIDEWAYS
+2026-03-10 00:21:20,349 [INFO] [Step2] 유니버스: 1292개
+2026-03-10 00:21:20,939 [WARNING] [KiwoomProvider] get_investor_trend() 미구현 — 이후 출력 억제
+2026-03-10 00:34:15,294 [INFO] [Step3] 스코어링 완료: 641개
+2026-03-10 00:34:15,298 [INFO] [Step4] 신호 파일 저장: signals_20260310.csv
+2026-03-10 00:34:15,298 [INFO] ━━━ Gen3 Batch 완료: 2026-03-10 (소요 1926초) ━━━
+2026-03-10 00:45:28,953 [INFO] ━━━ Gen3 Batch 시작: 2026-03-10 ━━━
+2026-03-10 00:45:29,126 [INFO] Expecting value: line 1 column 1 (char 0)
+2026-03-10 00:45:29,854 [INFO] Expecting value: line 1 column 1 (char 0)
+2026-03-10 00:45:30,526 [INFO] [Step1] 레짐: SIDEWAYS
+2026-03-10 00:45:30,578 [INFO] Expecting value: line 1 column 1 (char 0)
+2026-03-10 00:45:30,935 [INFO] Expecting value: line 1 column 1 (char 0)
+2026-03-10 00:45:31,238 [INFO] [Step2] 유니버스: 0개
+2026-03-10 00:45:31,240 [INFO] [Step3] 스코어링 완료: 0개
+2026-03-10 00:45:31,243 [INFO] [Step4] 신호 파일 저장: signals_20260310.csv
+2026-03-10 00:45:31,243 [INFO] ━━━ Gen3 Batch 완료: 2026-03-10 (소요 2초) ━━━
+2026-03-10 00:46:07,864 [INFO] ━━━ Gen3 Batch 시작: 2026-03-10 ━━━
+2026-03-10 00:46:07,866 [WARNING] [KiwoomProvider] 업종일봉요청(opt20006) 비활성화 설정 - index=KOSPI, days=200. RegimeDetector는 SIDEWAYS로 폴백해야 함.
+2026-03-10 00:46:07,866 [WARNING] [RegimeDetector] KOSPI 분석 실패: [KiwoomProvider] 업종일봉요청(opt20006) 비활성화 설정 - index=KOSPI, days=200. RegimeDetector는 SIDEWAYS로 폴백해야 함.
+2026-03-10 00:46:07,866 [WARNING] [KiwoomProvider] 업종일봉요청(opt20006) 비활성화 설정 - index=KOSDAQ, days=200. RegimeDetector는 SIDEWAYS로 폴백해야 함.
+2026-03-10 00:46:07,866 [WARNING] [RegimeDetector] KOSDAQ 분석 실패: [KiwoomProvider] 업종일봉요청(opt20006) 비활성화 설정 - index=KOSDAQ, days=200. RegimeDetector는 SIDEWAYS로 폴백해야 함.
+2026-03-10 00:46:07,866 [WARNING] [RegimeDetector] 모든 지수 분석 실패 → SIDEWAYS (보수적)
+2026-03-10 00:46:07,867 [INFO] [Step1] 레짐: SIDEWAYS
+2026-03-10 01:05:09,361 [INFO] [Step2] 유니버스: 1292개
+2026-03-10 01:05:09,970 [WARNING] [KiwoomProvider] get_investor_trend() 미구현 — 이후 출력 억제
+2026-03-10 01:18:00,727 [INFO] [Step3] 스코어링 완료: 641개
+2026-03-10 01:18:00,730 [INFO] [Step4] 신호 파일 저장: signals_20260310.csv
+2026-03-10 01:18:00,730 [INFO] ━━━ Gen3 Batch 완료: 2026-03-10 (소요 1913초) ━━━
+2026-03-10 22:19:40,967 [INFO] ━━━ Gen3 Batch 시작: 2026-03-10 ━━━
+2026-03-10 22:19:40,969 [INFO] [Step1] 레짐: BEAR
