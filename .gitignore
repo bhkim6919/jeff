@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Runtime generated files
+Gen03-02/state/
+Gen03-02/data/logs/*.log
+Gen03-02/data/logs/*.csv
+Gen03-02/data/logs/*.html
+
+# Local Claude settings
+.claude/settings.local.json
+
+# Large data files (OHLCV cache)
+Gen03-02/data/ohlcv_kospi_daily/
+
+# Secrets / credentials
+*.env
+secrets.json
