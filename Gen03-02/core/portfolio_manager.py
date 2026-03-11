@@ -31,6 +31,7 @@ class PortfolioManager:
 
         # 리스크 한도
         self.daily_loss_limit = config.daily_loss_limit
+        self.daily_kill_limit = getattr(config, 'daily_kill_limit', -0.04)
         self.monthly_dd_limit = config.monthly_dd_limit
         self.max_exposure     = config.max_exposure
         self.max_per_stock    = config.max_per_stock
@@ -96,10 +97,13 @@ class PortfolioManager:
     # ── Risk Mode ────────────────────────────────────────────────────────────
 
     def risk_mode(self) -> str:
-        """HARD_STOP | SOFT_STOP | NORMAL"""
+        """HARD_STOP | DAILY_KILL | SOFT_STOP | NORMAL"""
         if self.get_monthly_dd_pct() < self.monthly_dd_limit:
             return "HARD_STOP"
-        if self.get_daily_pnl_pct() < self.daily_loss_limit:
+        daily_pnl = self.get_daily_pnl_pct()
+        if daily_pnl < self.daily_kill_limit:
+            return "DAILY_KILL"
+        if daily_pnl < self.daily_loss_limit:
             return "SOFT_STOP"
         return "NORMAL"
 

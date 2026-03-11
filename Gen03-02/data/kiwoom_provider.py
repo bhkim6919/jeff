@@ -124,6 +124,16 @@ class KiwoomProvider(DataProvider):
         self._sector_map: Dict[str, str] = self._load_sector_map(sector_map_path)
         logger.info("[KiwoomProvider] 섹터맵 %d개 종목 로드", len(self._sector_map))
 
+        # ── 주문 체결 관련 ────────────────────────────────────────────────
+        self._order_loop   = QEventLoop()
+        self._order_timer  = QTimer()
+        self._order_timer.setSingleShot(True)
+        self._order_timer.timeout.connect(self._on_order_timeout)
+        self._order_result: Optional[Dict] = None
+        self._order_code:   str = ""
+        self._order_qty:    int = 0
+        self._k.OnReceiveChejanData.connect(self._on_chejan_data)
+
     @staticmethod
     def _load_sector_map(path: Optional[str]) -> Dict[str, str]:
         import json
@@ -332,10 +342,127 @@ class KiwoomProvider(DataProvider):
         """
         msg = str(msg).strip()
         logger.warning("[OnReceiveMsg] screen=%s rq=%s tr=%s msg=%s", screen_no, rqname, trcode, msg)
+
+        # 주문 화면 메시지 — 거부/오류 시 주문 대기 즉시 종료
+        if str(screen_no) == "7001":
+            if any(kw in msg for kw in ["거부", "실패", "오류", "제한"]):
+                if self._order_result is None:
+                    self._order_result = {
+                        "order_no": "", "exec_price": 0.0, "exec_qty": 0,
+                        "error": f"주문 거부: {msg}",
+                    }
+                    if self._order_loop.isRunning():
+                        self._order_loop.quit()
+            return
+
         # 현재 대기 중인 TR에 대한 메시지면 루프 종료
         if rqname == self._current_rqname and trcode == self._current_trcode:
             self._timed_out = True
             self._loop.quit()
+
+    # ── 주문 실행 (SendOrder) ─────────────────────────────────────────────────
+
+    def get_account_no(self) -> str:
+        """첫 번째 계좌번호 반환."""
+        raw = self._k.dynamicCall("GetLoginInfo(QString)", "ACCNO")
+        accts = str(raw).strip().rstrip(";").split(";")
+        if accts and accts[0]:
+            return accts[0]
+        logger.error("[KiwoomProvider] 계좌번호 조회 실패")
+        return ""
+
+    def send_order(self, code: str, side: str, quantity: int,
+                   price: int = 0, hoga_type: str = "03") -> Dict:
+        """
+        Kiwoom SendOrder 호출 + 체결 대기.
+
+        side:      "BUY" | "SELL"
+        hoga_type: "03" = 시장가 (default), "00" = 지정가
+        price:     시장가일 때 0
+
+        Returns: {"order_no": str, "exec_price": float, "exec_qty": int, "error": str}
+        """
+        ORDER_TIMEOUT_SEC = 30
+
+        account = self.get_account_no()
+        if not account:
+            return {"order_no": "", "exec_price": 0.0, "exec_qty": 0,
+                    "error": "계좌번호 조회 실패"}
+
+        order_type = 1 if side == "BUY" else 2   # 1=신규매수, 2=신규매도
+        rqname     = f"{'매수' if side == 'BUY' else '매도'}_{code}"
+        screen     = "7001"
+
+        # 상태 초기화
+        self._order_result = None
+        self._order_code   = code
+        self._order_qty    = quantity
+
+        time.sleep(0.2)  # 주문 간 최소 간격
+
+        ret = self._k.dynamicCall(
+            "SendOrder(QString,QString,QString,int,QString,int,int,QString,QString)",
+            rqname, screen, account, order_type, code, quantity, int(price), hoga_type, "",
+        )
+
+        if ret != 0:
+            logger.error("[SendOrder] %s %s %d주 실패 ret=%d", side, code, quantity, ret)
+            return {"order_no": "", "exec_price": 0.0, "exec_qty": 0,
+                    "error": f"SendOrder ret={ret}"}
+
+        logger.info("[SendOrder] %s %s %d주 접수 (시장가)", side, code, quantity)
+
+        # 체결 대기
+        self._order_timer.start(ORDER_TIMEOUT_SEC * 1000)
+        self._order_loop.exec_()
+        self._order_timer.stop()
+
+        if self._order_result is None:
+            logger.warning("[SendOrder] %s 체결 대기 %d초 타임아웃", code, ORDER_TIMEOUT_SEC)
+            return {"order_no": "", "exec_price": 0.0, "exec_qty": 0,
+                    "error": f"체결 대기 {ORDER_TIMEOUT_SEC}초 타임아웃"}
+
+        return self._order_result
+
+    def _on_chejan_data(self, gubun, item_cnt, fid_list):
+        """
+        OnReceiveChejanData 이벤트 핸들러.
+        gubun: "0" = 주문체결통보, "1" = 잔고통보
+        """
+        if str(gubun) != "0":
+            return
+
+        code = str(self._k.dynamicCall("GetChejanData(int)", 9001)).strip()
+        code = code.lstrip("A")  # 'A005930' → '005930'
+
+        if code != self._order_code:
+            return
+
+        exec_qty_raw   = str(self._k.dynamicCall("GetChejanData(int)", 911)).strip()
+        exec_price_raw = str(self._k.dynamicCall("GetChejanData(int)", 910)).strip()
+        order_no       = str(self._k.dynamicCall("GetChejanData(int)", 9203)).strip()
+
+        exec_qty   = abs(int(exec_qty_raw))   if exec_qty_raw   else 0
+        exec_price = abs(float(exec_price_raw)) if exec_price_raw else 0.0
+
+        if exec_qty > 0 and exec_price > 0:
+            self._order_result = {
+                "order_no":   order_no,
+                "exec_price": exec_price,
+                "exec_qty":   exec_qty,
+                "error":      "",
+            }
+            logger.info(
+                "[체결] %s %d주 @ %,.0f원 (주문번호: %s)",
+                code, exec_qty, exec_price, order_no,
+            )
+            if self._order_loop.isRunning():
+                self._order_loop.quit()
+
+    def _on_order_timeout(self):
+        """주문 체결 대기 타임아웃."""
+        if self._order_loop.isRunning():
+            self._order_loop.quit()
 
     # ── 내부: TR 요청 공통 처리기 ────────────────────────────────────────────
 

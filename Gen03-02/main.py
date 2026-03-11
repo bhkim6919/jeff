@@ -233,10 +233,11 @@ def run_live() -> None:
         sys.exit(0)
 
     warn_last_error()
-    _print_header("LIVE (Kiwoom / PAPER)")
+    _print_header("LIVE (Kiwoom)")
 
     app    = QApplication.instance() or QApplication(sys.argv)
     config = Gen3Config.load()
+    config.paper_trading = False   # Kiwoom SendOrder 실주문 활성화
 
     print("[Kiwoom] 로그인 시작...")
     print("[Kiwoom] 로그인 팝업이 뜨면 ID/PW 입력 후 확인 버튼을 누르세요.")
@@ -274,6 +275,22 @@ def run_live() -> None:
 
     except Exception as e:
         print(f"\n[CRITICAL] LIVE 예외: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+
+        # 에러 발생해도 현재 포지션 상태는 반드시 저장
+        try:
+            engine.state_mgr.save_portfolio(engine.portfolio)
+            print("[RECOVERY] 포지션 상태 저장 완료")
+            pos_count = len(engine.portfolio.positions)
+            if pos_count > 0:
+                print(f"[RECOVERY] 보유 {pos_count}개 포지션 — Kiwoom HTS에서 직접 확인 필요!")
+                for code, pos in engine.portfolio.positions.items():
+                    from data.name_lookup import get_name
+                    print(f"  - {get_name(code)}({code}) {pos.quantity}주 @ {pos.avg_price:,.0f}원")
+        except Exception as save_err:
+            print(f"[RECOVERY FAILED] 상태 저장 실패: {save_err}")
+
         rpt = save_error_report("LIVE", e, result)
         set_error_flag(rpt)
 

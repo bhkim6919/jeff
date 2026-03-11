@@ -29,6 +29,10 @@ class RiskManager:
                   f"— 전 포지션 강제 청산")
             self._force_liquidate_all()
 
+        elif mode == "DAILY_KILL":
+            print(f"[DAILY_KILL] 일 DD {self.portfolio.get_daily_pnl_pct():.2%} "
+                  f"— 신규 진입 완전 차단 (포지션 유지)")
+
         elif mode == "SOFT_STOP":
             print(f"[SOFT_STOP] 일 손실 {self.portfolio.get_daily_pnl_pct():.2%} "
                   f"— 신규 진입 중단 / 손실 최대 종목 1개 청산")

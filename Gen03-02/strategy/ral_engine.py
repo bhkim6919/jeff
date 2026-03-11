@@ -175,7 +175,7 @@ class RALEngine:
         try:
             import pandas as pd
             df = provider.get_stock_ohlcv(code, days=30)
-            if df is None or len(df) < 21:
+            if df is None or df.empty or len(df) < 21:
                 return 0.0
             high  = df["high"].astype(float).values
             low   = df["low"].astype(float).values

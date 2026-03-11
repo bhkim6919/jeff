@@ -108,7 +108,7 @@ class RegimeDetector:
             return MarketRegime.SIDEWAYS
         try:
             df    = self.provider.get_index_ohlcv("KOSPI", days=220)
-            if df is None or len(df) < 200:
+            if df is None or df.empty or len(df) < 200:
                 return MarketRegime.SIDEWAYS
             close = df["close"].astype(float)
             ma200 = float(close.rolling(200).mean().iloc[-1])

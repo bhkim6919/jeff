@@ -191,7 +191,7 @@ def compute_features(ticker: str, df: pd.DataFrame) -> Optional[Dict]:
 
     # 52주 신고가
     high_252   = float(high.tail(252).max())
-    is_52w_high = int(last_close >= high_252 * 0.995)  # 0.5% 허용
+    is_52w_high = int(last_close >= high_252 * 0.95)  # 5% 허용 (v7 완화)
 
     # ATR(20) Wilder
     atr20 = _wilder_atr(df.tail(60), ATR_PERIOD)
@@ -306,10 +306,13 @@ def build_signals(
     # 섹터 매핑
     df["sector"] = df["ticker"].map(lambda t: sector_map.get(t, "기타"))
 
-    # stage 분류: BULL이면 is_52w_high=1 AND rs_composite >= 0.80 → A, 나머지 B
+    # stage 분류: BULL이면 (52w 고가 근접 OR 돌파+고RS) → A, 나머지 B
     if regime == "BULL":
         df["stage"] = df.apply(
-            lambda r: "A" if (r["is_52w_high"] == 1 and r["rs_composite"] >= 0.80) else "B",
+            lambda r: "A" if (
+                (r["is_52w_high"] == 1 and r["rs_composite"] >= 0.80)
+                or (r["breakout"] == 1 and r["rs_composite"] >= 0.92)
+            ) else "B",
             axis=1
         )
     else:
@@ -377,7 +380,7 @@ def main() -> None:
     for i, ticker in enumerate(all_tickers, 1):
         _progress(i, len(all_tickers), ticker)
         df = load_ohlcv(ticker, min_rows=25)
-        if df is None:
+        if df is None or df.empty:
             continue
 
         # 유니버스 필터 (최소 종가, 최소 거래대금)

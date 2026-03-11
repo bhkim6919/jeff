@@ -30,7 +30,8 @@ class Gen3Config:
     initial_cash: float = 100_000_000  # 1억원
 
     # ── 리스크 한도 ───────────────────────────────────────────────────────
-    daily_loss_limit:  float = -0.02   # 일 손실 한도 -2%
+    daily_loss_limit:  float = -0.02   # 일 손실 한도 -2% (SOFT_STOP → 최약 1개 청산)
+    daily_kill_limit:  float = -0.04   # 일 DD -4% → 신규 진입 완전 차단
     monthly_dd_limit:  float = -0.07   # 월 DD 한도 -7%
     max_exposure:      float = 0.95    # 총 노출도 (BULL 20×7%=140% 가능, 실제 현금 한도)
     max_per_stock:     float = 0.10    # 종목당 최대 10% (개별 안전장치)
@@ -81,9 +82,10 @@ class Gen3Config:
     GAP_VOL_MIN:         float = 1.30   # 갭 시 필요 거래량 배수
     SECTOR_DIVERSITY_MIN:int   = 3      # Early 허용 최소 활성 섹터 수
 
-    # ── 섹터 한도 (v7: 종목수 기준) ──────────────────────────────────────
-    SECTOR_CAP_TOTAL: int = 4   # 동일 섹터 최대 4개
-    SECTOR_CAP_EARLY: int = 1   # Early 동일 섹터 최대 1개
+    # ── 섹터 한도 (v7: 종목수 + 금액 비율) ────────────────────────────────
+    SECTOR_CAP_TOTAL: int   = 4      # 동일 섹터 최대 4개
+    SECTOR_CAP_EARLY: int   = 1      # Early 동일 섹터 최대 1개
+    SECTOR_MAX_PCT:   float = 0.20   # 섹터 최대 노출도 20%
 
     # ── 수수료 / 슬리피지 / 세금 ─────────────────────────────────────────
     FEE:      float = 0.00015

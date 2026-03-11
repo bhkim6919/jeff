@@ -133,6 +133,12 @@ class RuntimeEngine:
             elif ral_mode == "SURGE":
                 self.ral_engine.apply_surge_sl(self.portfolio, self.provider)
 
+            if mode == "DAILY_KILL":
+                self._save_state(regime, ral_mode)
+                return {"status": "DAILY_KILL",
+                        "message": f"일 DD {self.portfolio.get_daily_pnl_pct():.2%} — 신규 진입 완전 차단",
+                        "portfolio": self.portfolio.summary()}
+
             if mode == "SOFT_STOP":
                 return {"status": "SOFT_STOP",
                         "message": "일 손실 한도 초과. 신규 진입 없음.",

@@ -64,6 +64,9 @@ class OrderExecutor:
         if mode == "HARD_STOP" and order.side == "BUY":
             return self._rejected(order, "HARD_STOP — 월 DD 한도 초과, BUY 전면 금지")
 
+        if mode == "DAILY_KILL" and order.side == "BUY":
+            return self._rejected(order, "DAILY_KILL — 일 DD -4% 초과, 신규 진입 완전 차단")
+
         if mode == "SOFT_STOP" and order.side == "BUY":
             return self._rejected(order, "SOFT_STOP — 일 손실 한도 초과, 신규 진입 금지")
 
@@ -96,11 +99,27 @@ class OrderExecutor:
     # ── 내부 ──────────────────────────────────────────────────────────────────
 
     def _calc_slippage(self, order: Order, avg_daily_volume: float) -> float:
+        """
+        거래대금 기반 슬리피지 모델:
+          대형주 (거래대금 200억+): 0.3~0.7%
+          중형주 (거래대금 50~200억): 0.7~1.5%
+          소형주 (거래대금 20~50억): 1.5~3.0%
+        """
         order_amount    = order.price * order.quantity
         liquidity_ratio = order_amount / avg_daily_volume if avg_daily_volume > 0 else 1.0
-        base            = 0.001
-        liq_penalty     = liquidity_ratio * 0.05
-        return min(base + liq_penalty, 0.03)
+
+        if avg_daily_volume >= 20_000_000_000:      # 200억+ 대형주
+            base = 0.003
+            cap  = 0.007
+        elif avg_daily_volume >= 5_000_000_000:      # 50~200억 중형주
+            base = 0.007
+            cap  = 0.015
+        else:                                        # 50억 미만 소형주
+            base = 0.015
+            cap  = 0.030
+
+        liq_penalty = liquidity_ratio * 0.10
+        return min(base + liq_penalty, cap)
 
     def _simulate(self, order: Order, avg_daily_volume: float) -> TradeResult:
         slippage   = self._calc_slippage(order, avg_daily_volume)
@@ -118,8 +137,39 @@ class OrderExecutor:
         )
 
     def _send_to_kiwoom(self, order: Order) -> TradeResult:
-        raise NotImplementedError(
-            "실거래 연결은 안정화 후 구현 — api/kiwoom_api_wrapper.py 참고"
+        """Kiwoom API 실주문 (시장가)."""
+        if not hasattr(self.provider, 'send_order'):
+            return self._rejected(order, "KiwoomProvider가 아님 — 실거래 불가")
+
+        result = self.provider.send_order(
+            code=order.code,
+            side=order.side,
+            quantity=order.quantity,
+            price=0,          # 시장가
+            hoga_type="03",   # 시장가
+        )
+
+        if result["error"]:
+            _log.error("[Kiwoom] %s %s 실패: %s", order.side, order.code, result["error"])
+            return self._rejected(order, f"Kiwoom: {result['error']}")
+
+        exec_price = result["exec_price"]
+        exec_qty   = result["exec_qty"]
+        slippage   = abs(exec_price - order.price) / order.price if order.price > 0 else 0.0
+
+        self.portfolio.update_position(
+            order.code, order.sector, exec_qty, exec_price, order.side,
+        )
+
+        _log.info(
+            "[Kiwoom 체결] %s %s %d주 @ %,.0f원 (슬리피지 %.2f%%)",
+            order.side, order.code, exec_qty, exec_price, slippage * 100,
+        )
+
+        return TradeResult(
+            code=order.code, side=order.side,
+            quantity=exec_qty, exec_price=exec_price,
+            slippage_pct=slippage, timestamp=datetime.now(),
         )
 
     @staticmethod

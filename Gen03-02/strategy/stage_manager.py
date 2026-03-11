@@ -141,10 +141,15 @@ class StageManager:
         for pos in self.portfolio.positions.values():
             sector_cnt[getattr(pos, "sector", "기타")] += 1
 
+        # 섹터별 현재 금액 (노출도 % 계산용)
+        equity = self.portfolio.get_current_equity()
+        sector_max_pct = getattr(self.config, 'SECTOR_MAX_PCT', 0.20)
+
         result = []
-        skipped_atr    = 0
-        skipped_rs     = 0
-        skipped_sector = 0
+        skipped_atr     = 0
+        skipped_rs      = 0
+        skipped_sector  = 0
+        skipped_sec_pct = 0
 
         for sig in signals:
             if len(result) >= max_new:
@@ -167,10 +172,20 @@ class StageManager:
                 skipped_atr += 1
                 continue
 
-            # 섹터 한도 (종목 수 기준)
-            if sector_cnt.get(sector, 0) >= self.config.SECTOR_CAP_TOTAL:
+            # 섹터 한도 (종목 수 기준) — '기타'는 미분류이므로 한도 2배
+            cap = self.config.SECTOR_CAP_TOTAL
+            if sector == "기타":
+                cap = cap * 2
+            if sector_cnt.get(sector, 0) >= cap:
                 skipped_sector += 1
                 continue
+
+            # 섹터 노출도 % 제한 (금액 기준)
+            if equity > 0:
+                sec_exp = self.portfolio._sector_exposure(sector)
+                if sec_exp >= sector_max_pct:
+                    skipped_sec_pct += 1
+                    continue
 
             current = self.provider.get_current_price(code)
             sized   = self._size_position(sig, current, regime, entry_type="MAIN")
@@ -184,7 +199,9 @@ class StageManager:
         if skipped_rs:
             print(f"[StageB] BEAR RS 미달 제외: {skipped_rs}개")
         if skipped_sector:
-            print(f"[StageB] 섹터 한도 제외: {skipped_sector}개")
+            print(f"[StageB] 섹터 한도(수) 제외: {skipped_sector}개")
+        if skipped_sec_pct:
+            print(f"[StageB] 섹터 노출도(20%) 제외: {skipped_sec_pct}개")
         print(f"[StageB] Main Entry 후보: {len(result)}개 (슬롯 여유: {max_new})")
         return result
 
@@ -242,10 +259,19 @@ class StageManager:
         if sl <= 0:
             return None
 
-        # TP 역방향 방어
+        # TP 역방향 방어 — 갭업 시 현재가 기준 TP/SL 재계산
         if tp <= current_price:
-            print(f"  [SizePos] {code} TP({tp}) <= 현재가({int(current_price)}) → 스킵")
-            return None
+            atr = self._calc_atr(code)
+            if atr <= 0:
+                print(f"  [SizePos] {code} TP({tp}) <= 현재가({int(current_price)}) + ATR 없음 → 스킵")
+                return None
+            sl_mult = self.config.ATR_MULT_BULL if regime == MarketRegime.BULL else self.config.ATR_MULT_BEAR
+            sl = int(current_price - atr * sl_mult)
+            tp = int(current_price + (current_price - sl) * 2.0)
+            if tp <= current_price or sl <= 0:
+                print(f"  [SizePos] {code} 갭업 재계산 후에도 TP 불유효 → 스킵")
+                return None
+            print(f"  [SizePos] {code} 갭업 → TP/SL 재계산: TP={tp} SL={sl}")
 
         rr = round((tp - current_price) / (current_price - sl), 2) if current_price > sl else 0.0
 
@@ -264,7 +290,7 @@ class StageManager:
     def _calc_atr(self, code: str, period: int = 20) -> float:
         try:
             df = self.provider.get_stock_ohlcv(code, days=30)
-            if df is None or len(df) < period + 1:
+            if df is None or df.empty or len(df) < period + 1:
                 return 0.0
             import numpy as np
             high  = df["high"].astype(float).values
