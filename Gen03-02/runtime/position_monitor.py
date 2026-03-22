@@ -43,7 +43,7 @@ class PositionMonitor:
         return results
 
     def print_positions(self) -> None:
-        """현재 보유 포지션 출력."""
+        """현재 보유 포지션 출력 (v7.6: hold/sellable/confidence 분리 표시)."""
         if not self.portfolio.positions:
             print("[PositionMonitor] 보유 포지션 없음")
             return
@@ -53,9 +53,18 @@ class PositionMonitor:
             pnl_pct = pos.unrealized_pnl_pct
             sign    = "▲" if pnl_pct >= 0 else "▼"
             label   = f"{get_name(code)}({code})"
-            print(f"  {label}  {pos.quantity}주  "
+            # v7.8: hold/sell/net/broker 수량 통일 출력
+            sell_str = f"{pos.qty_sellable}" if pos.qty_sellable >= 0 else "?"
+            net_str = f"{pos.net_qty}" if hasattr(pos, 'net_qty') else "?"
+            bc_str = f"{pos.broker_confirmed_qty}" if getattr(pos, 'broker_confirmed_qty', -1) >= 0 else "?"
+            conf = getattr(pos, 'qty_confidence', 'HIGH')
+            conf_tag = "" if conf == "HIGH" else f" [{conf}]"
+            reason_tag = ""
+            if getattr(pos, 'restricted_reason', ''):
+                reason_tag = f" ({pos.restricted_reason})"
+            print(f"  {label}  hold={pos.quantity}/sell={sell_str}/net={net_str}/bkr={bc_str}  "
                   f"평균 {pos.avg_price:,.0f}원  "
                   f"현재 {pos.current_price:,.0f}원  "
                   f"{sign}{abs(pnl_pct):.2%}  "
                   f"TP={pos.tp:,}  SL={pos.sl:,}  "
-                  f"보유{pos.held_days}일")
+                  f"보유{pos.held_days}일{conf_tag}{reason_tag}")

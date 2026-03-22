@@ -1,0 +1,78 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Gen4 Full Strategy Backtest</title>
+<style>
+body{font-family:'Segoe UI',Arial;background:#0a0a0a;color:#e0e0e0;padding:20px}
+h1{color:#00d4ff;border-bottom:2px solid #00d4ff;padding-bottom:10px}
+h2{color:#ffa500;margin-top:30px}
+h3{color:#88ccff}
+table{border-collapse:collapse;margin:10px 0 20px;width:100%}
+th{background:#1a1a2e;color:#00d4ff;padding:8px 12px;text-align:center;border:1px solid #333}
+td{padding:6px 12px;border:1px solid #333;text-align:center}
+tr:nth-child(even){background:#111}
+tr:hover{background:#1a1a2e}
+.card{background:#111;border:1px solid #333;border-radius:8px;padding:12px;margin:8px 0}
+</style></head><body>
+<h1>Gen4 Full: Core + Satellite + Hedge</h1>
+<p>Period: 2023-06-01 ~ 2026-03-20 | KOSPI: +169.3% | 2026-03-21 18:11</p>
+<h2>Strategy Comparison</h2>
+<table><tr><th>Metric</th><th>Core Only</th><th>Core+Sat</th><th>Core+Sat+Hedge</th></tr>
+<tr><td style='text-align:left'><b>Total Return</b></td><td style='color:#00ff88'>+14.3%</td><td style='color:#ff4444'>-59.1%</td><td style='color:#ff4444'>-54.5%</td></tr>
+<tr><td style='text-align:left'><b>CAGR</b></td><td>+5.1%</td><td>-28.1%</td><td>-25.3%</td></tr>
+<tr><td style='text-align:left'><b>MDD</b></td><td>-18.8%</td><td>-64.0%</td><td>-60.0%</td></tr>
+<tr><td style='text-align:left'><b>Calmar</b></td><td>0.27</td><td>0.44</td><td>0.42</td></tr>
+<tr><td style='text-align:left'><b>Sharpe</b></td><td>0.41</td><td>-2.60</td><td>-2.52</td></tr>
+<tr><td style='text-align:left'><b>PF(net)</b></td><td>1.23</td><td>0.48</td><td>0.49</td></tr>
+<tr><td style='text-align:left'><b>Win Rate</b></td><td>+40.5%</td><td>+27.9%</td><td>+28.0%</td></tr>
+<tr><td style='text-align:left'><b>Avg Return</b></td><td>+1.0%</td><td>-2.6%</td><td>-2.5%</td></tr>
+<tr><td style='text-align:left'><b>Median Return</b></td><td>-2.7%</td><td>-4.6%</td><td>-4.6%</td></tr>
+<tr><td style='text-align:left'><b>Avg Win</b></td><td>+12.6%</td><td>+8.6%</td><td>+8.7%</td></tr>
+<tr><td style='text-align:left'><b>Avg Loss</b></td><td>-7.0%</td><td>-6.9%</td><td>-6.9%</td></tr>
+<tr><td style='text-align:left'><b>Max Win</b></td><td>+84.7%</td><td>+84.7%</td><td>+84.7%</td></tr>
+<tr><td style='text-align:left'><b>Max Loss</b></td><td>-13.3%</td><td>-13.3%</td><td>-13.3%</td></tr>
+<tr><td style='text-align:left'><b>Trades</b></td><td>252</td><td>1179</td><td>1070</td></tr>
+<tr><td style='text-align:left'><b>Avg Hold</b></td><td>16.54</td><td>3.56</td><td>3.34</td></tr>
+<tr><td style='text-align:left'><b>Alpha</b></td><td>-7.9%</td><td>-38.9%</td><td>-35.2%</td></tr>
+<tr><td style='text-align:left'><b>Beta</b></td><td>0.27</td><td>0.21</td><td>0.19</td></tr>
+<tr><td style='text-align:left'><b>Up Capture</b></td><td>0.26</td><td>0.07</td><td>0.06</td></tr>
+<tr><td style='text-align:left'><b>Down Capture</b></td><td>0.30</td><td>0.38</td><td>0.33</td></tr>
+</table>
+<h2>Yearly Returns</h2>
+<table><tr><th>Strategy</th><th>2023H2</th><th>2024</th><th>2025</th><th>2026 YTD</th></tr>
+<tr><td>Core Only</td><td style='color:#ff4444'>+0.0%</td><td style='color:#ff4444'>-7.4%</td><td style='color:#ff4444'>-7.0%</td><td style='color:#00ff88'>+30.1%</td></tr>
+<tr><td>Core+Sat</td><td style='color:#ff4444'>-17.5%</td><td style='color:#ff4444'>-36.1%</td><td style='color:#ff4444'>-30.9%</td><td style='color:#00ff88'>+11.2%</td></tr>
+<tr><td>Core+Sat+Hedge</td><td style='color:#ff4444'>-15.9%</td><td style='color:#ff4444'>-30.9%</td><td style='color:#ff4444'>-29.9%</td><td style='color:#00ff88'>+11.2%</td></tr>
+</table>
+<h2>Source Breakdown</h2>
+<h3>Core Only</h3><table><tr><th>Source</th><th>Trades</th><th>WR</th><th>Avg PnL</th><th>Sum PnL</th></tr>
+<tr><td>CORE</td><td>252</td><td>40%</td><td>+0.95%</td><td>+239.5%</td></tr>
+</table>
+<h3>Core+Sat</h3><table><tr><th>Source</th><th>Trades</th><th>WR</th><th>Avg PnL</th><th>Sum PnL</th></tr>
+<tr><td>CORE</td><td>250</td><td>40%</td><td>+0.91%</td><td>+228.2%</td></tr>
+<tr><td>SAT1</td><td>292</td><td>16%</td><td>-4.96%</td><td>-1448.4%</td></tr>
+<tr><td>SAT2</td><td>637</td><td>29%</td><td>-2.88%</td><td>-1837.3%</td></tr>
+</table>
+<h3>Core+Sat+Hedge</h3><table><tr><th>Source</th><th>Trades</th><th>WR</th><th>Avg PnL</th><th>Sum PnL</th></tr>
+<tr><td>CORE</td><td>223</td><td>40%</td><td>+1.02%</td><td>+228.3%</td></tr>
+<tr><td>SAT1</td><td>266</td><td>17%</td><td>-4.93%</td><td>-1311.2%</td></tr>
+<tr><td>SAT2</td><td>581</td><td>29%</td><td>-2.80%</td><td>-1626.8%</td></tr>
+</table>
+
+<h2>Regime Performance</h2>
+<h3>Core Only</h3><table><tr><th>Regime</th><th>Days</th><th>Avg Daily</th><th>Total</th><th>Vol</th></tr>
+<tr><td>BULL</td><td>457</td><td>+0.034%</td><td>+14.3%</td><td>15.3%</td></tr>
+<tr><td>BEAR</td><td>142</td><td>-0.049%</td><td>-7.4%</td><td>17.2%</td></tr>
+<tr><td>SIDE</td><td>82</td><td>-0.086%</td><td>-7.0%</td><td>12.8%</td></tr>
+</table>
+<h3>Core+Sat</h3><table><tr><th>Regime</th><th>Days</th><th>Avg Daily</th><th>Total</th><th>Vol</th></tr>
+<tr><td>BULL</td><td>457</td><td>-0.183%</td><td>-59.1%</td><td>23.4%</td></tr>
+<tr><td>BEAR</td><td>142</td><td>-0.460%</td><td>-50.3%</td><td>38.8%</td></tr>
+<tr><td>SIDE</td><td>82</td><td>-0.848%</td><td>-51.9%</td><td>48.7%</td></tr>
+</table>
+<h3>Core+Sat+Hedge</h3><table><tr><th>Regime</th><th>Days</th><th>Avg Daily</th><th>Total</th><th>Vol</th></tr>
+<tr><td>BULL</td><td>457</td><td>-0.165%</td><td>-54.5%</td><td>19.3%</td></tr>
+<tr><td>BEAR</td><td>142</td><td>-0.383%</td><td>-44.4%</td><td>36.8%</td></tr>
+<tr><td>SIDE</td><td>82</td><td>-0.726%</td><td>-46.2%</td><td>41.6%</td></tr>
+</table>
+
+<footer style="margin-top:40px;color:#666;border-top:1px solid #333;padding-top:10px">
+Gen4 Full Backtest v1.0</footer></body></html>

@@ -1,0 +1,70 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Strategy Comparison Backtest</title>
+<style>
+body{font-family:'Segoe UI',Arial;background:#0a0a0a;color:#e0e0e0;padding:20px}
+h1{color:#00d4ff;border-bottom:2px solid #00d4ff;padding-bottom:10px}
+h2{color:#ffa500;margin-top:30px}
+table{border-collapse:collapse;margin:10px 0 20px;width:100%}
+th{background:#1a1a2e;color:#00d4ff;padding:8px 12px;text-align:center;border:1px solid #333}
+td{padding:6px 12px;border:1px solid #333;text-align:center}
+tr:nth-child(even){background:#111}
+tr:hover{background:#1a1a2e}
+.best{color:#00ff88;font-weight:bold}
+.worst{color:#ff4444}
+.pass{color:#00ff88}
+.fail{color:#ff4444}
+.card{background:#111;border:1px solid #333;border-radius:8px;padding:15px;margin:15px 0}
+</style></head><body>
+<h1>Global Quant Strategy Comparison (KOSPI 3-Year Backtest)</h1>
+<h2>Strategy Comparison</h2>
+<table>
+<tr><th>Metric</th><th>A.Momentum12-1</th><th>B.MeanRevRSI2</th><th>C.LowVol+Mom</th><th>D.DualMomentum</th><th>E.Composite</th><th>Gen3.Current</th></tr>
+<tr><td style='text-align:left'><b>Total Return</b></td><td>-24.8%</td><td>-90.2%</td><td class='best'>+11.8%</td><td>-37.6%</td><td>-6.8%</td><td>-57.8%</td></tr>
+<tr><td style='text-align:left'><b>CAGR</b></td><td>-10.0%</td><td>-57.7%</td><td class='best'>+4.2%</td><td>-16.0%</td><td>-2.6%</td><td>-27.3%</td></tr>
+<tr><td style='text-align:left'><b>MDD</b></td><td>-38.2%</td><td class='best'>-91.2%</td><td>-13.8%</td><td>-39.5%</td><td>-19.2%</td><td>-61.9%</td></tr>
+<tr><td style='text-align:left'><b>Calmar</b></td><td>0.26</td><td class='best'>0.63</td><td>0.30</td><td>0.41</td><td>0.13</td><td>0.44</td></tr>
+<tr><td style='text-align:left'><b>Sharpe</b></td><td>-0.41</td><td>-3.06</td><td class='best'>0.53</td><td>-0.72</td><td>-0.18</td><td>-1.30</td></tr>
+<tr><td style='text-align:left'><b>Profit Factor</b></td><td>0.88</td><td>0.44</td><td class='best'>1.42</td><td>0.63</td><td>0.92</td><td>0.66</td></tr>
+<tr><td style='text-align:left'><b>Win Rate</b></td><td>+30.1%</td><td>+38.5%</td><td>+37.2%</td><td>+15.1%</td><td>+37.4%</td><td class='best'>+46.1%</td></tr>
+<tr><td style='text-align:left'><b>Avg Return</b></td><td>-1.2%</td><td>-1.7%</td><td class='best'>+1.8%</td><td>-3.5%</td><td>-0.3%</td><td>-1.6%</td></tr>
+<tr><td style='text-align:left'><b>Median Return</b></td><td>-16.2%</td><td class='best'>-0.9%</td><td>-3.2%</td><td>-11.3%</td><td>-3.1%</td><td>-3.5%</td></tr>
+<tr><td style='text-align:left'><b>Avg Win</b></td><td>+30.9%</td><td>+3.5%</td><td>+16.7%</td><td class='best'>+38.7%</td><td>+9.7%</td><td>+6.8%</td></tr>
+<tr><td style='text-align:left'><b>Avg Loss</b></td><td class='best'>-15.1%</td><td>-5.0%</td><td>-7.0%</td><td>-11.0%</td><td>-6.3%</td><td>-8.8%</td></tr>
+<tr><td style='text-align:left'><b>Max Win</b></td><td class='best'>+227.2%</td><td>+30.7%</td><td>+79.5%</td><td>+206.7%</td><td>+43.5%</td><td>+25.4%</td></tr>
+<tr><td style='text-align:left'><b>Max Loss</b></td><td>-16.9%</td><td>-33.1%</td><td>-13.3%</td><td>-11.5%</td><td>-11.3%</td><td class='best'>-100.0%</td></tr>
+<tr><td style='text-align:left'><b>Trades</b></td><td>196</td><td>1515</td><td class='best'>137</td><td>212</td><td>230</td><td>796</td></tr>
+<tr><td style='text-align:left'><b>Consec Loss</b></td><td>34</td><td>15</td><td class='best'>12</td><td>37</td><td>16</td><td>14</td></tr>
+<tr><td style='text-align:left'><b>Avg Hold Days</b></td><td>21.01</td><td>2.28</td><td>18.97</td><td>11.82</td><td>12.33</td><td>2.31</td></tr>
+<tr><td style='text-align:left'><b>Correlation</b></td><td>0.50</td><td>0.50</td><td>0.45</td><td>0.34</td><td>0.36</td><td>0.09</td></tr>
+<tr><td style='text-align:left'><b>Beta</b></td><td>0.40</td><td>0.53</td><td>0.15</td><td>0.29</td><td>0.16</td><td>0.08</td></tr>
+<tr><td style='text-align:left'><b>Up Capture</b></td><td class='best'>+17.8%</td><td>+12.8%</td><td>+15.2%</td><td>+10.7%</td><td>+14.5%</td><td>-4.7%</td></tr>
+<tr><td style='text-align:left'><b>Down Capture</b></td><td>+31.4%</td><td>+89.1%</td><td class='best'>+16.6%</td><td>+27.2%</td><td>+21.3%</td><td>+19.5%</td></tr>
+<tr><td style='text-align:left'><b>Alpha</b></td><td>-28.0%</td><td>-80.1%</td><td class='best'>-4.3%</td><td>-29.6%</td><td>-11.4%</td><td>-33.1%</td></tr>
+<tr><td style='text-align:left'><b>Top3 Contrib %</b></td><td>28.1%</td><td>4.3%</td><td>23.7%</td><td>41.9%</td><td>14.4%</td><td class='best'>2.7%</td></tr>
+</table>
+<h2>Verdict</h2>
+<div class='card'>
+<h3>A.Momentum12-1 (0/4 passed)</h3>
+<span class='fail'>[FAIL] PF > 1.1</span> &nbsp; <span class='fail'>[FAIL] MDD > -30%</span> &nbsp; <span class='fail'>[FAIL] Alpha > 0</span> &nbsp; <span class='fail'>[FAIL] Median > 0</span> &nbsp; <br>
+<h3>B.MeanRevRSI2 (0/4 passed)</h3>
+<span class='fail'>[FAIL] PF > 1.1</span> &nbsp; <span class='fail'>[FAIL] MDD > -30%</span> &nbsp; <span class='fail'>[FAIL] Alpha > 0</span> &nbsp; <span class='fail'>[FAIL] Median > 0</span> &nbsp; <br>
+<h3>C.LowVol+Mom (2/4 passed)</h3>
+<span class='pass'>[PASS] PF > 1.1</span> &nbsp; <span class='pass'>[PASS] MDD > -30%</span> &nbsp; <span class='fail'>[FAIL] Alpha > 0</span> &nbsp; <span class='fail'>[FAIL] Median > 0</span> &nbsp; <br>
+<h3>D.DualMomentum (0/4 passed)</h3>
+<span class='fail'>[FAIL] PF > 1.1</span> &nbsp; <span class='fail'>[FAIL] MDD > -30%</span> &nbsp; <span class='fail'>[FAIL] Alpha > 0</span> &nbsp; <span class='fail'>[FAIL] Median > 0</span> &nbsp; <br>
+<h3>E.Composite (1/4 passed)</h3>
+<span class='fail'>[FAIL] PF > 1.1</span> &nbsp; <span class='pass'>[PASS] MDD > -30%</span> &nbsp; <span class='fail'>[FAIL] Alpha > 0</span> &nbsp; <span class='fail'>[FAIL] Median > 0</span> &nbsp; <br>
+<h3>Gen3.Current (0/4 passed)</h3>
+<span class='fail'>[FAIL] PF > 1.1</span> &nbsp; <span class='fail'>[FAIL] MDD > -30%</span> &nbsp; <span class='fail'>[FAIL] Alpha > 0</span> &nbsp; <span class='fail'>[FAIL] Median > 0</span> &nbsp; <br>
+</div>
+<h2>Strategy Descriptions</h2>
+<div class='card'><b>A.Momentum12-1</b><br>Jegadeesh-Titman: 12개월 수익률(최근 1개월 제외), MA200 레짐필터, 월간 리밸런싱, 상위 20종목, SL -15%</div>
+<div class='card'><b>B.MeanRevRSI2</b><br>Connors: RSI(2)<10 + IBS<0.3 + MA200 상회 시 매수, RSI(2)>70 또는 7일 후 청산, SL -8%</div>
+<div class='card'><b>C.LowVol+Mom</b><br>저변동성+모멘텀: 12개월 변동성 하위 30% → 6개월 모멘텀 상위 20종목, 분기 리밸런싱, Trail SL -12%</div>
+<div class='card'><b>D.DualMomentum</b><br>듀얼모멘텀: 절대(지수6개월>0)+상대(종목6개월 상위15), 월간 리밸런싱, SL -10%</div>
+<div class='card'><b>E.Composite</b><br>복합: 12-1개월 모멘텀×0.5 + 저변동성×0.3 + 유동성×0.2, MA200+절대모멘텀 레짐, Trail SL -10%</div>
+<div class='card'><b>Gen3.Current</b><br>현재 Gen3: RS Composite + 20일 돌파 + ATR SL + 체결강도, MAX_LOSS_CAP -8%</div>
+
+<footer style="margin-top:40px;color:#666;border-top:1px solid #333;padding-top:10px">
+Strategy Comparison v1.0 | 2026-03-21 17:50
+</footer></body></html>

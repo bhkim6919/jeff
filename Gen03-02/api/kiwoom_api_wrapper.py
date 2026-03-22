@@ -84,4 +84,19 @@ def create_loggedin_kiwoom():
     if not login_ok["value"]:
         raise RuntimeError("[Kiwoom] 로그인에 실패했습니다. 계정/비밀번호 또는 인증서를 확인하세요.")
 
+    # 3) 서버 구분 확인
+    server_gubun = str(kiwoom.dynamicCall(
+        'KOA_Functions(QString,QString)', "GetServerGubun", ""
+    )).strip()
+    if server_gubun == "1":
+        print("[Kiwoom] *** MOCK SERVER (test) ***")
+    else:
+        print("[Kiwoom] REAL server confirmed.")
+
+    # 4) 계좌비밀번호 입력창 표시 (로그인 비밀번호와 별도)
+    #    이 창에서 계좌 거래 비밀번호를 입력해야 TR 조회(opw00018 등)가 가능
+    print("[Kiwoom] 계좌비밀번호 입력창을 표시합니다...")
+    print("[Kiwoom]   ※ 비밀번호 입력 후 [등록] → 창 닫기")
+    kiwoom.dynamicCall('KOA_Functions(QString,QString)', "ShowAccountWindow", "")
+
     return kiwoom

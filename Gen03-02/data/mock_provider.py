@@ -13,8 +13,10 @@ from data.data_provider import DataProvider
 
 class MockProvider(DataProvider):
 
-    def __init__(self, seed: int = 42):
+    def __init__(self, seed: int = 42, volatility: float = 0.015):
         np.random.seed(seed)
+        self._price_state = {}          # {code: last_price} 랜덤 워크 상태
+        self._volatility = volatility   # 1틱당 변동률 (기본 1.5%)
         self._stock_list = {
             "KOSPI":  ["005930", "000660", "207940", "005380", "051910"],
             "KOSDAQ": ["035720", "247540", "086520", "196170", "091990"],
@@ -50,8 +52,18 @@ class MockProvider(DataProvider):
         return np.random.uniform(3_000_000_000, 20_000_000_000)
 
     def get_current_price(self, code: str) -> float:
-        base = hash(code) % 90_000 + 10_000
-        return float(int(base * np.random.uniform(0.98, 1.02)))
+        """
+        v7.3 개선: 장중 가격 시뮬레이션 (0.3% 변동).
+        기존 1.5%/call은 SL 갭스루를 유발 → 0.3%로 축소.
+        하루 내 누적 변동은 별도 _make_ohlcv에서 처리.
+        """
+        if code not in self._price_state:
+            self._price_state[code] = float(hash(code) % 90_000 + 10_000)
+        price = self._price_state[code]
+        change = np.random.normal(0, 0.003)  # 장중 틱: 0.3% (기존 1.5% → 0.3%)
+        price = max(100, price * (1 + change))
+        self._price_state[code] = price
+        return float(int(price))
 
     def get_investor_trend(self, code: str, days: int) -> dict:
         vol = np.random.randint(1_000_000, 10_000_000)

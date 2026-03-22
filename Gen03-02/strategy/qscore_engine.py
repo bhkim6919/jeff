@@ -174,8 +174,48 @@ class QScoreEngine:
             return 0.0
 
     def _alpha_score(self, code: str) -> float:
-        """알파 점수 (공매도 비율, 뉴스 센티먼트 등 — 현재 미구현)."""
-        return 0.0
+        """
+        알파 점수 — RS 모멘텀 가속도 (단기 RS 가속 여부).
+
+        계산 방식:
+          rs20  = 최근 20일 수익률 순위 (0~1)
+          rs60  = 최근 60일 수익률 순위 (0~1)
+          가속도 = rs20 - rs60  → [-1, +1]
+          정규화 → [0, 1]: 0.5 + 가속도 * 0.5
+
+        의미: 최근 단기 RS가 중기보다 높으면 알파 상승 (모멘텀 가속 중).
+        캐시된 OHLCV를 재사용하므로 추가 API 호출 없음.
+        """
+        try:
+            df = self._ohlcv_cache.get(code)
+            if df is None or len(df) < 61:
+                return 0.5   # 데이터 부족 → 중립
+
+            close = df["close"]
+            ret20  = (close.iloc[-1] / close.iloc[-21] - 1.0) if len(close) >= 21 else 0.0
+            ret60  = (close.iloc[-1] / close.iloc[-61] - 1.0) if len(close) >= 61 else 0.0
+
+            # 전체 캐시에서 분위수 계산 (캐시 활용, universe 비교)
+            all_ret20 = []
+            all_ret60 = []
+            for c, d in self._ohlcv_cache.items():
+                if d is not None and len(d) >= 61:
+                    cl = d["close"]
+                    all_ret20.append(cl.iloc[-1] / cl.iloc[-21] - 1.0)
+                    all_ret60.append(cl.iloc[-1] / cl.iloc[-61] - 1.0)
+
+            if not all_ret20:
+                return 0.5
+
+            rank20 = sum(r < ret20 for r in all_ret20) / len(all_ret20)
+            rank60 = sum(r < ret60 for r in all_ret60) / len(all_ret60)
+
+            # 가속도 → [0, 1] 정규화
+            accel = rank20 - rank60
+            return float(min(1.0, max(0.0, 0.5 + accel * 0.5)))
+
+        except Exception:
+            return 0.5
 
     def _calc_atr(self, code: str, period: int = 14) -> float:
         try:

@@ -1,0 +1,47 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Gen4 Core Strategy Backtest</title>
+<style>
+body{font-family:'Segoe UI',Arial;background:#0a0a0a;color:#e0e0e0;padding:20px}
+h1{color:#00d4ff;border-bottom:2px solid #00d4ff;padding-bottom:10px}
+h2{color:#ffa500;margin-top:30px}
+table{border-collapse:collapse;margin:10px 0 20px;width:100%}
+th{background:#1a1a2e;color:#00d4ff;padding:8px 12px;text-align:center;border:1px solid #333}
+td{padding:6px 12px;border:1px solid #333;text-align:center}
+tr:nth-child(even){background:#111}
+tr:hover{background:#1a1a2e}
+.card{background:#111;border:1px solid #333;border-radius:8px;padding:12px;margin:8px 0}
+</style></head><body>
+<h1>Gen4 Core: Low Volatility + Momentum Backtest</h1>
+<p>Period: 2023-06-01 ~ 2026-03-20 | KOSPI Buy&Hold: +169.3% | Generated: 2026-03-21 17:56</p>
+<h2>Strategy Comparison</h2>
+<table><tr><th>Metric</th><th>V1.Mom6m</th><th>V2.Mom12-1</th><th>V3.Blend.Q</th><th>V4.Regime</th><th>Gen3.Current</th></tr>
+<tr><td style='text-align:left'><b>Total Return</b></td><td style='color:#ff4444'>-31.2%</td><td style='color:#00ff88'>+28.9%</td><td style='color:#00ff88'>+3.9%</td><td style='color:#ff4444'>-2.4%</td><td style='color:#ff4444'>-57.8%</td></tr>
+<tr><td style='text-align:left'><b>CAGR</b></td><td>-12.9%</td><td>+9.9%</td><td>+1.4%</td><td>-0.9%</td><td>-27.3%</td></tr>
+<tr><td style='text-align:left'><b>MDD</b></td><td>-34.2%</td><td>-16.8%</td><td>-14.0%</td><td>-17.5%</td><td>-61.9%</td></tr>
+<tr><td style='text-align:left'><b>Calmar</b></td><td>0.38</td><td>0.59</td><td>0.10</td><td>0.05</td><td>0.44</td></tr>
+<tr><td style='text-align:left'><b>Sharpe</b></td><td>-1.23</td><td>0.74</td><td>0.24</td><td>-0.04</td><td>-1.30</td></tr>
+<tr><td style='text-align:left'><b>PF(net)</b></td><td>0.58</td><td>1.40</td><td>1.17</td><td>0.95</td><td>0.66</td></tr>
+<tr><td style='text-align:left'><b>Win Rate</b></td><td>+28.9%</td><td>+42.1%</td><td>+34.8%</td><td>+34.8%</td><td>+46.1%</td></tr>
+<tr><td style='text-align:left'><b>Avg Return</b></td><td>-1.9%</td><td>+1.7%</td><td>+0.6%</td><td>-0.2%</td><td>-1.6%</td></tr>
+<tr><td style='text-align:left'><b>Median Return</b></td><td>-4.7%</td><td>-2.7%</td><td>-3.5%</td><td>-3.1%</td><td>-3.5%</td></tr>
+<tr><td style='text-align:left'><b>Avg Win</b></td><td>+9.1%</td><td>+13.9%</td><td>+12.6%</td><td>+10.6%</td><td>+6.8%</td></tr>
+<tr><td style='text-align:left'><b>Avg Loss</b></td><td>-6.4%</td><td>-7.2%</td><td>-5.8%</td><td>-6.0%</td><td>-8.8%</td></tr>
+<tr><td style='text-align:left'><b>Max Win</b></td><td>+88.0%</td><td>+92.3%</td><td>+71.6%</td><td>+88.0%</td><td>+25.4%</td></tr>
+<tr><td style='text-align:left'><b>Max Loss</b></td><td>-11.3%</td><td>-13.3%</td><td>-11.3%</td><td>-11.3%</td><td>-100.0%</td></tr>
+<tr><td style='text-align:left'><b>Trades</b></td><td>384</td><td>321</td><td>138</td><td>287</td><td>796</td></tr>
+<tr><td style='text-align:left'><b>Avg Hold Days</b></td><td>9.03</td><td>17.74</td><td>12.96</td><td>11.31</td><td>2.31</td></tr>
+<tr><td style='text-align:left'><b>Turnover/Year</b></td><td>6.54</td><td>5.75</td><td>2.53</td><td>5.11</td><td>18.87</td></tr>
+<tr><td style='text-align:left'><b>Alpha</b></td><td>-21.1%</td><td>-3.1%</td><td>-4.9%</td><td>-9.6%</td><td>-33.1%</td></tr>
+<tr><td style='text-align:left'><b>Beta</b></td><td>0.14</td><td>0.27</td><td>0.09</td><td>0.15</td><td>0.08</td></tr>
+<tr><td style='text-align:left'><b>Up Capture</b></td><td>0.11</td><td>0.29</td><td>0.09</td><td>0.14</td><td>-0.05</td></tr>
+<tr><td style='text-align:left'><b>Down Capture</b></td><td>0.26</td><td>0.30</td><td>0.11</td><td>0.20</td><td>0.20</td></tr>
+</table>
+<h2>Strategy Configs</h2>
+<div class='card'><b>V1.Mom6m</b>: LowVol30% + 6개월모멘텀, 월간리밸, Trail-10%, 20종목</div>
+<div class='card'><b>V2.Mom12-1</b>: LowVol30% + 12-1개월모멘텀, 월간리밸, Trail-12%, 20종목</div>
+<div class='card'><b>V3.Blend.Q</b>: LowVol30% + 6m+12m블렌드, 분기리밸, Trail-10%, 20종목</div>
+<div class='card'><b>V4.Regime</b>: V2 + MA200레짐(BEAR→현금70%), 월간리밸, Trail-10%, 20종목</div>
+<div class='card'><b>Gen3.Current</b>: RS Composite + 20일돌파 + ATR SL + MAX_LOSS_CAP -8%</div>
+
+<footer style="margin-top:40px;color:#666;border-top:1px solid #333;padding-top:10px">
+Gen4 Core Backtest v1.0</footer></body></html>

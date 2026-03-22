@@ -34,7 +34,8 @@ class StageManager:
 
     # ── Stage A: Early Entry ─────────────────────────────────────────────────
 
-    def run_stage_a(self, signals: List[Dict[str, Any]], regime: MarketRegime) -> List[Dict[str, Any]]:
+    def run_stage_a(self, signals: List[Dict[str, Any]], regime: MarketRegime,
+                    exclude_codes: List[str] = None) -> List[Dict[str, Any]]:
         """
         BULL 레짐 한정 Early Entry (v7):
           - stage=A 플래그 필터 (is_52w_high=1 AND rs_composite>=0.80)
@@ -43,6 +44,8 @@ class StageManager:
           - 동일 섹터 Early 최대 SECTOR_CAP_EARLY=1개
           - ATR 순위 < ATR_STAGE_A=80%ile (signals의 atr_rank 기준)
         """
+        _exclude = set(exclude_codes or [])
+
         if regime != MarketRegime.BULL:
             return []
 
@@ -54,8 +57,8 @@ class StageManager:
 
         # 현재 Early 포지션 수 확인
         current_early = sum(
-            1 for code in self.portfolio.positions
-            if self.portfolio.positions[code].__dict__.get("stage") == "A"
+            1 for pos in self.portfolio.positions.values()
+            if pos.stage == "A"
         )
         max_new_early = self.config.MAX_EARLY - current_early
         if max_new_early <= 0:
@@ -82,7 +85,7 @@ class StageManager:
             code   = sig["code"]
             sector = sig.get("sector", "기타")
 
-            if self.portfolio.has_position(code):
+            if self.portfolio.has_position(code) or code in _exclude:
                 continue
 
             # 섹터 Early 한도 (최대 1개)
@@ -130,10 +133,20 @@ class StageManager:
         atr_max_pct  = (self.config.ATR_STAGE_B if is_bull else self.config.ATR_BEAR_MAX) / 100.0
         bear_rs_min  = self.config.BEAR_RS_MIN  # 0.90 (BEAR 모드만 적용)
 
+        # BUG-2 FIX: portfolio can_enter()가 올바른 레짐별 한도를 사용하도록 동기화
+        self.portfolio.set_regime_limits(regime.value)
+
         current_pos  = len(self.portfolio.positions)
         max_new      = max_pos - current_pos
         if max_new <= 0:
             print(f"[StageB] 포지션 슬롯 가득참 ({max_pos}개)")
+            return []
+
+        # BEAR 모드 최대 노출도 제한 (v7.2)
+        bear_exp_cap = getattr(self.config, 'MAX_EXPOSURE_BEAR', 0.40)
+        if not is_bull and self.portfolio.get_exposure_pct() >= bear_exp_cap:
+            print(f"[StageB] BEAR 노출도 {self.portfolio.get_exposure_pct():.1%} "
+                  f">= {bear_exp_cap:.0%} → 신규 진입 차단")
             return []
 
         # 섹터별 현재 보유 수 계산
@@ -172,10 +185,10 @@ class StageManager:
                 skipped_atr += 1
                 continue
 
-            # 섹터 한도 (종목 수 기준) — '기타'는 미분류이므로 한도 2배
+            # 섹터 한도 (종목 수 기준) — '기타'는 별도 cap (v7.2)
             cap = self.config.SECTOR_CAP_TOTAL
             if sector == "기타":
-                cap = cap * 2
+                cap = getattr(self.config, 'SECTOR_CAP_ETC', 3)
             if sector_cnt.get(sector, 0) >= cap:
                 skipped_sector += 1
                 continue
@@ -186,6 +199,14 @@ class StageManager:
                 if sec_exp >= sector_max_pct:
                     skipped_sec_pct += 1
                     continue
+
+            # BEAR 노출도 누적 체크 (이미 추가된 후보 금액 포함)
+            if not is_bull:
+                pending_amt = sum(r["amount"] for r in result)
+                proj_exp = (equity - self.portfolio.cash + pending_amt) / equity if equity > 0 else 0
+                if proj_exp >= bear_exp_cap:
+                    print(f"[StageB] BEAR 노출도 캡 도달 ({proj_exp:.1%}) → 추가 진입 중단")
+                    break
 
             current = self.provider.get_current_price(code)
             sized   = self._size_position(sig, current, regime, entry_type="MAIN")
@@ -227,6 +248,17 @@ class StageManager:
         if current_price <= 0:
             return None
 
+        # v7.4 FIX: signal entry 대비 현재가 괴리 체크 (양방향 ±7% 초과 → 진입 금지)
+        # 배치 시점과 런타임 시점의 가격 차이가 크면 signal 자체가 무의미
+        signal_entry = float(sig.get("entry", 0))
+        entry_gap_limit = getattr(self.config, 'ENTRY_GAP_LIMIT', 0.07)
+        if signal_entry > 0:
+            entry_gap_pct = (current_price - signal_entry) / signal_entry
+            if abs(entry_gap_pct) > entry_gap_limit:
+                print(f"  [SizePos] {code} entry 괴리 {entry_gap_pct:+.1%} > +-{entry_gap_limit:.0%} "
+                      f"(signal={int(signal_entry)}, now={int(current_price)}) → 진입 차단")
+                return None
+
         # 비중 결정
         equity = self.portfolio.get_current_equity()
         if equity <= 0:
@@ -240,9 +272,20 @@ class StageManager:
             weight = self.config.MAIN_WEIGHT_BEAR
 
         per_pos_amt = equity * weight
-        shares      = int(min(per_pos_amt, self.portfolio.cash) // current_price)
+        available   = min(per_pos_amt, self.portfolio.cash)
+        shares      = int(available // current_price)
+
+        # 소액 계좌 1주 보완: 비중 금액 < 주가이지만 주가가 자본의 10% 이내면 1주 허용
+        MAX_SINGLE_SHARE_PCT = 0.10   # 1주 보완 허용 상한 = 자본의 10%
         if shares <= 0:
-            return None
+            if (current_price <= self.portfolio.cash
+                    and current_price <= equity * MAX_SINGLE_SHARE_PCT):
+                shares = 1
+                print(f"  [StageManager] {code} 소액 1주 보완 "
+                      f"(비중={per_pos_amt:,.0f} < 주가={current_price:,.0f}, "
+                      f"비중비율={current_price/equity:.1%})")
+            else:
+                return None
 
         # TP/SL 계산
         tp = int(sig.get("tp", 0))
@@ -259,6 +302,16 @@ class StageManager:
         if sl <= 0:
             return None
 
+        # v7.3: SL 최대 거리 클램프 — MAX_LOSS_CAP(-8%) 이내로 제한
+        max_loss_cap = abs(getattr(self.config, 'MAX_LOSS_CAP', -0.08))
+        sl_floor = int(current_price * (1 - max_loss_cap))
+        if sl < sl_floor:
+            old_sl = sl
+            sl = sl_floor
+            tp = int(current_price + (current_price - sl) * 2.0)
+            print(f"  [SizePos] {code} SL 클램프: {old_sl}→{sl} "
+                  f"(cap={max_loss_cap:.0%}, TP→{tp})")
+
         # TP 역방향 방어 — 갭업 시 현재가 기준 TP/SL 재계산
         if tp <= current_price:
             atr = self._calc_atr(code)
@@ -273,7 +326,16 @@ class StageManager:
                 return None
             print(f"  [SizePos] {code} 갭업 → TP/SL 재계산: TP={tp} SL={sl}")
 
-        rr = round((tp - current_price) / (current_price - sl), 2) if current_price > sl else 0.0
+        # v7.4 FIX: 현재가가 SL 이하이거나 SL까지 버퍼 1% 미만이면 진입 금지
+        if current_price <= sl:
+            print(f"  [SizePos] {code} 현재가({int(current_price)}) <= SL({sl}) → 진입 차단")
+            return None
+        sl_buffer_pct = (current_price - sl) / current_price
+        if sl_buffer_pct < 0.01:
+            print(f"  [SizePos] {code} SL 버퍼 {sl_buffer_pct:.1%} < 1% → 진입 차단")
+            return None
+
+        rr = round((tp - current_price) / (current_price - sl), 2)
 
         return {
             "code":        code,
@@ -285,6 +347,7 @@ class StageManager:
             "tp":          tp,
             "sl":          sl,
             "rr_ratio":    rr,
+            "date":        str(sig.get("date", "")),
         }
 
     def _calc_atr(self, code: str, period: int = 20) -> float:

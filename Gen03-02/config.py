@@ -3,6 +3,11 @@ Gen3 Config
 ===========
 Q-TRON Gen3 v7 시스템 전체 파라미터.
 
+v7.5 변경 (2026-03-16):
+  - Trailing Stop: +5% 수익 시 SL 자동 상향 (TRAIL_*)
+  - Time-Decay SL: 보유 20일 이후 SL 점진 강화 (DECAY_*)
+  - Orphan Repair: SL=0 포지션 자동 ATR SL 설정 + prev_close 백필
+
 v7 변경 (2026-03-10):
   - Breadth 레짐 추가 (BREADTH_BEAR_THRESH, BREADTH_BULL_THRESH)
   - Runtime Adaptive Layer (RAL_*) 추가
@@ -25,15 +30,23 @@ class Gen3Config:
     mode: str = "LIVE"          # LIVE / MOCK / BATCH
     paper_trading: bool = True
     strategy_id: str = "GEN3_V7"
+    STRATEGY_VERSION: str = "7.5"       # meta.json strategy_version 검증용
+
+    # ── 시그널 유효성 (v7.6) ──────────────────────────────────────────────
+    STRICT_SIGNAL_MODE: bool = True     # True: 오늘 파일 + meta SUCCESS만 허용
+    ALLOW_PREV_SIGNAL:  bool = False    # True: 어제 파일 fallback 허용 (수동 override용)
+    SIGNAL_MIN_ROWS:    int  = 3        # 최소 시그널 행 수
+    SIGNAL_NAN_MAX_PCT: float = 0.20    # NaN 허용 비율 상한 (20%)
 
     # ── 자본 ─────────────────────────────────────────────────────────────
-    initial_cash: float = 100_000_000  # 1억원
+    initial_cash: float = 500_000_000  # 5억원
 
     # ── 리스크 한도 ───────────────────────────────────────────────────────
     daily_loss_limit:  float = -0.02   # 일 손실 한도 -2% (SOFT_STOP → 최약 1개 청산)
     daily_kill_limit:  float = -0.04   # 일 DD -4% → 신규 진입 완전 차단
-    monthly_dd_limit:  float = -0.07   # 월 DD 한도 -7%
+    monthly_dd_limit:  float = -0.15   # 월 DD 한도 -15% (임시 완화, 원래 -7%)
     max_exposure:      float = 0.95    # 총 노출도 (BULL 20×7%=140% 가능, 실제 현금 한도)
+    MAX_EXPOSURE_BEAR: float = 0.40   # BEAR 모드 최대 노출도 40% (v7.2)
     max_per_stock:     float = 0.10    # 종목당 최대 10% (개별 안전장치)
 
     # ── 포지션 수 (v7: BULL/BEAR 분리) ────────────────────────────────────
@@ -48,8 +61,9 @@ class Gen3Config:
     MAIN_WEIGHT_BEAR:   float = 0.05   # Main BEAR 종목당 5%
 
     # ── Gen3 핵심 파라미터 ────────────────────────────────────────────────
-    ATR_MULT_BULL: float = 4.0   # BULL Stop Loss ATR 배수
+    ATR_MULT_BULL: float = 2.5   # BULL Stop Loss ATR 배수 (v7.3: 4.0→2.5)
     ATR_MULT_BEAR: float = 1.0   # BEAR Stop Loss ATR 배수
+    MAX_LOSS_CAP:  float = -0.08  # 종목별 최대 손실 한도 -8% (ATR SL 무관 강제 청산)
     MAX_HOLD_DAYS: int   = 60    # 최대 보유 거래일
     REGIME_MA:     int   = 200   # 레짐 판단 이동평균
     MAX_PORT_DD:   float = 0.10  # 포트 MDD 방어 임계 10%
@@ -71,6 +85,9 @@ class Gen3Config:
     RAL_CRASH_SL_MULT:   float = 0.60    # CRASH SL 강화 배수
     RAL_SURGE_TS_RELAX:  float = 0.50    # SURGE Trailing Stop 완화 ATR 단위
 
+    # ── 테일 컷 (v7.2, v7.5b 정의 명확화) ──────────────────────────────────
+    GAP_DOWN_EXIT:   float = -0.05  # 전일종가 대비 현재가 ≤ -5% 강제 청산 (장중 매 사이클 판정)
+
     # ── RS 기반 청산 (v7) ─────────────────────────────────────────────────
     RS_EXIT_THRESH:  float = 0.40   # 월초 RS 청산 임계값
     BEAR_RS_MIN:     float = 0.90   # BEAR 모드 신규 진입 최소 RS
@@ -82,8 +99,33 @@ class Gen3Config:
     GAP_VOL_MIN:         float = 1.30   # 갭 시 필요 거래량 배수
     SECTOR_DIVERSITY_MIN:int   = 3      # Early 허용 최소 활성 섹터 수
 
+    # ── 진입 필터 (v7.4) ────────────────────────────────────────────────
+    ENTRY_GAP_LIMIT:      float = 0.07     # signal entry 대비 현재가 괴리 허용 한도 (±7%)
+    ENTRY_CUTOFF_HOUR:    int   = 12       # 이 시각 이후 신규 진입 차단 (0=비활성)
+    ENTRY_CUTOFF_MINUTE:  int   = 0
+
+    # ── Trailing Stop (v7.5) ────────────────────────────────────────────
+    TRAIL_ENABLED:        bool  = True
+    TRAIL_ACTIVATION_PCT: float = 0.05     # +5% 이상 수익 시 트레일링 활성화
+    TRAIL_ATR_MULT:       float = 2.0      # trail SL = high_watermark - 2.0 * ATR
+    TRAIL_MIN_LOCK_PCT:   float = 0.02     # 최소 +2% 이익 확보
+
+    # ── Time-Decay SL Tightening (v7.5) ─────────────────────────────────
+    DECAY_ENABLED:        bool  = True
+    DECAY_START_DAY:      int   = 20       # 20일차부터 SL 점진 강화
+    DECAY_END_DAY:        int   = 50       # 50일차에 최대 강화
+    DECAY_ATR_MULT_MIN:   float = 1.0      # 최종 ATR 배수 (2.5 → 1.0)
+
+    # ── 체결강도 Entry Timing (v7.1) ────────────────────────────────────
+    TICK_ENABLED:         bool  = True     # 체결강도 필터 활성화
+    TICK_OBSERVE_MINUTES: int   = 60       # 관측 시간 (분) — 09:00~10:00
+    TICK_STRONG_THRESH:   float = 120.0    # 강매수 임계값 (진입)
+    TICK_WEAK_THRESH:     float = 80.0     # 강매도 임계값 (DROP)
+    TICK_NEUTRAL_ACTION:  str   = "ENTER"  # 중립 80-120: "ENTER" or "SKIP"
+
     # ── 섹터 한도 (v7: 종목수 + 금액 비율) ────────────────────────────────
     SECTOR_CAP_TOTAL: int   = 4      # 동일 섹터 최대 4개
+    SECTOR_CAP_ETC:   int   = 3      # '기타' 섹터 최대 3개 (v7.2)
     SECTOR_CAP_EARLY: int   = 1      # Early 동일 섹터 최대 1개
     SECTOR_MAX_PCT:   float = 0.20   # 섹터 최대 노출도 20%
 
@@ -91,6 +133,14 @@ class Gen3Config:
     FEE:      float = 0.00015
     SLIPPAGE: float = 0.001
     TAX:      float = 0.0018
+
+    # ── v7.8: Reconcile ─────────────────────────────────────────────────
+    RECONCILE_FORCE_CLOSE_COUNT: int = 3  # broker 미보유 연속 N회 → 포지션 강제 제거
+
+    # ── v7.9: Stale 방어 ──────────────────────────────────────────────
+    STALE_THRESHOLD_SEC: int   = 600   # equity 변동 없음 감지 임계 (초)
+    STALE_FORCE_REFRESH_SEC: int = 600 # stale 시 강제 재조회 시작 (초)
+    FEED_STALE_SEC: float = 300.0      # 실시간 피드 미수신 임계 (초)
 
     # ── 데이터 경로 ───────────────────────────────────────────────────────
     signals_dir:      str = "data/signals"

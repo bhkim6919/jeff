@@ -77,6 +77,9 @@ class RegimeDetector:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             regime_str = data.get("regime", "BEAR")
+            # 적응형 Breadth 임계값 반영 (v7.2)
+            if "breadth_thresh" in data:
+                self.config.BREADTH_BEAR_THRESH = float(data["breadth_thresh"])
             return MarketRegime[regime_str]
         except Exception:
             return None

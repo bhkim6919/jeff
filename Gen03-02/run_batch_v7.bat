@@ -13,30 +13,43 @@ echo  %DATE% %TIME%
 echo ============================================================
 
 echo.
-echo [Step 1/2] KRX data download...
-"%PYTHON%" -u update_data_incremental.py 2>&1
+echo [Step 1/3] KRX data download...
+"%PYTHON%" -u update_data_incremental.py
 if errorlevel 1 (
     echo ERROR: Data download failed.
     goto :error
 )
+echo [Step 1/3] Done.
 
 echo.
-echo [Step 2/2] Building v7 signals...
-"%PYTHON%" -u gen3_signal_builder.py 2>&1
+echo [Step 2/3] Building v7 signals...
+"%PYTHON%" -u gen3_signal_builder.py
 if errorlevel 1 (
     echo ERROR: Signal build failed.
     goto :error
 )
+echo [Step 2/3] Done.
+
+echo.
+echo [Step 3/3] Top20 collect + MA report...
+"%PYTHON%" -u run_top20_batch.py --html
+if errorlevel 1 (
+    echo WARNING: Top20 report had issues (non-critical).
+)
+echo [Step 3/3] Done.
 
 echo.
 echo ============================================================
 echo  Batch complete. Ready for tomorrow live run.
 echo ============================================================
+
 goto :end
 
 :error
 echo.
 echo === BATCH FAILED ===
+pause
 exit /b 1
 
 :end
+pause

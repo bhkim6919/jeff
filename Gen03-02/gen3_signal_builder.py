@@ -34,14 +34,23 @@ UNIVERSE_FILE = BASE_DIR / "data" / "universe_kospi.csv"
 SIGNALS_DIR   = BASE_DIR / "data" / "signals"
 SECTOR_MAP    = BASE_DIR / "data" / "sector_map.json"
 
-# ── v7 파라미터 ───────────────────────────────────────────────────────────────
+# ── v7 파라미터 — Breadth 임계값은 config.py 단일 소스 사용 (WARN-1 FIX) ───
+try:
+    from config import Gen3Config as _Cfg
+    _cfg_defaults = _Cfg()
+    BREADTH_BEAR_THRESH = _cfg_defaults.BREADTH_BEAR_THRESH
+    BREADTH_BULL_THRESH = _cfg_defaults.BREADTH_BULL_THRESH
+except Exception:
+    BREADTH_BEAR_THRESH = 0.35
+    BREADTH_BULL_THRESH = 0.55
+
 RS_ENTRY_MIN      = 0.80   # Main 진입 최소 RS composite
 RS_EXIT_THRESH    = 0.40   # 청산 임계 RS
 UNIV_MIN_CLOSE    = 2_000
 UNIV_MIN_AMT      = 2_000_000_000
 ATR_PERIOD        = 20
-BREADTH_BEAR_THRESH = 0.35
-BREADTH_BULL_THRESH = 0.55
+# WARN-1 FIX: Breadth 임계값은 config.py의 BREADTH_BEAR_THRESH / BREADTH_BULL_THRESH를 사용.
+# 이 모듈 상수를 직접 수정하지 말 것 — config.py에서 중앙 관리.
 REGIME_MA         = 200
 REGIME_FLIP_GATE  = 2
 
@@ -332,18 +341,38 @@ def build_signals(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Q-TRON Gen3 v7 Signal Builder")
     parser.add_argument("--date", type=str, default=None,
-                        help="기준 날짜 YYYYMMDD (기본: 오늘)")
+                        help="data_asof 날짜 YYYYMMDD (기본: 자동)")
+    parser.add_argument("--trade-date", type=str, default=None,
+                        help="trade_date YYYYMMDD (기본: 자동=next_trade_date)")
     parser.add_argument("--top",  type=int, default=50,
                         help="상위 N개 신호 (기본: 50)")
     args = parser.parse_args()
 
-    target_date = (
-        datetime.strptime(args.date, "%Y%m%d").date()
-        if args.date else date.today()
-    )
-    date_str = target_date.strftime("%Y%m%d")
+    # v7.6: trade_date / data_asof_date 분리
+    from trade_date_utils import next_trade_date as _next_td, data_asof_date as _asof
 
-    print(f"=== Gen3 v7 Signal Builder: {target_date} ===\n")
+    now = datetime.now()
+
+    # data_asof_date: 시그널 계산에 사용한 가격 데이터 기준일
+    if args.date:
+        target_date = datetime.strptime(args.date, "%Y%m%d").date()
+    else:
+        target_date = _asof(now)
+
+    # trade_date: 이 시그널이 사용될 거래 세션 날짜 (파일명 기준)
+    if args.trade_date:
+        trade_dt = datetime.strptime(args.trade_date, "%Y%m%d").date()
+    else:
+        trade_dt = _next_td(now)
+
+    date_str = trade_dt.strftime("%Y%m%d")
+    asof_str = target_date.strftime("%Y%m%d")
+
+    print(f"=== Gen3 v7 Signal Builder ===")
+    print(f"  trade_date (session):  {trade_dt}")
+    print(f"  data_asof_date:        {target_date}")
+    print(f"  generated_at:          {now.strftime('%Y-%m-%d %H:%M:%S')}")
+    print()
 
     # ── 1. 지수 로드 + 레짐 판단 ─────────────────────────────────────────
     print("[1/5] KOSPI 지수 로드...")
@@ -377,6 +406,10 @@ def main() -> None:
     breadth_above = 0
     breadth_total = 0
 
+    # 적응형 Breadth: 과거 125거래일 히스토리 수집 (v7.2)
+    BREADTH_HISTORY_DAYS = 125
+    breadth_history_data = []   # [(date_series, above_ma20_series), ...]
+
     for i, ticker in enumerate(all_tickers, 1):
         _progress(i, len(all_tickers), ticker)
         df = load_ohlcv(ticker, min_rows=25)
@@ -398,6 +431,17 @@ def main() -> None:
         if feat["above_ma20"] == 1:
             breadth_above += 1
 
+        # 적응형 Breadth 히스토리 수집: 최근 125일간 close > MA20
+        if len(df) >= 40:
+            close_s = df["close"].astype(float)
+            ma20_s  = close_s.rolling(20).mean()
+            above   = (close_s > ma20_s).astype(int)
+            tail    = above.tail(BREADTH_HISTORY_DAYS)
+            dates   = df["date"].tail(BREADTH_HISTORY_DAYS)
+            breadth_history_data.append(
+                pd.Series(tail.values, index=dates.values)
+            )
+
         features_list.append(feat)
 
     print(f"\n  지표 계산 완료: {len(features_list)}개")
@@ -406,11 +450,25 @@ def main() -> None:
     breadth = breadth_above / breadth_total if breadth_total > 0 else 0.5
     print(f"[4/5] Breadth: {breadth:.1%}  (MA20 상회 {breadth_above}/{breadth_total})")
 
-    # is_bull_eff: MA200 BULL AND breadth >= 35%
-    is_bull_eff = (regime_base == "BULL") and (breadth >= BREADTH_BEAR_THRESH)
+    # 적응형 Breadth 임계값 계산 (v7.2)
+    adaptive_thresh = BREADTH_BEAR_THRESH   # 폴백: 고정값
+    if breadth_history_data:
+        hist_df     = pd.DataFrame(breadth_history_data).T   # rows=dates, cols=stocks
+        daily_breadth = hist_df.mean(axis=1).dropna()         # 일별 평균 (= 비율)
+        if len(daily_breadth) >= 30:
+            bm = float(daily_breadth.mean())
+            bs = float(daily_breadth.std())
+            adaptive_thresh = round(max(0.25, min(0.45, bm - bs)), 4)
+            print(f"  적응형 Breadth 임계값: {adaptive_thresh:.1%} "
+                  f"(mean={bm:.1%}, std={bs:.1%}, 고정={BREADTH_BEAR_THRESH:.0%})")
+        else:
+            print(f"  Breadth 히스토리 부족 ({len(daily_breadth)}일) → 고정 임계값 사용")
+
+    # is_bull_eff: MA200 BULL AND breadth >= adaptive threshold
+    is_bull_eff = (regime_base == "BULL") and (breadth >= adaptive_thresh)
     regime      = "BULL" if is_bull_eff else "BEAR"
     if regime_base == "BULL" and not is_bull_eff:
-        print(f"  Breadth {breadth:.1%} < {BREADTH_BEAR_THRESH:.0%} → BULL → BEAR 강제 전환")
+        print(f"  Breadth {breadth:.1%} < {adaptive_thresh:.1%} → BULL → BEAR 강제 전환")
 
     print(f"  최종 레짐: {regime}")
 
@@ -430,6 +488,7 @@ def main() -> None:
 
     # signals_YYYYMMDD.csv (런타임 호환)
     out_csv = SIGNALS_DIR / f"signals_{date_str}.csv"
+    tmp_csv = SIGNALS_DIR / f"signals_{date_str}.tmp.csv"   # v7.6: atomic write
     rows = []
     for _, row in df_signals.iterrows():
         last_close_v = row["last_close"]
@@ -438,7 +497,7 @@ def main() -> None:
 
         # TP/SL 계산 (v7 레짐별 ATR 배수)
         if regime == "BULL":
-            sl_mult = 4.0
+            sl_mult = 2.5  # v7.3: 4.0→2.5 (SL 과도 이격 방지)
         else:
             sl_mult = 1.0
 
@@ -472,21 +531,50 @@ def main() -> None:
         })
 
     out_df = pd.DataFrame(rows)
-    out_df.to_csv(out_csv, index=False, encoding="utf-8")
+
+    # v7.6: atomic write — .tmp.csv 먼저 쓰고 rename
+    out_df.to_csv(tmp_csv, index=False, encoding="utf-8")
+    if out_csv.exists():
+        out_csv.unlink()
+    tmp_csv.rename(out_csv)
+
     cnt_a = (out_df["stage"] == "A").sum()
     cnt_b = (out_df["stage"] == "B").sum()
     print(f"  저장: {out_csv.name}  ({len(out_df)}개 / Stage A:{cnt_a} B:{cnt_b})")
 
+    # v7.6: signals_YYYYMMDD.meta.json — 런타임 유효성 검증용
+    meta_path = SIGNALS_DIR / f"signals_{date_str}.meta.json"
+    strategy_ver = "7.5"
+    try:
+        strategy_ver = _cfg_defaults.STRATEGY_VERSION
+    except Exception:
+        pass
+    meta = {
+        "trade_date":       date_str,
+        "data_asof_date":   asof_str,
+        "generated_at":     now.strftime("%Y-%m-%dT%H:%M:%S+09:00"),
+        "status":           "SUCCESS",
+        "engine_version":   "gen3_signal_builder",
+        "strategy_version": strategy_ver,
+        "signal_count":     len(out_df),
+        "regime":           regime,
+        "breadth":          round(breadth, 4),
+    }
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+    print(f"  저장: {meta_path.name}  (status={meta['status']}, count={meta['signal_count']})")
+
     # regime_YYYYMMDD.json
     regime_out = SIGNALS_DIR / f"regime_{date_str}.json"
     regime_info = {
-        "date":         date_str,
-        "regime":       regime,
-        "regime_base":  regime_base,
-        "breadth":      round(breadth, 4),
-        "ma200":        round(ma200, 2),
-        "kospi_close":  round(last_close, 2),
-        "idx_ret":      round(idx_ret, 6),
+        "date":              date_str,
+        "regime":            regime,
+        "regime_base":       regime_base,
+        "breadth":           round(breadth, 4),
+        "breadth_thresh":    adaptive_thresh,
+        "ma200":             round(ma200, 2),
+        "kospi_close":       round(last_close, 2),
+        "idx_ret":           round(idx_ret, 6),
     }
     with open(regime_out, "w", encoding="utf-8") as f:
         json.dump(regime_info, f, ensure_ascii=False, indent=2)
