@@ -102,13 +102,23 @@ def run_batch(config):
     logger.info(f"  Loaded {len(close_dict)} stocks")
 
     # Step 4: Score and select
-    logger.info("[4/4] Scoring...")
+    logger.info("[4/5] Scoring...")
     target = build_target_portfolio(close_dict, config)
     path = save_target_portfolio(target, config.SIGNALS_DIR)
-    logger.info(f"  Target: {len(target['target_tickers'])} stocks → {path}")
+    logger.info(f"  Target: {len(target['target_tickers'])} stocks -> {path}")
     for i, tk in enumerate(target["target_tickers"], 1):
         s = target["scores"].get(tk, {})
         logger.info(f"    {i:2d}. {tk}  vol={s.get('vol_12m',0):.4f}  mom={s.get('mom_12_1',0):.4f}")
+
+    # Step 5: Generate Top20 MA HTML report
+    logger.info("[5/5] Generating Top20 MA report...")
+    try:
+        from report.top20_report import generate_top20_report
+        html_path = generate_top20_report(target, ohlcv_dir, config.REPORT_DIR)
+        if html_path:
+            logger.info(f"  Report: {html_path}")
+    except Exception as e:
+        logger.warning(f"  Report generation failed: {e} (non-critical)")
 
     logger.info("Batch complete.")
     return target
