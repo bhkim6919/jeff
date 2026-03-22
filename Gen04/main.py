@@ -23,15 +23,12 @@ from pathlib import Path
 
 # ── Logging Setup ────────────────────────────────────────────────────────────
 def setup_logging(log_dir: Path, mode: str):
-    """Configure logging to file + console."""
     log_dir.mkdir(parents=True, exist_ok=True)
     today = date.today().strftime("%Y%m%d")
     log_file = log_dir / f"gen4_{mode}_{today}.log"
-
     fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     logging.basicConfig(
-        level=logging.INFO,
-        format=fmt,
+        level=logging.INFO, format=fmt,
         handlers=[
             logging.FileHandler(log_file, encoding="utf-8"),
             logging.StreamHandler(sys.stdout),
@@ -39,41 +36,61 @@ def setup_logging(log_dir: Path, mode: str):
     )
 
 
+def is_weekday() -> bool:
+    return date.today().weekday() < 5
+
+def is_market_hours() -> bool:
+    now = datetime.now()
+    if now.hour < 9:
+        return False
+    if now.hour >= 15 and now.minute >= 20:
+        return False
+    return 9 <= now.hour <= 15
+
+
 # ── Batch Mode ───────────────────────────────────────────────────────────────
 def run_batch(config):
-    """
-    Batch mode (run after market close, e.g., 18:00+):
-      1. Update OHLCV data via pykrx
-      2. Build universe
-      3. Score all stocks (using SHARED scoring.py)
-      4. Select top 20 → save target_portfolio.json
-    """
-    from data.pykrx_provider import get_stock_ohlcv, get_stock_list, update_ohlcv_incremental
+    """Batch: pykrx update → universe → scoring → target portfolio."""
+    from data.pykrx_provider import update_ohlcv_incremental, get_stock_list
     from data.universe_builder import build_universe_from_ohlcv
     from strategy.factor_ranker import build_target_portfolio, save_target_portfolio
+    import pandas as pd
 
     logger = logging.getLogger("gen4.batch")
     logger.info("=" * 60)
     logger.info("  Gen4 Batch Mode")
     logger.info("=" * 60)
 
-    # 1. Update OHLCV
-    ohlcv_dir = config.OHLCV_DIR
-    logger.info(f"[1/3] Updating OHLCV in {ohlcv_dir}...")
+    if not is_weekday():
+        logger.warning("Weekend — batch may use stale data.")
 
-    # Get universe codes
+    ohlcv_dir = config.OHLCV_DIR
+
+    # Step 1: pykrx OHLCV update
+    logger.info("[1/4] Updating OHLCV via pykrx...")
+    try:
+        existing = [f.stem for f in ohlcv_dir.glob("*.csv")]
+        codes = existing if existing else get_stock_list("KOSPI")
+        if codes:
+            updated = update_ohlcv_incremental(ohlcv_dir, codes, days=30)
+            logger.info(f"  Updated {updated}/{len(codes)} stocks")
+    except Exception as e:
+        logger.warning(f"  pykrx update failed: {e}. Using existing data.")
+
+    # Step 2: Build universe
+    logger.info("[2/4] Building universe...")
     universe = build_universe_from_ohlcv(
-        ohlcv_dir,
-        min_close=config.UNIV_MIN_CLOSE,
+        ohlcv_dir, min_close=config.UNIV_MIN_CLOSE,
         min_amount=config.UNIV_MIN_AMOUNT,
         min_history=config.UNIV_MIN_HISTORY,
-        min_count=config.UNIV_MIN_COUNT,
-    )
+        min_count=config.UNIV_MIN_COUNT)
     logger.info(f"  Universe: {len(universe)} stocks")
+    if not universe:
+        logger.error("Empty universe!")
+        return None
 
-    # 2. Load OHLCV for scoring
-    logger.info("[2/3] Loading OHLCV for scoring...")
-    import pandas as pd
+    # Step 3: Load OHLCV for scoring
+    logger.info("[3/4] Loading OHLCV...")
     close_dict = {}
     for code in universe:
         path = ohlcv_dir / f"{code}.csv"
@@ -82,20 +99,16 @@ def run_batch(config):
             df["close"] = pd.to_numeric(df["close"], errors="coerce").fillna(0)
             if len(df) >= config.VOL_LOOKBACK:
                 close_dict[code] = df.set_index("date")["close"]
+    logger.info(f"  Loaded {len(close_dict)} stocks")
 
-    logger.info(f"  Loaded {len(close_dict)} stocks with sufficient history")
-
-    # 3. Score and select
-    logger.info("[3/3] Scoring and selecting top stocks...")
+    # Step 4: Score and select
+    logger.info("[4/4] Scoring...")
     target = build_target_portfolio(close_dict, config)
     path = save_target_portfolio(target, config.SIGNALS_DIR)
-
-    logger.info(f"  Target: {len(target['target_tickers'])} stocks")
-    logger.info(f"  Saved: {path}")
+    logger.info(f"  Target: {len(target['target_tickers'])} stocks → {path}")
     for i, tk in enumerate(target["target_tickers"], 1):
-        score = target["scores"].get(tk, {})
-        logger.info(f"    {i:2d}. {tk}  vol={score.get('vol_12m',0):.4f}  "
-                     f"mom={score.get('mom_12_1',0):.4f}")
+        s = target["scores"].get(tk, {})
+        logger.info(f"    {i:2d}. {tk}  vol={s.get('vol_12m',0):.4f}  mom={s.get('mom_12_1',0):.4f}")
 
     logger.info("Batch complete.")
     return target
@@ -104,129 +117,317 @@ def run_batch(config):
 # ── Live Mode ────────────────────────────────────────────────────────────────
 def run_live(config):
     """
-    Live mode (Kiwoom):
-      09:00  Load state, check if rebalance day
-      09:00  If rebalance: load target, reconcile, execute sells then buys
-      09:30~15:20  Monitor trail stops (60s loop)
-      15:20  EOD: save state, report
+    Live mode: Kiwoom login → broker sync → rebalance → trail stop monitor → EOD.
     """
-    from core.state_manager import StateManager
-    from core.portfolio_manager import PortfolioManager
-    from risk.exposure_guard import ExposureGuard
-    from strategy.trail_stop import check_trail_stop
-    from strategy.factor_ranker import load_target_portfolio
-
     logger = logging.getLogger("gen4.live")
     logger.info("=" * 60)
     logger.info("  Gen4 Live Mode")
     logger.info("=" * 60)
 
-    # Initialize
-    state_mgr = StateManager(config.STATE_DIR, paper=config.PAPER_TRADING)
+    # ── Pre-flight ───────────────────────────────────────────────
+    if not is_weekday():
+        logger.warning("Weekend. Market closed. Exiting.")
+        return
+    if datetime.now().hour >= 16:
+        logger.warning("After 16:00. Market closed. Exiting.")
+        return
+
+    # ── Phase 0: QApplication + Kiwoom Login ─────────────────────
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication(sys.argv)
+
+    from api.kiwoom_connector import create_loggedin_kiwoom
+    from data.kiwoom_provider import Gen4KiwoomProvider
+    from runtime.order_executor import OrderExecutor
+    from runtime.order_tracker import OrderTracker
+    from core.state_manager import StateManager
+    from core.portfolio_manager import PortfolioManager
+    from risk.exposure_guard import ExposureGuard
+    from strategy.trail_stop import check_trail_stop, calc_trail_stop_price
+    from strategy.factor_ranker import load_target_portfolio
+    from report.reporter import TradeLogger
+
+    kiwoom, server_type = create_loggedin_kiwoom()
+    is_paper = (server_type == "MOCK") or config.PAPER_TRADING
+    provider = Gen4KiwoomProvider(kiwoom, str(config.SECTOR_MAP))
+
+    tracker = OrderTracker()
+    trade_logger = TradeLogger(config.REPORT_DIR)
+    executor = OrderExecutor(provider, tracker, trade_logger, paper=is_paper)
+
+    logger.info(f"Mode: {'PAPER' if is_paper else 'LIVE'}")
+
+    # ── Phase 1: State Restore + Broker Sync ─────────────────────
+    state_mgr = StateManager(config.STATE_DIR, paper=is_paper)
     portfolio = PortfolioManager(
-        config.INITIAL_CASH,
-        config.DAILY_DD_LIMIT,
-        config.MONTHLY_DD_LIMIT,
-        config.N_STOCKS,
-    )
+        config.INITIAL_CASH, config.DAILY_DD_LIMIT,
+        config.MONTHLY_DD_LIMIT, config.N_STOCKS)
     guard = ExposureGuard(config.DAILY_DD_LIMIT, config.MONTHLY_DD_LIMIT)
 
-    # Restore state
     saved = state_mgr.load_portfolio()
     if saved:
         portfolio.restore_from_dict(saved)
-        logger.info(f"Restored: {len(portfolio.positions)} positions")
+        logger.info(f"Restored: {len(portfolio.positions)} positions, cash={portfolio.cash:,.0f}")
 
-    # Check rebalance
+    # Broker reconciliation
+    _reconcile_with_broker(portfolio, provider, logger)
+
+    # ── Phase 2: Rebalance Check ─────────────────────────────────
     runtime = state_mgr.load_runtime()
     last_rebal = runtime.get("last_rebalance_date", "")
-    rebal_count = runtime.get("rebalance_count", 0)
-
-    # Simple rebalance check: different month from last rebalance
     today_str = date.today().strftime("%Y%m%d")
     need_rebalance = (not last_rebal or last_rebal[:6] != today_str[:6])
 
     if need_rebalance:
-        logger.info("Rebalance day detected")
+        logger.info("=" * 40)
+        logger.info("  REBALANCE DAY")
+        logger.info("=" * 40)
+
         target = load_target_portfolio(config.SIGNALS_DIR)
         if target:
-            logger.info(f"Target portfolio loaded: {len(target['target_tickers'])} stocks")
-            # Check risk
-            allowed, reason = guard.can_buy(
-                portfolio.get_daily_pnl_pct(),
-                portfolio.get_monthly_dd_pct(),
-            )
-            if allowed:
-                _execute_rebalance(portfolio, target, config, logger)
-                state_mgr.set_last_rebalance_date(today_str)
-            else:
-                logger.warning(f"Rebalance buys blocked: {reason}")
-                # Still do sells (remove non-target positions)
-                logger.info("Executing sells only (buys blocked)")
+            data_date = target.get("date", "?")
+            logger.info(f"Target loaded: {len(target['target_tickers'])} stocks (data: {data_date})")
+
+            # Warn stale target
+            try:
+                if abs(int(today_str) - int(data_date)) > 5:
+                    logger.warning(f"Target is stale ({data_date})! Run --batch to refresh.")
+            except (ValueError, TypeError):
+                pass
+
+            # Risk check
+            skip_buys, reason = guard.should_skip_rebalance(
+                portfolio.get_daily_pnl_pct(), portfolio.get_monthly_dd_pct())
+
+            _execute_rebalance_live(
+                portfolio, target, config, executor, provider,
+                trade_logger, skip_buys, logger)
+
+            state_mgr.set_last_rebalance_date(today_str)
+            state_mgr.save_portfolio(portfolio.to_dict())
+            logger.info("Rebalance done. State saved.")
         else:
-            logger.warning("No target portfolio found. Run --batch first.")
+            logger.error("No target portfolio! Run: python main.py --batch")
+    else:
+        logger.info(f"Not rebalance day (last: {last_rebal})")
 
-    # Monitor loop
-    logger.info("Starting trail stop monitor (60s interval)...")
-    while True:
-        now = datetime.now()
-        if now.hour >= 15 and now.minute >= 20:
-            break  # EOD
+    # ── Phase 3: Trail Stop Monitor ──────────────────────────────
+    n_pos = len(portfolio.positions)
+    if n_pos == 0:
+        logger.info("No positions. Skipping monitor.")
+    else:
+        logger.info(f"Trail stop monitor: {n_pos} positions, 60s interval. Ctrl+C to stop.")
 
-        # TODO: Get live prices from Kiwoom
-        # For now, just log
-        summary = portfolio.summary()
-        logger.info(f"Monitor: equity={summary['equity']:,.0f}, "
-                     f"positions={summary['n_positions']}, "
-                     f"daily={summary['daily_pnl']:.2%}")
+        try:
+            cycle = 0
+            while True:
+                now = datetime.now()
+                if now.hour >= 15 and now.minute >= 20:
+                    break
+                if now.hour < 9:
+                    time.sleep(60)
+                    continue
 
-        time.sleep(60)
+                # Get live prices
+                prices = {}
+                for code in list(portfolio.positions.keys()):
+                    p = executor.get_live_price(code)
+                    if p > 0:
+                        prices[code] = p
+                portfolio.update_prices(prices)
 
-    # EOD
+                # Check trail stops
+                for code in list(portfolio.positions.keys()):
+                    pos = portfolio.positions.get(code)
+                    if not pos:
+                        continue
+                    if pos.current_price <= 0:
+                        continue
+
+                    triggered, new_hwm, exit_price = check_trail_stop(
+                        pos.high_watermark, pos.current_price, config.TRAIL_PCT)
+                    pos.high_watermark = new_hwm
+                    pos.trail_stop_price = calc_trail_stop_price(new_hwm, config.TRAIL_PCT)
+
+                    if triggered:
+                        logger.warning(f"TRAIL STOP {code}: hwm={new_hwm:,.0f}, "
+                                        f"price={pos.current_price:,.0f}")
+                        result = executor.execute_sell(code, pos.quantity, "TRAIL_STOP")
+                        if not result.get("error"):
+                            fill_price = result["exec_price"] or pos.current_price
+                            trade = portfolio.remove_position(code, fill_price, config.SELL_COST)
+                            if trade:
+                                trade["exit_reason"] = "TRAIL_STOP"
+                                trade_logger.log_close(trade, "TRAIL_STOP",
+                                                        "PAPER" if is_paper else "LIVE")
+
+                # Periodic logging + save
+                cycle += 1
+                if cycle % 5 == 0:  # every 5 minutes
+                    summary = portfolio.summary()
+                    logger.info(f"Monitor: equity={summary['equity']:,.0f}, "
+                                 f"pos={summary['n_positions']}, "
+                                 f"daily={summary['daily_pnl']:.2%}, "
+                                 f"risk={summary['risk_mode']}")
+                    trade_logger.log_equity(
+                        summary["equity"], summary["cash"],
+                        summary["n_positions"],
+                        summary["daily_pnl"], summary["monthly_dd"])
+                    state_mgr.save_portfolio(portfolio.to_dict())
+
+                time.sleep(60)
+
+        except KeyboardInterrupt:
+            logger.info("Interrupted (Ctrl+C)")
+
+    # ── Phase 4: EOD ─────────────────────────────────────────────
     portfolio.end_of_day()
     state_mgr.save_portfolio(portfolio.to_dict())
-    logger.info("EOD complete. State saved.")
+
+    summary = portfolio.summary()
+    trade_logger.log_equity(
+        summary["equity"], summary["cash"], summary["n_positions"],
+        summary["daily_pnl"], summary["monthly_dd"])
+
+    # Order summary
+    order_sum = tracker.summary()
+    logger.info(f"Orders: {order_sum}")
+
+    # Ghost check
+    ghosts = provider.get_ghost_orders()
+    if ghosts:
+        logger.critical(f"GHOST ORDERS: {len(ghosts)} unresolved! Check HTS!")
+        for g in ghosts:
+            logger.critical(f"  {g['side']} {g['code']} qty={g['requested_qty']} status={g['status']}")
+
+    provider.shutdown()
+    logger.info("=" * 40)
+    logger.info("  EOD complete.")
+    logger.info("=" * 40)
+
+    try:
+        app.quit()
+    except Exception:
+        pass
 
 
-def _execute_rebalance(portfolio, target, config, logger):
-    """Execute rebalance orders."""
+def _reconcile_with_broker(portfolio, provider, logger):
+    """Compare internal state with broker holdings."""
+    summary = provider.query_account_summary()
+    if summary.get("error") and summary["error"] not in ("", "empty_account"):
+        logger.warning(f"Broker sync failed: {summary['error']}")
+        return
+
+    # Update cash from broker
+    broker_cash = summary.get("available_cash", 0)
+    if broker_cash > 0:
+        old_cash = portfolio.cash
+        portfolio.cash = broker_cash
+        logger.info(f"Cash synced: {old_cash:,.0f} -> {broker_cash:,.0f}")
+
+    # Update prices from broker
+    broker_holdings = {h["code"]: h for h in summary.get("holdings", [])}
+    for code, h in broker_holdings.items():
+        if code in portfolio.positions and h.get("cur_price", 0) > 0:
+            portfolio.positions[code].current_price = h["cur_price"]
+
+    # Log mismatches
+    internal = set(portfolio.positions.keys())
+    broker = set(broker_holdings.keys())
+    engine_only = internal - broker
+    broker_only = broker - internal
+    if engine_only:
+        logger.warning(f"ENGINE-ONLY (not in broker): {engine_only}")
+    if broker_only:
+        logger.warning(f"BROKER-ONLY (not in engine): {broker_only}")
+
+    for code in internal & broker:
+        eng_qty = portfolio.positions[code].quantity
+        brk_qty = broker_holdings[code]["qty"]
+        if eng_qty != brk_qty:
+            logger.warning(f"QTY MISMATCH {code}: engine={eng_qty}, broker={brk_qty}")
+
+
+def _execute_rebalance_live(portfolio, target, config, executor, provider,
+                             trade_logger, skip_buys, logger):
+    """Execute rebalance with live Kiwoom orders."""
     from strategy.rebalancer import compute_orders
 
     target_tickers = target["target_tickers"]
-    current = {code: {"qty": pos.quantity, "avg_price": pos.avg_price}
-               for code, pos in portfolio.positions.items()}
 
-    # Get current prices (TODO: from Kiwoom)
-    prices = {code: pos.current_price for code, pos in portfolio.positions.items()}
+    # Get live prices for all involved stocks
+    all_codes = set(portfolio.positions.keys()) | set(target_tickers)
+    prices = {}
+    for code in all_codes:
+        p = executor.get_live_price(code)
+        if p > 0:
+            prices[code] = p
+    portfolio.update_prices(prices)
+
+    is_paper = executor.paper
+    mode_str = "PAPER" if is_paper else "LIVE"
 
     sell_orders, buy_orders = compute_orders(
-        current, target_tickers,
-        portfolio.get_current_equity(),
-        portfolio.cash,
-        config.BUY_COST,
-        prices,
-    )
+        current={code: {"qty": pos.quantity, "avg_price": pos.avg_price}
+                 for code, pos in portfolio.positions.items()},
+        target_tickers=target_tickers,
+        total_equity=portfolio.get_current_equity(),
+        current_cash=portfolio.cash,
+        buy_cost=config.BUY_COST,
+        prices=prices)
 
-    # Execute sells
+    # ── Execute Sells First ──────────────────────────────────────
+    logger.info(f"Sells: {len(sell_orders)} orders")
     for order in sell_orders:
-        price = prices.get(order.ticker, 0)
-        if price > 0:
-            trade = portfolio.remove_position(order.ticker, price, config.SELL_COST)
+        result = executor.execute_sell(order.ticker, order.quantity, "REBALANCE_EXIT")
+        if not result.get("error"):
+            fill_price = result["exec_price"] or prices.get(order.ticker, 0)
+            trade = portfolio.remove_position(order.ticker, fill_price, config.SELL_COST)
             if trade:
-                logger.info(f"  SELL {order.ticker}: pnl={trade['pnl_pct']:+.2%}")
+                trade["exit_reason"] = "REBALANCE_EXIT"
+                trade_logger.log_close(trade, "REBALANCE_EXIT", mode_str)
+        else:
+            logger.error(f"SELL failed {order.ticker}: {result['error']}")
 
-    # Execute buys
+    time.sleep(2)  # Brief pause between sells and buys
+
+    # ── Execute Buys ─────────────────────────────────────────────
+    if skip_buys:
+        logger.warning("Buys BLOCKED by DD guard. Sells completed only.")
+        return
+
+    logger.info(f"Buys: {len(buy_orders)} orders")
     for order in buy_orders:
-        # TODO: Get live price from Kiwoom
-        logger.info(f"  BUY {order.ticker}: qty={order.quantity}, "
-                     f"target={order.target_amount:,.0f}")
+        live_price = executor.get_live_price(order.ticker)
+        if live_price <= 0:
+            logger.warning(f"No price for {order.ticker}, skip")
+            continue
+
+        # Recalculate qty with fresh price
+        qty = int(order.target_amount / (live_price * (1 + config.BUY_COST)))
+        if qty <= 0:
+            continue
+
+        result = executor.execute_buy(order.ticker, qty, "REBALANCE_ENTRY")
+        if not result.get("error"):
+            fill_price = result["exec_price"] or live_price
+            portfolio.add_position(
+                order.ticker, result["exec_qty"], fill_price,
+                entry_date=str(date.today()))
+        else:
+            logger.error(f"BUY failed {order.ticker}: {result['error']}")
+
+    trade_logger.log_rebalance_summary(len(sell_orders), len(buy_orders),
+                                        portfolio.get_current_equity())
 
 
 # ── Mock Mode ────────────────────────────────────────────────────────────────
 def run_mock(config):
-    """Mock mode: test state save/load cycle without broker."""
+    """Mock mode: test state + target + reporter without broker."""
     from core.state_manager import StateManager
     from core.portfolio_manager import PortfolioManager
+    from strategy.factor_ranker import load_target_portfolio
+    from report.reporter import TradeLogger
 
     logger = logging.getLogger("gen4.mock")
     logger.info("=" * 60)
@@ -235,17 +436,36 @@ def run_mock(config):
 
     state_mgr = StateManager(config.STATE_DIR, paper=True)
     portfolio = PortfolioManager(config.INITIAL_CASH)
+    trade_logger = TradeLogger(config.REPORT_DIR)
 
-    # Restore
     saved = state_mgr.load_portfolio()
     if saved:
         portfolio.restore_from_dict(saved)
+        logger.info(f"Restored: {len(portfolio.positions)} positions")
 
-    logger.info(f"Portfolio: {portfolio.summary()}")
+    target = load_target_portfolio(config.SIGNALS_DIR)
+    if target:
+        logger.info(f"Target: {len(target['target_tickers'])} stocks (date: {target.get('date', '?')})")
+        for i, tk in enumerate(target["target_tickers"][:5], 1):
+            s = target["scores"].get(tk, {})
+            logger.info(f"  {i}. {tk}  mom={s.get('mom_12_1',0):.4f}")
+        if len(target["target_tickers"]) > 5:
+            logger.info(f"  ... and {len(target['target_tickers'])-5} more")
+    else:
+        logger.info("No target portfolio. Run --batch first.")
 
-    # Save
+    summary = portfolio.summary()
+    logger.info(f"Portfolio: equity={summary['equity']:,.0f}, "
+                 f"cash={summary['cash']:,.0f}, pos={summary['n_positions']}, "
+                 f"risk={summary['risk_mode']}")
+
+    # Log equity snapshot
+    trade_logger.log_equity(
+        summary["equity"], summary["cash"], summary["n_positions"],
+        summary["daily_pnl"], summary["monthly_dd"])
+
     state_mgr.save_portfolio(portfolio.to_dict())
-    logger.info("Mock mode complete.")
+    logger.info("State saved. Mock complete.")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -257,8 +477,8 @@ def main():
     group.add_argument("--rebalance", action="store_true", help="Force rebalance now")
     group.add_argument("--backtest", action="store_true", help="Run backtester")
     group.add_argument("--mock", action="store_true", help="Mock mode (test)")
-    parser.add_argument("--start", default="2019-01-02", help="Backtest start date")
-    parser.add_argument("--end", default="2026-03-20", help="Backtest end date")
+    parser.add_argument("--start", default="2019-01-02")
+    parser.add_argument("--end", default="2026-03-20")
     args = parser.parse_args()
 
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -282,7 +502,6 @@ def main():
         run_mock(config)
     elif args.rebalance:
         setup_logging(config.LOG_DIR, "rebalance")
-        logging.getLogger("gen4").info("Force rebalance — running live mode with rebalance flag")
         run_live(config)
 
 

@@ -93,6 +93,15 @@ class TradeLogger:
         ]
         self._append(self._equity_file, row)
 
+    def log_rebalance_summary(self, sells: int, buys: int, equity: float):
+        """Log rebalance event marker."""
+        row = [
+            date.today().strftime("%Y-%m-%d"),
+            "REBALANCE", "SUMMARY", f"sells={sells}", f"buys={buys}",
+            f"{equity:.2f}", "0.00", "LIVE",
+        ]
+        self._append(self._trades_file, row)
+
     def _append(self, path: Path, row: list):
         try:
             with open(path, "a", newline="", encoding="utf-8-sig") as f:

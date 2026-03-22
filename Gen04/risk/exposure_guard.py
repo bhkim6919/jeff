@@ -72,16 +72,14 @@ class ExposureGuard:
 
     def should_skip_rebalance(self, daily_pnl: float, monthly_dd: float) -> tuple:
         """
-        Check if rebalance should be skipped entirely.
-        Note: sells (removing positions) are always allowed.
-        Only new buys are blocked.
+        Check if rebalance buys should be skipped.
+        Note: sells (removing positions) are ALWAYS allowed.
+        Only new buys are blocked when DD limits exceeded.
 
         Returns:
             (skip_buys: bool, reason: str)
         """
-        return self.can_buy(daily_pnl, monthly_dd) == (False,)  # never True
-        # Actually: sells always proceed, only buys blocked
-        mode = self.evaluate(daily_pnl, monthly_dd)
-        if mode != "NORMAL":
-            return True, f"Buys blocked: {mode}"
+        allowed, reason = self.can_buy(daily_pnl, monthly_dd)
+        if not allowed:
+            return True, f"Buys blocked: {reason}"
         return False, "OK"
