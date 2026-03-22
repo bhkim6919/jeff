@@ -211,12 +211,18 @@ def run_live(config):
     else:
         logger.info(f"Not rebalance day (last: {last_rebal})")
 
-    # ── Phase 3: Trail Stop Monitor ──────────────────────────────
+    # ── Phase 3: Monitor Loop (HWM update + trail warning only) ────
+    #    Trail stop EXECUTION happens at EOD (Phase 4) to match backtest
+    #    (backtest uses daily close; live must also use EOD close).
+    #    Intraday: update HWM, warn if near trigger, but do NOT execute.
+    trail_warnings = set()  # codes warned during intraday
+
     n_pos = len(portfolio.positions)
     if n_pos == 0:
         logger.info("No positions. Skipping monitor.")
     else:
-        logger.info(f"Trail stop monitor: {n_pos} positions, 60s interval. Ctrl+C to stop.")
+        logger.info(f"Monitor: {n_pos} positions, 60s interval. Ctrl+C to stop.")
+        logger.info("Trail stops evaluated at EOD close (matching backtest).")
 
         try:
             cycle = 0
@@ -228,7 +234,7 @@ def run_live(config):
                     time.sleep(60)
                     continue
 
-                # Get live prices
+                # Get live prices + update HWM (but do NOT trigger exits)
                 prices = {}
                 for code in list(portfolio.positions.keys()):
                     p = executor.get_live_price(code)
@@ -236,34 +242,32 @@ def run_live(config):
                         prices[code] = p
                 portfolio.update_prices(prices)
 
-                # Check trail stops
+                # Intraday: HWM update + trail proximity warning
                 for code in list(portfolio.positions.keys()):
                     pos = portfolio.positions.get(code)
-                    if not pos:
-                        continue
-                    if pos.current_price <= 0:
+                    if not pos or pos.current_price <= 0:
                         continue
 
-                    triggered, new_hwm, exit_price = check_trail_stop(
-                        pos.high_watermark, pos.current_price, config.TRAIL_PCT)
-                    pos.high_watermark = new_hwm
-                    pos.trail_stop_price = calc_trail_stop_price(new_hwm, config.TRAIL_PCT)
+                    # Update HWM only (no trigger)
+                    if pos.current_price > pos.high_watermark:
+                        pos.high_watermark = pos.current_price
+                    pos.trail_stop_price = calc_trail_stop_price(
+                        pos.high_watermark, config.TRAIL_PCT)
 
-                    if triggered:
-                        logger.warning(f"TRAIL STOP {code}: hwm={new_hwm:,.0f}, "
-                                        f"price={pos.current_price:,.0f}")
-                        result = executor.execute_sell(code, pos.quantity, "TRAIL_STOP")
-                        if not result.get("error"):
-                            fill_price = result["exec_price"] or pos.current_price
-                            trade = portfolio.remove_position(code, fill_price, config.SELL_COST)
-                            if trade:
-                                trade["exit_reason"] = "TRAIL_STOP"
-                                trade_logger.log_close(trade, "TRAIL_STOP",
-                                                        "PAPER" if is_paper else "LIVE")
+                    # Warn if within 2% of trail trigger
+                    if pos.high_watermark > 0:
+                        dd = (pos.current_price - pos.high_watermark) / pos.high_watermark
+                        if dd <= -(config.TRAIL_PCT - 0.02) and code not in trail_warnings:
+                            trail_warnings.add(code)
+                            logger.warning(
+                                f"TRAIL WARNING {code}: dd={dd:.2%}, "
+                                f"hwm={pos.high_watermark:,.0f}, "
+                                f"price={pos.current_price:,.0f}, "
+                                f"trigger={pos.trail_stop_price:,.0f}")
 
                 # Periodic logging + save
                 cycle += 1
-                if cycle % 5 == 0:  # every 5 minutes
+                if cycle % 5 == 0:
                     summary = portfolio.summary()
                     logger.info(f"Monitor: equity={summary['equity']:,.0f}, "
                                  f"pos={summary['n_positions']}, "
@@ -280,7 +284,39 @@ def run_live(config):
         except KeyboardInterrupt:
             logger.info("Interrupted (Ctrl+C)")
 
-    # ── Phase 4: EOD ─────────────────────────────────────────────
+    # ── Phase 4: EOD — Trail Stop Execution (close-based) ────────
+    #    Evaluate trail stops using EOD close prices.
+    #    This matches backtest behavior exactly.
+    logger.info("EOD: evaluating trail stops on close prices...")
+
+    # Final price update (EOD close)
+    for code in list(portfolio.positions.keys()):
+        p = executor.get_live_price(code)
+        if p > 0:
+            portfolio.positions[code].current_price = p
+
+    # Trail stop check (close-based, same as backtest)
+    for code in list(portfolio.positions.keys()):
+        pos = portfolio.positions.get(code)
+        if not pos or pos.current_price <= 0:
+            continue
+
+        triggered, new_hwm, exit_price = check_trail_stop(
+            pos.high_watermark, pos.current_price, config.TRAIL_PCT)
+        pos.high_watermark = new_hwm
+
+        if triggered:
+            logger.warning(f"TRAIL STOP TRIGGERED {code}: hwm={new_hwm:,.0f}, "
+                            f"close={pos.current_price:,.0f}")
+            result = executor.execute_sell(code, pos.quantity, "TRAIL_STOP")
+            if not result.get("error"):
+                fill_price = result["exec_price"] or pos.current_price
+                trade = portfolio.remove_position(code, fill_price, config.SELL_COST)
+                if trade:
+                    trade["exit_reason"] = "TRAIL_STOP"
+                    trade_logger.log_close(trade, "TRAIL_STOP",
+                                            "PAPER" if is_paper else "LIVE")
+
     portfolio.end_of_day()
     state_mgr.save_portfolio(portfolio.to_dict())
 
@@ -368,8 +404,8 @@ def _execute_rebalance_live(portfolio, target, config, executor, provider,
     mode_str = "PAPER" if is_paper else "LIVE"
 
     sell_orders, buy_orders = compute_orders(
-        current={code: {"qty": pos.quantity, "avg_price": pos.avg_price}
-                 for code, pos in portfolio.positions.items()},
+        current_positions={code: {"qty": pos.quantity, "avg_price": pos.avg_price}
+                           for code, pos in portfolio.positions.items()},
         target_tickers=target_tickers,
         total_equity=portfolio.get_current_equity(),
         current_cash=portfolio.cash,

@@ -4,9 +4,12 @@ scoring.py — SHARED factor calculation module
 Backtest, batch, and live use this IDENTICAL code.
 DO NOT duplicate these formulas anywhere else.
 
-Formulas (from validated backtest_gen4_core.py):
-  vol_12m  = daily_returns[-252:].std() * sqrt(252)
-  mom_12_1 = price[t-21] / price[t-252] - 1
+Formulas (from validated validate_gen4.py):
+  vol_12m  = np.std(daily_returns[-252:])   # raw std, NOT annualized
+  mom_12_1 = price[t-22] / price[t-252] - 1  # skip last 22 trading days
+
+Note: raw std is sufficient for cross-sectional ranking (relative ordering).
+      Annualization would not change the rank order.
 """
 from __future__ import annotations
 from math import sqrt
@@ -18,17 +21,12 @@ import pandas as pd
 
 def calc_volatility(close_series: pd.Series, lookback: int = 252) -> float:
     """
-    12-month volatility (raw std of daily returns, NOT annualized).
+    12-month volatility: raw std of daily returns (NOT annualized).
 
-    Args:
-        close_series: Daily close prices (must have at least `lookback` rows).
-        lookback: Number of trading days (default 252 = 1 year).
+    Formula: np.std(price_returns[-lookback:])
+    Cross-sectional ranking only needs relative ordering.
 
-    Returns:
-        Raw std of daily returns (float), or NaN if insufficient data.
-
-    Matches validate_gen4.py: np.std(rets) — cross-sectional ranking
-    only needs relative ordering, so annualization is unnecessary.
+    Returns NaN if insufficient data (<lookback or <10 valid returns).
     """
     if len(close_series) < lookback:
         return float("nan")

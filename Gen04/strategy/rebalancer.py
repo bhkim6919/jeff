@@ -61,7 +61,7 @@ def compute_orders(current_positions: Dict[str, dict],
                    target_tickers: List[str],
                    total_equity: float,
                    current_cash: float,
-                   buy_cost: float = 0.0065,
+                   buy_cost: float,
                    prices: Optional[Dict[str, float]] = None) -> Tuple[List[RebalOrder], List[RebalOrder]]:
     """
     Generate sell and buy orders for rebalance.

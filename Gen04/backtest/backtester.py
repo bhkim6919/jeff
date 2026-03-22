@@ -197,7 +197,9 @@ def run_backtest(close, opn, high, low, vol, idx_close, dates,
                 sdf = pd.DataFrame(scored)
                 vol_thresh = sdf["vol"].quantile(config.VOL_PERCENTILE)
                 low_vol = sdf[sdf["vol"] <= vol_thresh]
-                top = low_vol.sort_values("mom", ascending=False).head(config.N_STOCKS)
+                # Positive momentum only (must match factor_ranker.py)
+                candidates = low_vol[low_vol["mom"] > 0]
+                top = candidates.sort_values("mom", ascending=False).head(config.N_STOCKS)
                 target_codes = set(top["tk"].tolist())
 
                 # ── Sell non-targets ──────────────────────────────
@@ -235,13 +237,14 @@ def run_backtest(close, opn, high, low, vol, idx_close, dates,
                         p = pm.get(tk, float(close[tk].iloc[i]))
                         if p <= 0:
                             continue
-                        ep = p * (1 + config.BUY_COST)
-                        qty = int(min(per_pos, cash * 0.95) / (ep * (1 + config.FEE)))
-                        if qty <= 0 or qty * ep * (1 + config.FEE) > cash:
+                        # BUY_COST includes fee+slippage. No double-counting.
+                        gross_price = p * (1 + config.BUY_COST)
+                        qty = int(min(per_pos, cash * 0.95) / gross_price)
+                        if qty <= 0 or qty * gross_price > cash:
                             continue
-                        cash -= qty * ep * (1 + config.FEE)
-                        positions[tk] = dict(qty=qty, entry_price=ep,
-                                             entry_idx=i, high_wm=ep)
+                        cash -= qty * gross_price
+                        positions[tk] = dict(qty=qty, entry_price=gross_price,
+                                             entry_idx=i, high_wm=gross_price)
 
         # ── Equity snapshot ──────────────────────────────────────────
         pv = cash
