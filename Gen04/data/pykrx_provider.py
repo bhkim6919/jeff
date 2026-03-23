@@ -24,7 +24,17 @@ _API_DELAY = 0.3
 
 
 def _today() -> str:
-    return datetime.today().strftime("%Y%m%d")
+    """Last business day with available data.
+
+    KRX returns empty for weekends/holidays, and for the current day
+    before market close (~15:30). Use previous business day if before 16:00.
+    """
+    d = datetime.today()
+    if d.hour < 16:
+        d -= timedelta(days=1)
+    while d.weekday() >= 5:  # 5=Sat, 6=Sun
+        d -= timedelta(days=1)
+    return d.strftime("%Y%m%d")
 
 
 def _n_days_ago(n: int) -> str:
@@ -75,16 +85,41 @@ def get_stock_ohlcv(code: str, days: int = 400) -> Optional[pd.DataFrame]:
         return None
 
 
-def get_stock_list(market: str = "KOSPI") -> List[str]:
-    """Get list of tickers for a market."""
-    if krx is None:
-        return []
-    try:
-        tickers = krx.get_market_ticker_list(_today(), market=market)
-        return tickers if tickers else []
-    except Exception as e:
-        logger.warning(f"Failed to get ticker list: {e}")
-        return []
+def get_stock_list(market: str = "KOSPI",
+                   ohlcv_dir: Optional[Path] = None) -> List[str]:
+    """Get list of tickers for a market.
+
+    Tries pykrx first; if broken (known issue with pykrx<=1.0.51 and
+    KRX API changes in 2026), falls back to existing CSV filenames.
+    """
+    # Try pykrx
+    if krx is not None:
+        d = datetime.today()
+        if d.hour < 16:
+            d -= timedelta(days=1)
+        for _ in range(3):
+            while d.weekday() >= 5:
+                d -= timedelta(days=1)
+            date_str = d.strftime("%Y%m%d")
+            try:
+                tickers = krx.get_market_ticker_list(date_str, market=market)
+                if tickers:
+                    logger.info(f"pykrx ticker list: {len(tickers)} ({market})")
+                    return tickers
+            except Exception:
+                pass
+            d -= timedelta(days=1)
+        logger.warning("pykrx get_market_ticker_list failed (KRX API issue)")
+
+    # Fallback: CSV directory
+    if ohlcv_dir and ohlcv_dir.exists():
+        tickers = sorted(f.stem for f in ohlcv_dir.glob("*.csv"))
+        if tickers:
+            logger.info(f"Ticker list from CSV fallback: {len(tickers)} stocks")
+            return tickers
+
+    logger.warning("No ticker source available")
+    return []
 
 
 def get_index_ohlcv(days: int = 400) -> Optional[pd.DataFrame]:

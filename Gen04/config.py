@@ -23,6 +23,7 @@ class Gen4Config:
 
     # Rebalance
     REBAL_DAYS: int = 21             # monthly (21 trading days)
+    TARGET_MAX_STALE_DAYS: int = 3   # max calendar days before target is rejected
 
     # Trailing stop
     TRAIL_PCT: float = 0.12          # -12% from high watermark
@@ -40,7 +41,7 @@ class Gen4Config:
     # NO forced liquidation. Trail stop handles exits.
 
     # ── Capital ──────────────────────────────────────────────────────
-    INITIAL_CASH: int = 100_000_000
+    INITIAL_CASH: int = 500_000_000
 
     # ── Universe filters ─────────────────────────────────────────────
     UNIV_MIN_CLOSE: int = 2000       # minimum close price (KRW)

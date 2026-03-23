@@ -96,7 +96,17 @@ def build_target_portfolio(close_dict: Dict[str, pd.Series],
     valid = scores_df.dropna(subset=["vol_12m", "mom_12_1"])
     vol_thresh = float(valid["vol_12m"].quantile(config.VOL_PERCENTILE)) if not valid.empty else 0
 
-    dt = target_date or date.today()
+    # Use actual last trading date from data, not today() (avoids weekend/holiday mislabel)
+    if target_date:
+        dt = target_date
+    else:
+        last_dates = [s.index.max() for s in close_dict.values()
+                      if hasattr(s.index, 'max') and len(s) > 0]
+        if last_dates:
+            latest = max(last_dates)
+            dt = latest.date() if hasattr(latest, 'date') else date.today()
+        else:
+            dt = date.today()
     return {
         "date": dt.strftime("%Y%m%d"),
         "target_tickers": target,

@@ -69,7 +69,7 @@ def calc_momentum(close_series: pd.Series,
 def score_universe(close_dict: Dict[str, pd.Series],
                    vol_lookback: int = 252,
                    mom_lookback: int = 252,
-                   mom_skip: int = 21) -> pd.DataFrame:
+                   mom_skip: int = 22) -> pd.DataFrame:
     """
     Score all stocks in the universe.
 

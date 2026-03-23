@@ -43,19 +43,6 @@ def check_trail_stop(high_watermark: float,
     return False, new_hwm, 0.0
 
 
-def update_high_watermarks(positions: dict, highs: dict) -> None:
-    """
-    Batch update high watermarks for all positions (in-place).
-
-    Args:
-        positions: {ticker: position_dict} where each has 'high_watermark' key.
-        highs: {ticker: today_high_price}
-    """
-    for ticker, pos in positions.items():
-        h = highs.get(ticker, 0.0)
-        if h > pos.get("high_watermark", 0.0):
-            pos["high_watermark"] = h
-
 
 def calc_trail_stop_price(high_watermark: float, trail_pct: float = 0.12) -> float:
     """Calculate current trail stop price level."""

@@ -135,6 +135,7 @@ class Gen4KiwoomProvider:
         self._order_state: Dict = self._make_order_state()
         self._order_result: Optional[Dict] = None
         self._ghost_orders: List[Dict] = []
+        self._completed_order_nos: set = set()  # track finished order_nos
 
         self._k.OnReceiveChejanData.connect(self._on_chejan_data)
 
@@ -581,6 +582,8 @@ class Gen4KiwoomProvider:
             self._order_state["status"] = "TIMEOUT_UNCERTAIN"
             ghost = self._order_state.copy()
             self._ghost_orders.append(ghost)
+            if self._order_state["order_no"]:
+                self._completed_order_nos.add(self._order_state["order_no"])
 
             logger.critical(
                 "[TIMEOUT_UNCERTAIN] %s %s %d qty — fill unconfirmed (timeout %ds). "
@@ -598,8 +601,12 @@ class Gen4KiwoomProvider:
         self._order_state["filled_qty"]     = self._order_result["exec_qty"]
         self._order_state["avg_fill_price"] = self._order_result["exec_price"]
 
+        # Track completed order_no to prevent stale chejan contamination
+        if self._order_result["order_no"]:
+            self._completed_order_nos.add(self._order_result["order_no"])
+
         logger.info(
-            "[OrderState] %s %s FILLED %d/%d qty @ %,.0f (order_no=%s)",
+            "[OrderState] %s %s FILLED %d/%d qty @ %.0f (order_no=%s)",
             side, code,
             self._order_state["filled_qty"],
             self._order_state["requested_qty"],
@@ -615,12 +622,11 @@ class Gen4KiwoomProvider:
         OnReceiveChejanData event handler.
         gubun: "0" = order/fill notification, "1" = balance notification
 
-        Matching logic (v7):
-          1) Active order match (order_no -> ticker code fallback)
-          2) Ghost order match (delayed fill after timeout)
-          3) FILLED + same order_no duplicate -> DEBUG (normal)
-          4) Different order_no same ticker conflict -> WARNING
-          5) Other unmatched -> INFO
+        Matching logic (v8 — strict order_no):
+          1) Active order match: strict order_no after capture, ticker fallback before
+          2) FILLED + post-fill events -> silently ignored
+          3) Ghost order match (delayed fill after timeout) -> CRITICAL log
+          4) All other events -> silently dropped (no noise logs)
         """
         if not self._alive or self._shutting_down:
             return
@@ -641,154 +647,125 @@ class Gen4KiwoomProvider:
                 order_status = "체결"
             else:
                 order_status = "접수"
-            logger.debug("[Chejan] FID 913 decode failed (raw=%r) -> fallback: %s", _raw_status, order_status)
 
         exec_qty   = abs(int(exec_qty_raw))   if exec_qty_raw   else 0
         exec_price = abs(float(exec_price_raw)) if exec_price_raw else 0.0
 
         st = self._order_state
 
-        # -- 1. Active order match --
+        # -- 1. Active order match (strict order_no after capture) --
         if st["status"] in ("REQUESTED", "ACCEPTED", "PARTIAL"):
-            matched = False
-
-            if st["order_no"] and order_no:
+            if st["order_no"]:
+                # RULE 2: order_no captured → strict match only
                 if order_no == st["order_no"]:
-                    matched = True
-                else:
-                    logger.debug(
-                        "[Chejan] order_no mismatch (waiting=%s, received=%s, code=%s)",
-                        st["order_no"], order_no, code,
-                    )
-            elif code == st["code"]:
-                matched = True
-                if order_no and not st["order_no"]:
-                    st["order_no"] = order_no
-                    logger.info("[Chejan] order_no captured: %s (code=%s)", order_no, code)
-
-            if matched:
-                self._process_chejan_fill(code, order_no, exec_qty, exec_price, order_status)
+                    self._process_chejan_fill(code, order_no, exec_qty, exec_price, order_status)
+                # else: silently ignore (different order)
+                return
+            else:
+                # RULE 1: order_no not yet captured → match by ticker code
+                # But reject if order_no belongs to a completed/timed-out order
+                if code == st["code"]:
+                    if order_no and order_no in self._completed_order_nos:
+                        return  # stale chejan from previous order
+                    if order_no:
+                        st["order_no"] = order_no
+                        logger.info("[Chejan] order_no captured: %s (code=%s)", order_no, code)
+                    self._process_chejan_fill(code, order_no, exec_qty, exec_price, order_status)
+                # else: wrong ticker, silently ignore
                 return
 
-        # -- 2. FILLED + same order_no duplicate -> normal --
+        # -- 2. FILLED → silently ignore post-fill events --
         if st["status"] == "FILLED":
-            if st["order_no"] and order_no == st["order_no"]:
-                logger.debug(
-                    "[Chejan] post-FILLED duplicate ignored — order_no=%s, code=%s",
-                    order_no, code,
-                )
-                return
-            if code == st["code"]:
-                logger.info(
-                    "[Chejan] post-FILLED same ticker event — "
-                    "code=%s, active_order=%s, received_order=%s",
-                    code, st["order_no"], order_no,
-                )
-                return
+            return
 
         # -- 3. Ghost order match (delayed fill after timeout) --
         for ghost in self._ghost_orders:
             if ghost["status"] not in ("TIMEOUT_PENDING", "TIMEOUT_UNCERTAIN"):
                 continue
-
-            ghost_match = False
+            # Strict: order_no match only (no ticker fallback for ghosts)
             if ghost.get("order_no") and order_no and order_no == ghost["order_no"]:
-                ghost_match = True
-            elif code == ghost["code"]:
-                ghost_match = True
-
-            if ghost_match and exec_qty > 0 and exec_price > 0:
-                ghost["status"]         = "GHOST_FILLED"
-                ghost["filled_qty"]     = exec_qty
-                ghost["avg_fill_price"] = exec_price
-                ghost["order_no"]       = order_no
-
-                logger.critical(
-                    "[GHOST FILL] %s %s %d qty @ %.0f (order_no=%s) — "
-                    "delayed fill after timeout! Internal portfolio NOT updated. "
-                    "Manual HTS check required!",
-                    ghost["side"], code, exec_qty, exec_price, order_no,
-                )
+                if exec_qty > 0 and exec_price > 0:
+                    ghost["status"]         = "GHOST_FILLED"
+                    ghost["filled_qty"]     = exec_qty
+                    ghost["avg_fill_price"] = exec_price
+                    logger.critical(
+                        "[GHOST FILL] %s %s %d qty @ %.0f (order_no=%s) — "
+                        "delayed fill after timeout! Check HTS!",
+                        ghost["side"], code, exec_qty, exec_price, order_no,
+                    )
                 return
-
-        # -- 4. Same ticker different order_no conflict --
-        if code == st["code"] and order_no != st.get("order_no", ""):
-            _conflict_key = f"{code}_{order_no}"
-            if not hasattr(self, '_chejan_conflict_logged'):
-                self._chejan_conflict_logged = set()
-            if _conflict_key not in self._chejan_conflict_logged:
-                self._chejan_conflict_logged.add(_conflict_key)
-                logger.warning(
-                    "[Chejan] same ticker different order_no conflict — "
-                    "active(code=%s, order=%s, status=%s) / received(order=%s, status=%s)",
-                    st["code"], st["order_no"], st["status"], order_no, order_status,
-                )
-            else:
-                logger.debug(
-                    "[Chejan] same ticker conflict repeat (suppressed) — code=%s, order=%s",
-                    code, order_no,
-                )
-            return
-
-        # -- 5. Other unmatched --
-        logger.info(
-            "[Chejan] unmatched event — active(code=%s,status=%s) / received(code=%s,order=%s)",
-            st["code"], st["status"], code, order_no,
-        )
 
     def _process_chejan_fill(self, code: str, order_no: str,
                              exec_qty: int, exec_price: float, order_status: str) -> None:
-        """Process active order fill/partial fill/acceptance."""
+        """Process active order fill/partial fill/acceptance.
+
+        Invariants enforced:
+          0 <= filled <= requested
+          remain = requested - filled >= 0
+        """
         st = self._order_state
+        requested = st["requested_qty"]
 
         if exec_qty > 0 and exec_price > 0:
-            if self._order_result is not None:
-                # Partial fill: accumulate
-                prev_qty   = self._order_result["exec_qty"]
-                prev_price = self._order_result["exec_price"]
-                total_qty  = prev_qty + exec_qty
-                avg_price  = (prev_price * prev_qty + exec_price * exec_qty) / total_qty
-                self._order_result["exec_qty"]  = total_qty
-                self._order_result["exec_price"] = avg_price
+            prev_qty   = self._order_result["exec_qty"]   if self._order_result else 0
+            prev_price = self._order_result["exec_price"] if self._order_result else 0.0
 
-                st["status"]         = "PARTIAL"
-                st["filled_qty"]     = total_qty
-                st["avg_fill_price"] = avg_price
-
-                remain = st["requested_qty"] - total_qty
-                logger.info(
-                    "[PARTIAL] %s %s filled=%d/%d remain=%d avg=%,.0f last_qty=%d last_price=%,.0f (order_no=%s)",
-                    st["side"], code, total_qty, st["requested_qty"], remain,
-                    avg_price, exec_qty, exec_price, order_no,
+            # -- Overfill guard --
+            remaining = max(0, requested - prev_qty)
+            if remaining <= 0:
+                logger.warning(
+                    "[OVERFILL IGNORED] %s %s already filled %d/%d, ignoring +%d (order_no=%s)",
+                    st["side"], code, prev_qty, requested, exec_qty, order_no,
                 )
+                return
+
+            usable_qty = min(exec_qty, remaining)
+            if usable_qty <= 0:
+                return
+
+            # -- Accumulate (using usable_qty only) --
+            new_filled = prev_qty + usable_qty
+            if new_filled > 0 and prev_qty > 0:
+                avg_price = (prev_price * prev_qty + exec_price * usable_qty) / new_filled
             else:
+                avg_price = exec_price
+
+            # -- Enforce invariant: filled = min(new_filled, requested) --
+            filled = min(new_filled, requested)
+            remain = max(0, requested - filled)
+
+            if self._order_result is None:
                 self._order_result = {
                     "order_no":   order_no,
-                    "exec_price": exec_price,
-                    "exec_qty":   exec_qty,
+                    "exec_price": avg_price,
+                    "exec_qty":   filled,
                     "error":      "",
                 }
-                st["status"]         = "PARTIAL" if exec_qty < st["requested_qty"] else "FILLED"
-                st["filled_qty"]     = exec_qty
-                st["avg_fill_price"] = exec_price
-                st["order_no"]       = order_no
-
+                st["order_no"] = order_no
                 logger.info(
-                    "[FILL] %s %s %d qty @ %,.0f (order_no=%s)",
-                    st["side"], code, exec_qty, exec_price, order_no,
+                    "[FILL] %s %s %d qty @ %.0f (order_no=%s)",
+                    st["side"], code, filled, exec_price, order_no,
+                )
+            else:
+                self._order_result["exec_qty"]  = filled
+                self._order_result["exec_price"] = avg_price
+                logger.info(
+                    "[PARTIAL] %s %s filled=%d/%d remain=%d avg=%.0f +%d@%.0f (order_no=%s)",
+                    st["side"], code, filled, requested, remain,
+                    avg_price, usable_qty, exec_price, order_no,
                 )
 
-            # Full fill -> quit loop
-            if self._order_result["exec_qty"] >= st["requested_qty"]:
+            st["filled_qty"]     = filled
+            st["avg_fill_price"] = avg_price
+
+            # -- State transition --
+            if remain == 0:
                 st["status"] = "FILLED"
                 if self._order_loop.isRunning():
                     self._order_loop.quit()
             else:
-                remain = st["requested_qty"] - self._order_result["exec_qty"]
-                logger.info(
-                    "[PARTIAL WAIT] %s %d/%d qty (remaining %d)",
-                    code, self._order_result["exec_qty"], st["requested_qty"], remain,
-                )
+                st["status"] = "PARTIAL"
+                logger.info("[PARTIAL WAIT] %s %d/%d qty (remaining %d)", code, filled, requested, remain)
 
         elif order_status in ("접수", "확인"):
             st["status"] = "ACCEPTED"

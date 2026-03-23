@@ -48,6 +48,7 @@ class Position:
             "high_watermark": self.high_watermark,
             "trail_stop_price": self.trail_stop_price,
             "sector": self.sector,
+            "current_price": self.current_price,
         }
 
     @classmethod
@@ -60,6 +61,7 @@ class Position:
             high_watermark=d.get("high_watermark", d.get("high_wm", 0)),
             trail_stop_price=d.get("trail_stop_price", 0),
             sector=d.get("sector", ""),
+            current_price=d.get("current_price", 0.0),
         )
 
 
@@ -134,18 +136,19 @@ class PortfolioManager:
     # ── Position Management ──────────────────────────────────────────
 
     def add_position(self, code: str, qty: int, price: float,
-                     entry_date: str = "", sector: str = "") -> bool:
-        """Add a new position (BUY)."""
+                     entry_date: str = "", sector: str = "",
+                     buy_cost: float = 0.00115) -> bool:
+        """Add a new position (BUY). Deducts price * qty * (1 + buy_cost) from cash."""
         if code in self.positions:
             logger.warning(f"Position {code} already exists")
             return False
 
-        cost = qty * price
-        if cost > self.cash:
-            logger.warning(f"Insufficient cash for {code}: need {cost:,.0f}, have {self.cash:,.0f}")
+        total_cost = qty * price * (1 + buy_cost)
+        if total_cost > self.cash:
+            logger.warning(f"Insufficient cash for {code}: need {total_cost:,.0f}, have {self.cash:,.0f}")
             return False
 
-        self.cash -= cost
+        self.cash -= total_cost
         self.positions[code] = Position(
             code=code,
             quantity=qty,
@@ -155,7 +158,7 @@ class PortfolioManager:
             sector=sector,
             current_price=price,
         )
-        logger.info(f"BUY {code}: qty={qty}, price={price:,.0f}, cost={cost:,.0f}")
+        logger.info(f"BUY {code}: qty={qty}, price={price:,.0f}, cost={total_cost:,.0f} (fee incl)")
         return True
 
     def remove_position(self, code: str, price: float, sell_cost: float = 0.00295) -> Optional[dict]:
