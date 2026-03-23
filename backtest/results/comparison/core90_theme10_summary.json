@@ -1,0 +1,39 @@
+{
+  "strategy": "Core90+Theme10",
+  "variant": "Core90+Theme10",
+  "params": {
+    "core_weight": 0.9,
+    "theme_weight": 0.1
+  },
+  "period": "2021-01-01 ~ 2026-03-20",
+  "cost": {
+    "buy": 0.00115,
+    "sell": 0.00295
+  },
+  "initial_cash": 100000000,
+  "final_equity": 139738800.08441997,
+  "metrics": {
+    "total_return": 0.3974,
+    "gross_return": 0,
+    "cagr": 0.0683,
+    "mdd": -0.2255,
+    "sharpe": 0.5,
+    "calmar": 0.3,
+    "win_rate": 0,
+    "avg_win": 0,
+    "avg_loss": 0,
+    "payoff": 0,
+    "profit_factor": 0,
+    "n_trades": 0,
+    "avg_hold": 0,
+    "max_loss_trade": 0,
+    "max_win_trade": 0,
+    "exposure": 0.0,
+    "cash_days": 1277,
+    "kospi_return": 0.8645,
+    "excess_return": -0.4672
+  },
+  "exit_counts": {},
+  "verdict": "",
+  "generated": "2026-03-23T01:03:48.065032"
+}

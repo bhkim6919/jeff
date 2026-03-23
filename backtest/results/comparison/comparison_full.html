@@ -1,0 +1,64 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"/>
+<title>Q-TRON 4-Strategy Comparison</title>
+<style>
+body{font-family:'Malgun Gothic',monospace;background:#1a1a2e;color:#e0e0e0;padding:20px;max-width:1200px;margin:0 auto;}
+h1{color:#00d4ff;} h2{color:#ffd700;} h3{color:#aaa;}
+table{border-collapse:collapse;margin:10px 0;width:100%;}
+td,th{border:1px solid #444;padding:8px 12px;text-align:right;}
+th{background:#2a2a4a;}
+.pos{color:#00ff88;font-weight:bold;} .neg{color:#ff4444;font-weight:bold;}
+</style></head><body>
+<h1>Q-TRON 4-Strategy Comparison</h1>
+<p>Period: 20190102 ~ 20260310 (1763 trading days) | Initial: 100,000,000</p>
+<h2>Performance Summary</h2>
+<table>
+<tr><th>Strategy</th><th>Return</th><th>CAGR</th><th>MDD</th><th>Sharpe</th><th>PF</th><th>WinRate</th><th>Trades</th><th>AvgHold</th></tr>
+<tr>
+        <td>Gen2_QScore</td>
+        <td class="neg">-45.2%</td>
+        <td class="neg">-8.2%</td>
+        <td class="neg">-63.8%</td>
+        <td>-0.33</td>
+        <td>0.93</td>
+        <td>26.4%</td>
+        <td>3033</td>
+        <td>9.2</td>
+        </tr><tr>
+        <td>Gen3_RS_Breakout</td>
+        <td class="pos">26.4%</td>
+        <td class="pos">3.4%</td>
+        <td class="neg">-28.9%</td>
+        <td>0.32</td>
+        <td>1.08</td>
+        <td>36.7%</td>
+        <td>1046</td>
+        <td>8.0</td>
+        </tr><tr>
+        <td>Gen4_LowVol_Mom</td>
+        <td class="pos">330.8%</td>
+        <td class="pos">23.2%</td>
+        <td class="neg">-21.9%</td>
+        <td>1.59</td>
+        <td>2.65</td>
+        <td>48.1%</td>
+        <td>680</td>
+        <td>40.6</td>
+        </tr><tr>
+        <td>v7.2b_AvgDown</td>
+        <td class="neg">-62.1%</td>
+        <td class="neg">-12.9%</td>
+        <td class="neg">-65.9%</td>
+        <td>-0.55</td>
+        <td>0.69</td>
+        <td>24.7%</td>
+        <td>596</td>
+        <td>15.4</td>
+        </tr>
+</table>
+<h2>Exit Reasons</h2>
+<h3>Gen2_QScore</h3><table><tr><th>Reason</th><th>Count</th></tr><tr><td>MA20</td><td>2591</td></tr><tr><td>TP</td><td>312</td></tr><tr><td>SL</td><td>112</td></tr><tr><td>EOD</td><td>18</td></tr></table><h3>Gen3_RS_Breakout</h3><table><tr><th>Reason</th><th>Count</th></tr><tr><td>MAX_LOSS_CAP</td><td>613</td></tr><tr><td>TP</td><td>374</td></tr><tr><td>ATR_SL</td><td>46</td></tr><tr><td>MAX_HOLD</td><td>13</td></tr></table><h3>Gen4_LowVol_Mom</h3><table><tr><th>Reason</th><th>Count</th></tr><tr><td>REBAL</td><td>381</td></tr><tr><td>TRAIL</td><td>297</td></tr><tr><td>EOD</td><td>2</td></tr></table><h3>v7.2b_AvgDown</h3><table><tr><th>Reason</th><th>Count</th></tr><tr><td>HARD_STOP</td><td>327</td></tr><tr><td>SL</td><td>142</td></tr><tr><td>MAX_HOLD</td><td>69</td></tr><tr><td>SOFT_STOP</td><td>58</td></tr></table>
+<p style="color:#666;margin-top:30px;">
+Gen2: Q-Score (Tech+Price, Demand=0) | Gen3: RS+Breakout+MAX_LOSS_CAP(-8%)+TP |
+Gen4: LowVol+Mom12-1 Monthly | v7.2b: RS+SL Averaging+No TP+Risk Gates
+</p>
+</body></html>

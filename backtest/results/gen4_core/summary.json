@@ -1,0 +1,43 @@
+{
+  "strategy": "Gen4 Core (LowVol+Mom12-1)",
+  "variant": "Gen4_Core",
+  "params": {
+    "trail": -0.12,
+    "rebal": 21,
+    "n_stocks": 20
+  },
+  "period": "2021-01-01 ~ 2026-03-20",
+  "cost": {
+    "buy": 0.00115,
+    "sell": 0.00295
+  },
+  "initial_cash": 100000000,
+  "final_equity": 145799910.89279997,
+  "metrics": {
+    "total_return": 0.458,
+    "gross_return": 0.5851,
+    "cagr": 0.0772,
+    "mdd": -0.2477,
+    "sharpe": 0.52,
+    "calmar": 0.31,
+    "win_rate": 0.4293,
+    "avg_win": 0.1484,
+    "avg_loss": -0.0782,
+    "payoff": 1.9,
+    "profit_factor": 1.43,
+    "n_trades": 615,
+    "avg_hold": 31.7,
+    "max_loss_trade": -0.2146,
+    "max_win_trade": 2.1972,
+    "exposure": 0.9773,
+    "cash_days": 29,
+    "kospi_return": 0.8645,
+    "excess_return": -0.4065
+  },
+  "exit_counts": {
+    "TRAIL": 331,
+    "REBAL": 284
+  },
+  "verdict": "",
+  "generated": "2026-03-23T01:01:13.653656"
+}

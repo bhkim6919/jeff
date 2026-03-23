@@ -1,8 +1,16 @@
 """
-backtester.py — Gen4 Core backtester
-======================================
+backtester.py — Gen4 Core backtester (stabilized)
+===================================================
 Uses strategy/scoring.py and strategy/trail_stop.py (SAME code as live).
-Must reproduce +472.5% (7yr) within 0.5% tolerance.
+
+Fixes applied (2026-03-23):
+  1. entry_price stores market price (not gross_price) — no double-counting
+  2. Preferred stock filter in load_ohlcv (code[-1] != '0' excluded)
+  3. build_matrices: close-only ffill, open/high/volume NaN-preserved
+  4. Universe filter (min_close, min_amount) applied in scoring loop
+  5. Entry on T+1 open (not T close) via pending_buys
+  6. high_watermark initialized to market price
+  7. Output to backtest/results/gen4_core/
 
 Usage:
     cd Gen04
@@ -27,46 +35,53 @@ from strategy.trail_stop import check_trail_stop
 warnings.filterwarnings("ignore")
 
 
+def is_valid_common_stock(code: str) -> bool:
+    """6-digit numeric code ending in 0 (common stock only)."""
+    return len(code) == 6 and code.isdigit() and code[-1] == '0'
+
+
 # ── Data Loading ─────────────────────────────────────────────────────────────
 def load_ohlcv(ohlcv_dir: Path, min_history: int = 60) -> dict:
-    """Load per-stock OHLCV CSVs."""
+    """Load per-stock OHLCV CSVs. Common stocks only."""
     data = {}
     for f in sorted(ohlcv_dir.glob("*.csv")):
+        code = f.stem
+        if not is_valid_common_stock(code):
+            continue
         try:
             df = pd.read_csv(f, parse_dates=["date"]).sort_values("date").reset_index(drop=True)
             for c in ("open", "high", "low", "close", "volume"):
-                df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+                df[c] = pd.to_numeric(df[c], errors="coerce")
             if len(df) >= min_history:
-                data[f.stem] = df
+                data[code] = df
         except Exception:
             pass
     return data
 
 
 def build_matrices(all_data: dict, dates: pd.Series):
-    """Build aligned price matrices from per-stock DataFrames."""
+    """Build aligned price matrices.
+    Close: ffill for MTM continuity.
+    Open/High/Low/Volume: NO ffill — NaN = not tradable."""
     d = {tk: df.set_index("date") for tk, df in all_data.items()}
-    close = pd.DataFrame({tk: v["close"] for tk, v in d.items()}, index=dates).ffill().fillna(0)
-    opn   = pd.DataFrame({tk: v["open"]  for tk, v in d.items()}, index=dates).ffill().fillna(0)
-    high  = pd.DataFrame({tk: v["high"]  for tk, v in d.items()}, index=dates).ffill().fillna(0)
-    low   = pd.DataFrame({tk: v["low"]   for tk, v in d.items()}, index=dates).ffill().fillna(0)
-    vol   = pd.DataFrame({tk: v["volume"]for tk, v in d.items()}, index=dates).ffill().fillna(0)
+    close = pd.DataFrame({tk: v["close"] for tk, v in d.items()}, index=dates).ffill()
+    opn   = pd.DataFrame({tk: v["open"]  for tk, v in d.items()}, index=dates)
+    high  = pd.DataFrame({tk: v["high"]  for tk, v in d.items()}, index=dates)
+    low   = pd.DataFrame({tk: v["low"]   for tk, v in d.items()}, index=dates)
+    vol   = pd.DataFrame({tk: v["volume"]for tk, v in d.items()}, index=dates).fillna(0)
     return close, opn, high, low, vol
 
 
 # ── Universe Filter ──────────────────────────────────────────────────────────
 def get_universe(close: pd.DataFrame, vol: pd.DataFrame, i: int,
-                 min_close: int = 2000, min_amount: float = 2e9) -> List[str]:
-    """
-    Filter tradeable universe at day index i.
-    Matches backtest_gen4_core.py lines 64-69 exactly.
-    """
+                 min_close: int = 2000, min_amount: float = 2e9) -> set:
+    """Filter tradeable universe at day index i."""
     if i < 20:
-        return []
+        return set()
     c = close.iloc[i]
     amt = (close.iloc[max(0, i-19):i+1] * vol.iloc[max(0, i-19):i+1]).mean()
     ok = (c >= min_close) & (amt >= min_amount) & (c > 0)
-    return ok[ok].index.tolist()
+    return set(ok[ok].index.tolist())
 
 
 # ── Metrics ──────────────────────────────────────────────────────────────────
@@ -127,36 +142,73 @@ def run_backtest(close, opn, high, low, vol, idx_close, dates,
     Run Gen4 LowVol+Mom12-1 backtest.
 
     Uses scoring.py functions (calc_volatility, calc_momentum) — SHARED with live.
-    Uses trail_stop.py (check_trail_stop) — SHARED with live.
+    Entry: signal on T close, buy at T+1 open.
+    Exit: trail stop on T close, sell proceeds at T close.
     """
-    cash = config.INITIAL_CASH
-    positions = {}   # tk -> {qty, entry_price, entry_idx, high_wm}
+    cash = float(config.INITIAL_CASH)
+    positions = {}   # tk -> {qty, entry_price, entry_idx, high_wm, buy_cost_total}
+    pending_buys = []  # [{tk, target_idx, per_pos}] — fill at T+1 open
     trades = []
     equity_hist = {}
 
-    tickers = close.columns.tolist()
-
     last_rebal = -999
+    _sample_count = 0
 
     for i in range(start_i, end_i + 1):
         dt = dates[i]
 
-        # Build price map (close) for today
-        pm = {}
-        for tk in list(positions.keys()) + list(close.columns[:0]):
-            pm[tk] = float(close[tk].iloc[i])
+        # ── 0) Fill pending buys at today's open ──────────────────
+        for pb in list(pending_buys):
+            if i != pb["target_idx"]:
+                continue
+            tk = pb["tk"]
+            if tk in positions:
+                pending_buys.remove(pb)
+                continue
 
-        # ── 1) Trail Stop FIRST (before rebalance) ──────────────────
+            entry_price = float(opn[tk].iloc[i]) if not pd.isna(opn[tk].iloc[i]) else 0
+            if entry_price <= 0:
+                pending_buys.remove(pb)
+                continue
+
+            per_pos = pb["per_pos"]
+            buy_cost_total = entry_price * (1 + config.BUY_COST)
+            qty = int(min(per_pos, cash * 0.95) / buy_cost_total)
+            if qty <= 0 or qty * buy_cost_total > cash:
+                pending_buys.remove(pb)
+                continue
+
+            cash -= qty * buy_cost_total
+            positions[tk] = dict(
+                qty=qty,
+                entry_price=entry_price,     # market price (no cost included)
+                entry_idx=i,
+                high_wm=entry_price,         # HWM = market price
+                buy_cost_total=qty * entry_price * config.BUY_COST,
+            )
+            pending_buys.remove(pb)
+
+            if _sample_count < 10:
+                _sample_count += 1
+                print(f"  [TIMING] #{_sample_count} signal={dates[i-1].date()} "
+                      f"entry={dt.date()} open={entry_price:.0f} code={tk}")
+
+        # Expire stale pendings
+        pending_buys = [pb for pb in pending_buys if pb["target_idx"] >= i]
+
+        # ── 1) Trail Stop (close-based) ───────────────────────────
         for tk in list(positions.keys()):
             pos = positions[tk]
-            p = pm.get(tk, pos["entry_price"])
+            p = float(close[tk].iloc[i])
+            if p <= 0 or pd.isna(p):
+                continue
             if p > pos["high_wm"]:
                 pos["high_wm"] = p
             dd = (p - pos["high_wm"]) / pos["high_wm"] if pos["high_wm"] > 0 else 0
             if dd <= -config.TRAIL_PCT:
                 net = pos["qty"] * p * (1 - config.SELL_COST)
-                cost_val = pos["qty"] * pos["entry_price"]
-                pnl = (net - cost_val) / cost_val if cost_val > 0 else 0
+                invested = pos["qty"] * pos["entry_price"] + pos["buy_cost_total"]
+                pnl = (net - invested) / invested if invested > 0 else 0
                 cash += net
                 trades.append(dict(
                     ticker=tk,
@@ -165,24 +217,28 @@ def run_backtest(close, opn, high, low, vol, idx_close, dates,
                     entry_price=pos["entry_price"],
                     exit_price=p,
                     pnl_pct=pnl,
-                    pnl_amount=net - cost_val,
+                    pnl_amount=net - invested,
                     hold_days=i - pos["entry_idx"],
                     exit_reason="TRAIL",
                 ))
                 del positions[tk]
 
-        # ── 2) Monthly Rebalance ────────────────────────────────────
+        # ── 2) Monthly Rebalance ──────────────────────────────────
         if i - last_rebal >= config.REBAL_DAYS:
             last_rebal = i
 
-            # Score ALL stocks using SHARED scoring.py
+            # Universe filter FIRST
+            universe = get_universe(close, vol, i,
+                                    config.UNIV_MIN_CLOSE, config.UNIV_MIN_AMOUNT)
+
+            # Score only universe stocks using SHARED scoring.py
             scored = []
-            for tk in close.columns:
+            for tk in universe:
                 series = close[tk].iloc[:i+1]
                 if len(series) < max(config.VOL_LOOKBACK, config.MOM_LOOKBACK):
                     continue
                 c_val = float(series.iloc[-1])
-                if c_val <= 0:
+                if c_val <= 0 or pd.isna(c_val):
                     continue
 
                 v = calc_volatility(series, config.VOL_LOOKBACK)
@@ -202,14 +258,16 @@ def run_backtest(close, opn, high, low, vol, idx_close, dates,
                 top = candidates.sort_values("mom", ascending=False).head(config.N_STOCKS)
                 target_codes = set(top["tk"].tolist())
 
-                # ── Sell non-targets ──────────────────────────────
+                # ── Sell non-targets (at today's close) ──────────
                 for tk in list(positions.keys()):
                     if tk not in target_codes:
                         pos = positions[tk]
-                        p = pm.get(tk, pos["entry_price"])
+                        p = float(close[tk].iloc[i])
+                        if p <= 0 or pd.isna(p):
+                            p = pos["entry_price"]
                         net = pos["qty"] * p * (1 - config.SELL_COST)
-                        cost_val = pos["qty"] * pos["entry_price"]
-                        pnl = (net - cost_val) / cost_val if cost_val > 0 else 0
+                        invested = pos["qty"] * pos["entry_price"] + pos["buy_cost_total"]
+                        pnl = (net - invested) / invested if invested > 0 else 0
                         cash += net
                         trades.append(dict(
                             ticker=tk,
@@ -218,49 +276,44 @@ def run_backtest(close, opn, high, low, vol, idx_close, dates,
                             entry_price=pos["entry_price"],
                             exit_price=p,
                             pnl_pct=pnl,
-                            pnl_amount=net - cost_val,
+                            pnl_amount=net - invested,
                             hold_days=i - pos["entry_idx"],
                             exit_reason="REBALANCE",
                         ))
                         del positions[tk]
 
-                # ── Buy new targets ───────────────────────────────
-                pv_held = sum(pos["qty"] * pm.get(c, pos["entry_price"])
-                              for c, pos in positions.items())
+                # ── Queue buys for T+1 open ──────────────────────
+                pv_held = sum(pos["qty"] * float(close[c].iloc[i])
+                              for c, pos in positions.items()
+                              if float(close[c].iloc[i]) > 0)
                 total_eq = cash + pv_held
-                slots = config.N_STOCKS - len(positions)
                 new_codes = [c for c in target_codes if c not in positions]
+                slots = config.N_STOCKS - len(positions) - len(pending_buys)
 
-                if new_codes and slots > 0:
+                if new_codes and slots > 0 and i + 1 <= end_i:
                     per_pos = total_eq / config.N_STOCKS
                     for tk in new_codes[:slots]:
-                        p = pm.get(tk, float(close[tk].iloc[i]))
-                        if p <= 0:
-                            continue
-                        # BUY_COST includes fee+slippage. No double-counting.
-                        gross_price = p * (1 + config.BUY_COST)
-                        qty = int(min(per_pos, cash * 0.95) / gross_price)
-                        if qty <= 0 or qty * gross_price > cash:
-                            continue
-                        cash -= qty * gross_price
-                        positions[tk] = dict(qty=qty, entry_price=gross_price,
-                                             entry_idx=i, high_wm=gross_price)
+                        pending_buys.append({
+                            "tk": tk,
+                            "target_idx": i + 1,
+                            "per_pos": per_pos,
+                        })
 
-        # ── Equity snapshot ──────────────────────────────────────────
+        # ── Equity snapshot (filled positions only) ────────────────
         pv = cash
-        for tk, p in positions.items():
+        for tk, pos in positions.items():
             c = float(close[tk].iloc[i])
-            if c > 0:
-                pv += p["qty"] * c
+            if c > 0 and not pd.isna(c):
+                pv += pos["qty"] * c
         equity_hist[dt] = pv
 
     # Close remaining (end of test)
     for tk, pos in list(positions.items()):
         p = float(close[tk].iloc[end_i])
-        if p > 0:
+        if p > 0 and not pd.isna(p):
             net = pos["qty"] * p * (1 - config.SELL_COST)
-            cost = pos["qty"] * pos["entry_price"]
-            pnl = (net - cost) / cost if cost > 0 else 0
+            invested = pos["qty"] * pos["entry_price"] + pos["buy_cost_total"]
+            pnl = (net - invested) / invested if invested > 0 else 0
             trades.append(dict(
                 ticker=tk,
                 entry_date=str(dates[pos["entry_idx"]].date()),
@@ -268,7 +321,7 @@ def run_backtest(close, opn, high, low, vol, idx_close, dates,
                 entry_price=pos["entry_price"],
                 exit_price=p,
                 pnl_pct=pnl,
-                pnl_amount=net - cost,
+                pnl_amount=net - invested,
                 hold_days=end_i - pos["entry_idx"],
                 exit_reason="EOD",
             ))
@@ -315,7 +368,8 @@ def main():
     config = Gen4Config()
 
     print("=" * 70)
-    print("  Gen4 Core Backtester (using SHARED scoring.py + trail_stop.py)")
+    print("  Gen4 Core Backtester (SHARED scoring.py + trail_stop.py)")
+    print("  Stabilized: T+1 entry, universe filter, no ffill on O/H/V")
     print("=" * 70)
 
     t0 = time.time()
@@ -326,9 +380,9 @@ def main():
     # Handle both column naming conventions
     date_col = "index" if "index" in idx_df.columns else "date"
     rename = {date_col: "date"}
-    for s, d in [("Open","open"),("High","high"),("Low","low"),("Close","close"),("Volume","volume")]:
+    for s, d_ in [("Open","open"),("High","high"),("Low","low"),("Close","close"),("Volume","volume")]:
         if s in idx_df.columns:
-            rename[s] = d
+            rename[s] = d_
     idx_df = idx_df.rename(columns=rename)
     idx_df["date"] = pd.to_datetime(idx_df["date"], errors="coerce")
     idx_df = idx_df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
@@ -361,13 +415,24 @@ def main():
     print(f"\n  KOSPI Buy&Hold: {kospi_ret*100:+.1f}%")
     print(f"  Elapsed: {elapsed:.0f}s")
 
-    # Save results
-    config.ensure_dirs()
-    out_dir = config.REPORT_DIR
-    eq.to_csv(out_dir / "backtest_equity.csv", header=["equity"])
-    pd.DataFrame(trades).to_csv(out_dir / "backtest_trades.csv",
+    # Save results to strategy folder
+    out_dir = config.BASE_DIR.parent / "backtest" / "results" / "gen4_core"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    eq_df = eq.reset_index()
+    eq_df.columns = ["date", "equity"]
+    eq_df.to_csv(out_dir / "equity.csv", index=False)
+
+    pd.DataFrame(trades).to_csv(out_dir / "trades.csv",
                                 index=False, encoding="utf-8-sig")
-    print(f"\n[3/3] Saved to {out_dir}/")
+
+    # Also save to legacy report/output for compatibility
+    config.ensure_dirs()
+    eq.to_csv(config.REPORT_DIR / "backtest_equity.csv", header=["equity"])
+    pd.DataFrame(trades).to_csv(config.REPORT_DIR / "backtest_trades.csv",
+                                index=False, encoding="utf-8-sig")
+
+    print(f"\n[3/3] Saved to {out_dir}/ and {config.REPORT_DIR}/")
 
 
 if __name__ == "__main__":

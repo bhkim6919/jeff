@@ -1,0 +1,46 @@
+{
+  "strategy": "Theme Proxy V1",
+  "variant": "V1",
+  "params": {
+    "sl": -0.08,
+    "tp": 0.2,
+    "trail": null,
+    "max_hold": 5
+  },
+  "period": "2021-01-01 ~ 2026-03-20",
+  "cost": {
+    "buy": 0.00115,
+    "sell": 0.00295
+  },
+  "initial_cash": 100000000,
+  "final_equity": 84855800.68699996,
+  "metrics": {
+    "total_return": -0.1514,
+    "gross_return": -0.1089,
+    "cagr": -0.0319,
+    "mdd": -0.3067,
+    "sharpe": -0.27,
+    "calmar": -0.1,
+    "win_rate": 0.3944,
+    "avg_win": 0.1582,
+    "avg_loss": -0.1106,
+    "payoff": 1.43,
+    "profit_factor": 0.93,
+    "n_trades": 71,
+    "avg_hold": 2.7,
+    "max_loss_trade": -0.3443,
+    "max_win_trade": 0.3993,
+    "exposure": 0.0446,
+    "cash_days": 1220,
+    "kospi_return": 0.8645,
+    "excess_return": -1.016
+  },
+  "exit_counts": {
+    "SL": 34,
+    "MAX_HOLD": 23,
+    "TP": 12,
+    "EOD": 2
+  },
+  "verdict": "",
+  "generated": "2026-03-23T13:24:55.065424"
+}
