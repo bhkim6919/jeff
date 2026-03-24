@@ -24,6 +24,7 @@ class Gen4Config:
     # Rebalance
     REBAL_DAYS: int = 21             # monthly (21 trading days)
     TARGET_MAX_STALE_DAYS: int = 3   # max calendar days before target is rejected
+    CASH_BUFFER_RATIO: float = 0.95  # buy allocation capped at 95% of estimated cash
 
     # Trailing stop
     TRAIL_PCT: float = 0.12          # -12% from high watermark
@@ -38,7 +39,18 @@ class Gen4Config:
     # ── Risk (from Gen2 governor, adapted) ───────────────────────────
     DAILY_DD_LIMIT: float = -0.04    # daily DD -> block new entries
     MONTHLY_DD_LIMIT: float = -0.07  # monthly DD -> block new entries
-    # NO forced liquidation. Trail stop handles exits.
+
+    # ── DD Graduated Response (STEP 5) ─────────────────────────────
+    # (monthly_dd_threshold, buy_scale, trim_ratio, label)
+    # Evaluated top-to-bottom: first match wins (most severe first)
+    DD_LEVELS: tuple = (
+        (-0.25, 0.00, 0.20, "DD_SAFE_MODE"),   # -25% → SAFE MODE, trim 20%
+        (-0.20, 0.00, 0.20, "DD_SEVERE"),       # -20% → block buys, trim 20%
+        (-0.15, 0.00, 0.00, "DD_CRITICAL"),     # -15% → block buys
+        (-0.10, 0.50, 0.00, "DD_WARNING"),       # -10% → buy 50%
+        (-0.05, 0.70, 0.00, "DD_CAUTION"),       # -5%  → buy 70%
+    )
+    SAFE_MODE_RELEASE_THRESHOLD: float = -0.20   # DD >= -20% → SAFE MODE 해제
 
     # ── Capital ──────────────────────────────────────────────────────
     INITIAL_CASH: int = 500_000_000
@@ -86,13 +98,30 @@ class Gen4Config:
     def REPORT_DIR(self) -> Path:
         return self.BASE_DIR / "report" / "output"
 
-    # ── Kiwoom ───────────────────────────────────────────────────────
+    @property
+    def INTRADAY_DIR(self) -> Path:
+        return self.BASE_DIR / "data" / "intraday"
+
+    # ── Execution Mode ─────────────────────────────────────────────
+    # TRADING_MODE is the operator's intended mode.
+    # server_type is the broker's actual connected environment.
+    # If they do not match, abort immediately.
+    #   mock  = internal simulation only (no broker)
+    #   paper = broker mock trading (키움 모의투자)
+    #   live  = broker real trading (실거래)
+    TRADING_MODE: str = "paper"      # "mock" | "paper" | "live"
+
+    # Deprecated — use TRADING_MODE instead.
+    # Kept for backward compatibility; ignored if TRADING_MODE is set explicitly.
     PAPER_TRADING: bool = True
+
+    # ── Kiwoom ───────────────────────────────────────────────────────
     ACCOUNT_NO: str = ""
     TR_DELAY: float = 0.5
     TR_TIMEOUT: float = 20.0
 
     def ensure_dirs(self):
         """Create all output directories."""
-        for d in [self.STATE_DIR, self.LOG_DIR, self.SIGNALS_DIR, self.REPORT_DIR]:
+        for d in [self.STATE_DIR, self.LOG_DIR, self.SIGNALS_DIR,
+                  self.REPORT_DIR, self.INTRADAY_DIR]:
             d.mkdir(parents=True, exist_ok=True)

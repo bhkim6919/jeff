@@ -80,18 +80,56 @@ class TradeLogger:
                 "resolution",
             ])
 
-        if not self._positions_file.exists():
-            self._write_header(self._positions_file, [
-                "date", "code", "quantity", "avg_price",
-                "current_price", "market_value",
-                "pnl_pct", "pnl_amount",
-                "high_watermark", "trail_stop_price",
-                "entry_date", "hold_days",
-            ])
+        self._ensure_header(self._positions_file, [
+            "date", "code", "quantity", "avg_price",
+            "current_price", "market_value",
+            "pnl_pct", "pnl_amount",
+            "est_cost_pct", "net_pnl_pct",
+            "high_watermark", "trail_stop_price",
+            "entry_date", "hold_days",
+        ])
 
     def _write_header(self, path: Path, columns: list):
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             csv.writer(f).writerow(columns)
+
+    def _ensure_header(self, path: Path, expected_columns: list):
+        """Validate CSV header matches expected columns.
+
+        If column count mismatches, the old file is backed up as .mismatch_backup
+        and a fresh file with correct header is created. NO silent padding/truncation.
+        """
+        if not path.exists():
+            self._write_header(path, expected_columns)
+            return
+        try:
+            with open(path, "r", encoding="utf-8-sig") as f:
+                header = f.readline().strip().split(",")
+            if header == expected_columns:
+                return  # header matches, no action needed
+
+            if len(header) == len(expected_columns):
+                # Same column count, just rename header (safe)
+                import pandas as pd
+                logger.warning(
+                    "[CSV_HEADER_FIX] %s: renaming %d cols (count matches)",
+                    path.name, len(header))
+                df = pd.read_csv(path, encoding="utf-8-sig", header=0)
+                df.columns = expected_columns
+                df.to_csv(path, index=False, encoding="utf-8-sig")
+            else:
+                # Column count mismatch — backup old file, start fresh.
+                # NO silent padding/truncation to prevent data corruption.
+                import shutil
+                backup = path.with_suffix(".mismatch_backup")
+                shutil.copy2(path, backup)
+                logger.error(
+                    "[CSV_HEADER_MISMATCH_FATAL] %s: %d cols -> %d cols. "
+                    "Old file backed up to %s. Starting fresh CSV.",
+                    path.name, len(header), len(expected_columns), backup.name)
+                self._write_header(path, expected_columns)
+        except Exception as e:
+            logger.error("[CSV_HEADER_FIX] failed for %s: %s", path.name, e)
 
     # ── Trades ────────────────────────────────────────────────────
 
@@ -160,20 +198,27 @@ class TradeLogger:
 
     # ── Daily Position Snapshot (EOD) ────────────────────────────
 
-    def log_daily_positions(self, positions: dict, today_str: str = ""):
+    def log_daily_positions(self, positions: dict, today_str: str = "",
+                            buy_cost: float = 0.00115,
+                            sell_cost: float = 0.00295):
         """
         Log all open positions at EOD with unrealized P&L.
 
         Args:
             positions: {code: Position} from PortfolioManager.positions
             today_str: date string override (default: today)
+            buy_cost: buy transaction cost rate (for est_cost_pct)
+            sell_cost: sell transaction cost rate (for est_cost_pct)
         """
         dt = today_str or date.today().strftime("%Y-%m-%d")
+        est_cost_pct = buy_cost + sell_cost  # ~0.41%
+
         for code, pos in sorted(positions.items()):
             mv = pos.quantity * pos.current_price if pos.current_price > 0 else 0
             cost = pos.quantity * pos.avg_price
             pnl_pct = (pos.current_price / pos.avg_price - 1) if pos.avg_price > 0 else 0
             pnl_amt = mv - cost
+            net_pnl_pct = pnl_pct - est_cost_pct
 
             hold_days = 0
             if pos.entry_date:
@@ -188,6 +233,7 @@ class TradeLogger:
                 dt, code, pos.quantity,
                 f"{pos.avg_price:.2f}", f"{pos.current_price:.2f}",
                 f"{mv:.2f}", f"{pnl_pct:.4f}", f"{pnl_amt:.2f}",
+                f"{est_cost_pct:.4f}", f"{net_pnl_pct:.4f}",
                 f"{pos.high_watermark:.2f}", f"{pos.trail_stop_price:.2f}",
                 pos.entry_date, hold_days,
             ]

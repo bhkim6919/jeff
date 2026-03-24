@@ -54,7 +54,7 @@ def get_stock_ohlcv(code: str, days: int = 400) -> Optional[pd.DataFrame]:
     try:
         start = _n_days_ago(int(days * 1.5))  # buffer for weekends/holidays
         end = _today()
-        df = krx.get_market_ohlcv_by_date(start, end, code)
+        df = _pykrx_call_suppressed(krx.get_market_ohlcv_by_date, start, end, code)
         time.sleep(_API_DELAY)
 
         if df.empty:
@@ -85,40 +85,73 @@ def get_stock_ohlcv(code: str, days: int = 400) -> Optional[pd.DataFrame]:
         return None
 
 
+def _pykrx_call_suppressed(func, *args, **kwargs):
+    """Call pykrx function with root logger noise suppressed.
+
+    pykrx internally calls logging.info(args, kwargs) which triggers
+    TypeError due to printf-style formatting. We temporarily raise
+    the root logger level to WARNING to suppress this noise.
+    """
+    root = logging.getLogger()
+    prev_level = root.level
+    root.setLevel(logging.WARNING)
+    try:
+        return func(*args, **kwargs)
+    finally:
+        root.setLevel(prev_level)
+
+
 def get_stock_list(market: str = "KOSPI",
                    ohlcv_dir: Optional[Path] = None) -> List[str]:
     """Get list of tickers for a market.
 
-    Tries pykrx first; if broken (known issue with pykrx<=1.0.51 and
-    KRX API changes in 2026), falls back to existing CSV filenames.
+    Tries pykrx first with retry; if broken (known issue with pykrx<=1.0.51
+    and KRX API changes in 2026), falls back to existing CSV filenames.
     """
+    MAX_RETRY = 3
     # Try pykrx
     if krx is not None:
         d = datetime.today()
         if d.hour < 16:
             d -= timedelta(days=1)
-        for _ in range(3):
+        for attempt in range(1, MAX_RETRY + 1):
             while d.weekday() >= 5:
                 d -= timedelta(days=1)
             date_str = d.strftime("%Y%m%d")
             try:
-                tickers = krx.get_market_ticker_list(date_str, market=market)
+                tickers = _pykrx_call_suppressed(
+                    krx.get_market_ticker_list, date_str, market=market
+                )
                 if tickers:
-                    logger.info(f"pykrx ticker list: {len(tickers)} ({market})")
+                    logger.info("pykrx ticker list: %d (%s)", len(tickers), market)
                     return tickers
-            except Exception:
-                pass
+                logger.warning(
+                    "[PYKRX_RETRY] %d/%d date=%s market=%s error=empty response",
+                    attempt, MAX_RETRY, date_str, market,
+                )
+            except Exception as e:
+                err_name = type(e).__name__
+                logger.warning(
+                    "[PYKRX_RETRY] %d/%d date=%s market=%s error=%s: %s",
+                    attempt, MAX_RETRY, date_str, market, err_name, e,
+                )
             d -= timedelta(days=1)
-        logger.warning("pykrx get_market_ticker_list failed (KRX API issue)")
+            if attempt < MAX_RETRY:
+                time.sleep(1)
+        logger.warning(
+            "[PYKRX_FAIL] get_market_ticker_list failed after %d retries", MAX_RETRY
+        )
 
     # Fallback: CSV directory
     if ohlcv_dir and ohlcv_dir.exists():
         tickers = sorted(f.stem for f in ohlcv_dir.glob("*.csv"))
         if tickers:
-            logger.info(f"Ticker list from CSV fallback: {len(tickers)} stocks")
+            logger.info(
+                "[PYKRX_FALLBACK] ticker list from CSV: %d stocks", len(tickers)
+            )
             return tickers
 
-    logger.warning("No ticker source available")
+    logger.warning("[PYKRX_FALLBACK] no ticker source available")
     return []
 
 

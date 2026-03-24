@@ -11,7 +11,7 @@ Tracks:
 from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger("gen4.portfolio")
@@ -28,6 +28,7 @@ class Position:
     trail_stop_price: float = 0.0
     sector: str = ""
     current_price: float = 0.0
+    last_price_ts: Optional[datetime] = None  # stale price detection
 
     @property
     def market_value(self) -> float:
@@ -161,16 +162,36 @@ class PortfolioManager:
         logger.info(f"BUY {code}: qty={qty}, price={price:,.0f}, cost={total_cost:,.0f} (fee incl)")
         return True
 
-    def remove_position(self, code: str, price: float, sell_cost: float = 0.00295) -> Optional[dict]:
-        """Remove a position (SELL). Returns trade info."""
+    def remove_position(self, code: str, price: float,
+                        sell_cost: float = 0.00295,
+                        qty: int = 0) -> Optional[dict]:
+        """
+        Remove (partial or full) a position (SELL). Returns trade info.
+
+        Args:
+            code: stock code
+            price: fill price
+            sell_cost: transaction cost rate
+            qty: shares to sell. 0 = full position (legacy default).
+        """
         if code not in self.positions:
             logger.warning(f"Position {code} not found")
             return None
 
         pos = self.positions[code]
-        proceeds = pos.quantity * price * (1 - sell_cost)
-        cost = pos.quantity * pos.avg_price
-        pnl_pct = (proceeds - cost) / cost if cost > 0 else 0
+
+        # Determine sell quantity
+        if qty <= 0:
+            sell_qty = pos.quantity
+        else:
+            sell_qty = min(qty, pos.quantity)
+            if qty > pos.quantity:
+                logger.warning(f"[SELL] {code}: requested qty={qty} > held={pos.quantity}, "
+                               f"clamped to {pos.quantity}")
+
+        proceeds = sell_qty * price * (1 - sell_cost)
+        cost_basis = sell_qty * pos.avg_price
+        pnl_pct = (proceeds - cost_basis) / cost_basis if cost_basis > 0 else 0
 
         self.cash += proceeds
 
@@ -180,21 +201,47 @@ class PortfolioManager:
             "exit_date": str(date.today()),
             "entry_price": pos.avg_price,
             "exit_price": price,
-            "quantity": pos.quantity,
+            "quantity": sell_qty,
             "pnl_pct": pnl_pct,
-            "pnl_amount": proceeds - cost,
+            "pnl_amount": proceeds - cost_basis,
         }
 
-        del self.positions[code]
-        logger.info(f"SELL {code}: qty={trade['quantity']}, price={price:,.0f}, "
-                     f"pnl={pnl_pct:+.2%}")
+        if sell_qty >= pos.quantity:
+            del self.positions[code]
+            logger.info(f"[FULL SELL APPLIED] {code}: qty={sell_qty}, "
+                        f"price={price:,.0f}, pnl={pnl_pct:+.2%}")
+        else:
+            pos.quantity -= sell_qty
+            logger.info(f"[PARTIAL SELL APPLIED] {code}: sold={sell_qty}, "
+                        f"remaining={pos.quantity}, price={price:,.0f}, "
+                        f"pnl={pnl_pct:+.2%}")
+
         return trade
 
     def update_prices(self, prices: Dict[str, float]) -> None:
         """Update current prices for all positions."""
+        now = datetime.now()
         for code, pos in self.positions.items():
             if code in prices and prices[code] > 0:
                 pos.current_price = prices[code]
+                pos.last_price_ts = now
+
+    def check_stale_prices(self, threshold_sec: float = 600.0) -> List[str]:
+        """Return codes with stale prices (not updated for threshold_sec).
+        For observability only — does not block trading.
+        """
+        now = datetime.now()
+        stale = []
+        for code, pos in self.positions.items():
+            if pos.last_price_ts is None:
+                stale.append(code)
+            elif (now - pos.last_price_ts).total_seconds() > threshold_sec:
+                stale.append(code)
+        if stale:
+            logger.warning(f"[STALE_PRICE_WARNING] {len(stale)} positions "
+                           f"not updated for {threshold_sec:.0f}s: "
+                           f"{stale[:5]}{'...' if len(stale) > 5 else ''}")
+        return stale
 
     # ── EOD ──────────────────────────────────────────────────────────
 

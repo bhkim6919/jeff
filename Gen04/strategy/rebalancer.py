@@ -63,7 +63,8 @@ def compute_orders(current_positions: Dict[str, dict],
                    current_cash: float,
                    buy_cost: float,
                    sell_cost: float = 0.00295,
-                   prices: Optional[Dict[str, float]] = None) -> Tuple[List[RebalOrder], List[RebalOrder]]:
+                   prices: Optional[Dict[str, float]] = None,
+                   cash_buffer: float = 0.95) -> Tuple[List[RebalOrder], List[RebalOrder]]:
     """
     Generate sell and buy orders for rebalance.
 
@@ -112,6 +113,12 @@ def compute_orders(current_positions: Dict[str, dict],
             estimated_cash += so.quantity * price * (1 - sell_cost)  # sell proceeds
 
     initial_estimated = estimated_cash  # for logging
+    logger.info(
+        f"[REB_CASH_ESTIMATE] sell_proceeds_estimated={estimated_cash - current_cash:,.0f} "
+        f"(from {len(sell_orders)} sells at current price), "
+        f"estimated_cash={estimated_cash:,.0f}, "
+        f"buffer={cash_buffer:.0%}, "
+        f"NOTE: actual sell price may differ — buy sizing is approximate")
 
     for ticker in target_tickers:  # preserve ranking order
         if ticker not in to_buy:
@@ -122,7 +129,7 @@ def compute_orders(current_positions: Dict[str, dict],
             skipped_buys.append(ticker)
             continue
 
-        alloc = min(target_alloc, estimated_cash * 0.95)
+        alloc = min(target_alloc, estimated_cash * cash_buffer)
         qty = int(alloc / (price * (1 + buy_cost)))
         if qty <= 0:
             skipped_buys.append(ticker)
@@ -130,8 +137,8 @@ def compute_orders(current_positions: Dict[str, dict],
 
         cost = qty * price * (1 + buy_cost)
         if cost > estimated_cash:
-            # Try smaller qty
-            qty = int(estimated_cash * 0.95 / (price * (1 + buy_cost)))
+            # Try smaller qty with buffer
+            qty = int(estimated_cash * cash_buffer / (price * (1 + buy_cost)))
             if qty <= 0:
                 skipped_buys.append(ticker)
                 continue
