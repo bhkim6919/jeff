@@ -12,7 +12,7 @@ Mode terminology:
 from __future__ import annotations
 import logging
 import time
-from datetime import date
+from datetime import date, datetime
 from typing import Dict, Optional
 
 logger = logging.getLogger("gen4.executor")
@@ -192,8 +192,17 @@ class OrderExecutor:
         result = self.provider.send_order(code, "SELL", actual_qty, 0, "03")
 
         if result.get("error"):
-            self.tracker.mark_rejected(rec.order_id, result["error"])
-            logger.error(f"SELL FAILED {code}: {result['error']}")
+            error_str = result["error"]
+            if "TIMEOUT_UNCERTAIN" in error_str:
+                self.tracker.mark_pending_external(rec.order_id)
+                logger.warning(
+                    f"[SELL_PENDING_EXTERNAL] {code} qty={actual_qty} — "
+                    f"timeout, awaiting ghost/reconcile "
+                    f"(order_no={result.get('order_no', '')})")
+                self._persist_pending_external(rec)
+            else:
+                self.tracker.mark_rejected(rec.order_id, error_str)
+                logger.error(f"SELL FAILED {code}: {error_str}")
         else:
             exec_qty = result["exec_qty"]
             req_qty = result.get("requested_qty", actual_qty)
@@ -212,14 +221,51 @@ class OrderExecutor:
 
     def _live_buy(self, code, qty, rec, reason) -> Dict:
         self._check_broker_gate()
+
+        # base_qty: 주문 직전 보유 수량 (broker 기준 보정)
+        portfolio_qty = 0
+        if self._portfolio:
+            pos = self._portfolio.positions.get(code)
+            portfolio_qty = pos.quantity if pos else 0
+        base_qty = portfolio_qty
+        base_source = "portfolio"
+        try:
+            snap = self.provider.query_account_summary()
+            broker_hold = {h["code"]: h.get("qty", h.get("quantity", 0))
+                           for h in snap.get("holdings", [])}
+            broker_base = broker_hold.get(code, 0)
+            if broker_base != portfolio_qty:
+                _diff = abs(broker_base - portfolio_qty)
+                _level = "CRITICAL" if _diff > max(1, portfolio_qty * 0.5) else "WARNING"
+                getattr(logger, _level.lower() if _level != "CRITICAL" else "critical")(
+                    f"[BASE_QTY_CORRECTED] {code}: portfolio={portfolio_qty} "
+                    f"broker={broker_base} diff={_diff} — using broker")
+            base_qty = broker_base  # always prefer broker
+            base_source = "broker"
+        except Exception:
+            logger.warning(f"[BASE_QTY_FALLBACK] {code}: broker query failed, "
+                           f"using portfolio={portfolio_qty}")
+        logger.info(f"[BASE_QTY_SOURCE] {code}: broker={base_qty if base_source == 'broker' else '?'} "
+                    f"portfolio={portfolio_qty} chosen={base_qty} source={base_source}")
+        rec.base_qty = base_qty
+
         self.tracker.mark_submitted(rec.order_id)
         time.sleep(ORDER_INTERVAL)
 
         result = self.provider.send_order(code, "BUY", qty, 0, "03")
 
         if result.get("error"):
-            self.tracker.mark_rejected(rec.order_id, result["error"])
-            logger.error(f"BUY FAILED {code}: {result['error']}")
+            error_str = result["error"]
+            if "TIMEOUT_UNCERTAIN" in error_str:
+                self.tracker.mark_pending_external(rec.order_id)
+                logger.warning(
+                    f"[BUY_PENDING_EXTERNAL] {code} qty={qty} base_qty={base_qty} — "
+                    f"timeout, awaiting ghost/reconcile "
+                    f"(order_no={result.get('order_no', '')})")
+                self._persist_pending_external(rec)
+            else:
+                self.tracker.mark_rejected(rec.order_id, error_str)
+                logger.error(f"BUY FAILED {code}: {error_str}")
         else:
             exec_qty = result["exec_qty"]
             req_qty = result.get("requested_qty", qty)
@@ -279,9 +325,13 @@ class OrderExecutor:
                 logger.warning(f"[GHOST_FILL] {code} delta_qty={delta_qty}, skip")
                 return
 
+            # Cumulative qty for dedup (already_recorded + this delta)
+            already_recorded = info.get("already_recorded_qty", 0)
+            cumulative_qty = already_recorded + delta_qty
+
             # Step 1: Tracker (dedup via record_fill)
             is_new = self.tracker.record_fill(
-                order_no, side, code, delta_qty, exec_price, delta_qty, "GHOST")
+                order_no, side, code, delta_qty, exec_price, cumulative_qty, "GHOST")
             if not is_new:
                 logger.info(f"[GHOST_FILL] {side} {code} duplicate in tracker, skip")
                 return
@@ -296,24 +346,30 @@ class OrderExecutor:
                 return
 
             if side == "SELL":
+                if code not in self._portfolio.positions:
+                    logger.info(f"[GHOST_FILL] SELL {code} — position gone, skip")
+                    return
+                pos = self._portfolio.positions[code]
+                actual_delta = min(delta_qty, pos.quantity)
+                if actual_delta <= 0:
+                    logger.info(f"[GHOST_FILL] SELL {code} — qty=0, skip")
+                    return
+                if actual_delta < delta_qty:
+                    logger.warning(
+                        f"[GHOST_FILL] SELL {code} clamped: "
+                        f"{delta_qty} -> {actual_delta} (held={pos.quantity})")
+                trade = self._portfolio.remove_position(
+                    code, exec_price, qty=actual_delta)
+                remaining = 0
                 if code in self._portfolio.positions:
-                    trade = self._portfolio.remove_position(
-                        code, exec_price, qty=delta_qty)
-                    remaining = 0
-                    if code in self._portfolio.positions:
-                        remaining = self._portfolio.positions[code].quantity
-                    if trade:
-                        logger.info(
-                            f"[GHOST_FILL_APPLIED] SELL {code} qty={delta_qty} "
-                            f"price={exec_price:,.0f} remaining={remaining}")
-                    else:
-                        logger.warning(
-                            f"[GHOST_FILL] SELL {code} remove_position returned None")
+                    remaining = self._portfolio.positions[code].quantity
+                if trade:
+                    logger.info(
+                        f"[GHOST_FILL_APPLIED] SELL {code} qty={actual_delta} "
+                        f"price={exec_price:,.0f} remaining={remaining}")
                 else:
                     logger.warning(
-                        f"[GHOST_FILL] SELL {code} — position not in portfolio! "
-                        f"Broker sold but engine has no position. "
-                        f"Reconciliation needed.")
+                        f"[GHOST_FILL] SELL {code} remove_position returned None")
 
             elif side == "BUY":
                 # Unified rule: avg_price = pure execution price (no fee).
@@ -331,6 +387,7 @@ class OrderExecutor:
                     pos.quantity = total_qty
                     pos.current_price = exec_price
                     self._portfolio.cash -= cash_cost
+                    pos.invested_total += cash_cost
                     logger.info(
                         f"[GHOST_FILL_APPLIED] BUY {code} +{delta_qty} "
                         f"(total={total_qty}) price={exec_price:,.0f} "
@@ -365,10 +422,87 @@ class OrderExecutor:
                     logger.error(f"[GHOST_STATE_SAVE_FAIL] {side} {code} — "
                                  f"3 attempts exhausted!")
 
-            logger.info(f"[GHOST_PORTFOLIO_SYNCED] {side} {code} "
-                        f"delta={delta_qty} order_no={order_no}")
+            is_terminal = info.get("is_terminal", False)
+            if is_terminal:
+                logger.info(
+                    f"[GHOST_FILL_FINALIZED] {side} {code} "
+                    f"requested={info.get('requested_qty', '?')} "
+                    f"order_no={order_no} — fully settled")
+                self._settle_tracker_ghost(
+                    order_no, code, side,
+                    info.get("requested_qty", 0), exec_price)
+                self._try_upgrade_sell_status()
+            else:
+                logger.info(f"[GHOST_PORTFOLIO_SYNCED] {side} {code} "
+                            f"delta={delta_qty} order_no={order_no}")
 
         except Exception as e:
             logger.error(f"[GHOST_FILL_ERROR] {e}", exc_info=True)
         finally:
             self._ghost_fill_lock = False
+
+    def _try_upgrade_sell_status(self) -> None:
+        """Upgrade rebal_sell_status PARTIAL→COMPLETE if all ghosts settled."""
+        if not self._state_mgr:
+            return
+        try:
+            rt = self._state_mgr.load_runtime()
+            status = rt.get("rebal_sell_status", "")
+            if status not in ("PARTIAL", "UNCERTAIN"):
+                return  # nothing to upgrade
+
+            # Check: does provider still have unsettled ghosts?
+            if self.provider and hasattr(self.provider, '_ghost_orders'):
+                unsettled = [g for g in self.provider._ghost_orders
+                             if g.get("status") not in ("GHOST_FILLED",)]
+                if unsettled:
+                    logger.info(f"[SELL_STATUS_CHECK] {len(unsettled)} "
+                                f"ghost(s) still unsettled — keeping {status}")
+                    return
+
+            # All ghosts settled → upgrade
+            rt["rebal_sell_status"] = "COMPLETE"
+            self._state_mgr.save_runtime(rt)
+            logger.info(f"[SELL_STATUS_UPGRADED] {status} -> COMPLETE "
+                        f"(all ghost orders settled)")
+        except Exception as e:
+            logger.warning(f"[SELL_STATUS_UPGRADE_ERROR] {e}")
+
+    def _settle_tracker_ghost(self, order_no: str, code: str, side: str,
+                              total_qty: int, avg_price: float) -> None:
+        """Find PENDING_EXTERNAL OrderRecord and settle via ghost fill."""
+        from runtime.order_tracker import OrderStatus
+        for rec in self.tracker._orders.values():
+            if (rec.code == code and rec.side == side and
+                rec.status in (OrderStatus.PENDING_EXTERNAL,
+                               OrderStatus.TIMEOUT_UNCERTAIN,
+                               OrderStatus.SUBMITTED)):
+                self.tracker.mark_ghost_settled(rec.order_id, total_qty, avg_price)
+                logger.info(f"[TRACKER_GHOST_SETTLED] {rec.order_id} "
+                            f"cum={total_qty}/{rec.quantity} order_no={order_no}")
+                return
+        logger.debug(f"[TRACKER_GHOST_SETTLE] no matching record for "
+                     f"order_no={order_no} {side} {code}")
+
+    def _persist_pending_external(self, rec) -> None:
+        """Save PENDING_EXTERNAL order info for reconcile after restart."""
+        if not self._state_mgr:
+            return
+        try:
+            existing = self._state_mgr.load_pending_external()
+            entry = {
+                "order_id": rec.order_id,
+                "code": rec.code,
+                "side": rec.side,
+                "requested_qty": rec.quantity,
+                "exec_qty": rec.exec_qty,
+                "exec_price": rec.exec_price,
+                "base_qty": getattr(rec, "base_qty", 0),
+                "timestamp": datetime.now().isoformat(),
+            }
+            existing.append(entry)
+            self._state_mgr.save_pending_external(existing)
+            logger.info(f"[PENDING_EXTERNAL_SAVED] {rec.side} {rec.code} "
+                        f"qty={rec.quantity} base_qty={entry['base_qty']}")
+        except Exception as e:
+            logger.warning(f"[PENDING_EXTERNAL_SAVE_ERROR] {e}")

@@ -38,6 +38,8 @@ TR_MAX_CONSECUTIVE  = 5      # Consecutive timeout threshold
 SCREEN_MAP = {
     "opw00018": "9003",   # Account holdings
     "opt20006": "9004",   # Index daily candles (KOSPI/KOSDAQ)
+    "opt10075": "9005",   # Open orders (unfilled)
+    "opt20005": "9006",   # Index minute candles
 }
 
 ORDER_TIMEOUT_SEC = 30
@@ -138,7 +140,10 @@ class Gen4KiwoomProvider:
         self._ghost_orders: List[Dict] = []
         self._completed_order_nos: set = set()  # terminal states only: FILLED/CANCELLED/REJECTED
         self._seen_chejan_events: Dict[str, set] = {}  # per-order dedup {order_no: set()}
-        self._global_chejan_dedup: set = set()   # fallback dedup for pre-capture events
+        self._chejan_fallthrough_count: int = 0
+        self._chejan_fallthrough_alert_threshold: int = 50
+        self._global_chejan_dedup: Dict[str, float] = {}  # {event_key: timestamp} TTL-based dedup
+        self._chejan_dedup_ttl: float = 300.0  # 5min TTL — expire stale entries
         self._ghost_fill_callback = None         # external ghost fill handler
         self._ghost_fill_dedup: set = set()      # dedup for ghost fill events
         self._processed_fill_keys: set = set()   # dedup: (code, order_no, exec_qty, exec_price)
@@ -441,6 +446,7 @@ class Gen4KiwoomProvider:
                     "code":      code,
                     "name":      name,
                     "qty":       qty,
+                    "quantity":  qty,  # dual-key for schema compat
                     "avg_price": avg_price,
                     "cur_price": cur_price,
                     "pnl":       pnl,
@@ -528,7 +534,8 @@ class Gen4KiwoomProvider:
             if qty > 0:
                 holdings.append({
                     "code": code, "name": name,
-                    "qty": qty, "avg_price": avg_price,
+                    "qty": qty, "quantity": qty,  # dual-key for schema compat
+                    "avg_price": avg_price,
                     "cur_price": cur_price, "pnl": pnl,
                 })
 
@@ -619,7 +626,8 @@ class Gen4KiwoomProvider:
         # Per-order dedup: clear fill keys for THIS order's fresh tracking.
         # Previous order's ghost fills are handled by ghost_fill_callback.
         self._processed_fill_keys.clear()
-        self._global_chejan_dedup.clear()
+        # Keep _global_chejan_dedup — ghost fills from previous orders
+        # still need dedup protection across order boundaries
 
         time.sleep(0.2)  # Min interval between orders
 
@@ -649,6 +657,7 @@ class Gen4KiwoomProvider:
             # -- TIMEOUT_UNCERTAIN — no fill at all --
             self._order_state["status"] = "TIMEOUT_UNCERTAIN"
             ghost = self._order_state.copy()
+            ghost["applied_qty"] = 0  # ghost callback으로 반영된 수량
             self._ghost_orders.append(ghost)
             # Do NOT add to _completed_order_nos — ghost must remain matchable
             # for late fills. Only terminal states (FILLED/CANCELLED/REJECTED)
@@ -669,7 +678,11 @@ class Gen4KiwoomProvider:
             # -- PARTIAL_TIMEOUT — some fills received, but not all --
             ghost = self._order_state.copy()
             ghost["status"] = "PARTIAL_TIMEOUT"
+            ghost["timeout_filled_qty"] = self._order_result["exec_qty"]
+            ghost["applied_qty"] = self._order_result["exec_qty"]  # timeout 체결분은 main.py에서 직접 반영
             self._ghost_orders.append(ghost)
+            # Mark active order as timed out so subsequent chejan routes to ghost path
+            self._order_state["status"] = "PARTIAL_TIMEOUT"
             # Do NOT add to _completed_order_nos — ghost must remain matchable
             # for late fills via fallthrough (FIX 1+2).
 
@@ -772,23 +785,55 @@ class Gen4KiwoomProvider:
                 return
             order_dedup.add(event_key)
         else:
-            # Global dedup for pre-capture / unmatched events
+            # Global dedup for pre-capture / unmatched events (TTL-based)
+            now = time.time()
+            # Expire stale entries periodically
+            if len(self._global_chejan_dedup) > 500:
+                cutoff = now - self._chejan_dedup_ttl
+                expired = [k for k, ts in self._global_chejan_dedup.items() if ts < cutoff]
+                for k in expired:
+                    del self._global_chejan_dedup[k]
+                if expired:
+                    logger.debug(f"[CHEJAN_DEDUP_EXPIRE] {len(expired)} stale entries removed")
             if event_key in self._global_chejan_dedup:
                 return
-            self._global_chejan_dedup.add(event_key)
+            self._global_chejan_dedup[event_key] = now
+
+        # -- 0. Early reject: completed/terminal orders (incl. ghost) --
+        if order_no and order_no in self._completed_order_nos:
+            return  # fully settled, ignore all further chejan
+
+        # -- 0b. Active ghost shortcut (skip section 1 fallthrough noise) --
+        _is_active_ghost = False
+        if order_no:
+            for _g in self._ghost_orders:
+                if (_g.get("order_no") == order_no and
+                    _g["status"] in ("TIMEOUT_UNCERTAIN", "PARTIAL_TIMEOUT",
+                                     "TIMEOUT_PENDING", "GHOST_FILLING")):
+                    _is_active_ghost = True
+                    break
 
         # -- 1. Active order match --
-        if st["status"] in ("REQUESTED", "ACCEPTED", "PARTIAL"):
+        if not _is_active_ghost and st["status"] in ("REQUESTED", "ACCEPTED", "PARTIAL"):
             if st["order_no"]:
                 # order_no captured → strict match only
                 if order_no == st["order_no"]:
                     self._process_chejan_fill(code, order_no, exec_qty, exec_price, order_status)
                     return  # fill processed for active order
                 else:
-                    logger.info(
-                        "[Chejan FALLTHROUGH] order_no mismatch: active=%s received=%s "
-                        "code=%s — checking ghost orders",
-                        st["order_no"], order_no, code)
+                    self._chejan_fallthrough_count += 1
+                    if self._chejan_fallthrough_count <= 5 or \
+                       self._chejan_fallthrough_count % 20 == 0:
+                        logger.info(
+                            "[Chejan FALLTHROUGH] order_no mismatch: active=%s "
+                            "received=%s code=%s (total=%d)",
+                            st["order_no"], order_no, code,
+                            self._chejan_fallthrough_count)
+                    if self._chejan_fallthrough_count == self._chejan_fallthrough_alert_threshold:
+                        logger.warning(
+                            "[CHEJAN_FALLTHROUGH_ALERT] %d fallthroughs — "
+                            "excessive chejan noise from completed orders",
+                            self._chejan_fallthrough_count)
                     # No return — fall through to ghost order matching (section 3)
             else:
                 # order_no not yet captured → conservative multi-condition matching
@@ -856,57 +901,114 @@ class Gen4KiwoomProvider:
                 return
 
         # -- 2. FILLED → silently ignore post-fill events --
-        if st["status"] == "FILLED":
+        if not _is_active_ghost and st["status"] == "FILLED":
             return
 
         # -- 3. Ghost order match (delayed fill after timeout) --
         for ghost in self._ghost_orders:
+            # GHOST_FILLED = terminal → reject further chejan
+            if ghost["status"] == "GHOST_FILLED":
+                if ghost.get("order_no") == order_no:
+                    return  # terminal, ignore
+                continue
             if ghost["status"] not in ("TIMEOUT_PENDING", "TIMEOUT_UNCERTAIN",
-                                        "PARTIAL_TIMEOUT"):
+                                        "PARTIAL_TIMEOUT", "GHOST_FILLING"):
                 continue
             # Strict: order_no match only (no ticker fallback for ghosts)
             if ghost.get("order_no") and order_no and order_no == ghost["order_no"]:
                 if exec_qty > 0 and exec_price > 0:
-                    # Dedup: prevent same ghost event from being applied twice
-                    ghost_dedup_key = (order_no, exec_qty, exec_price)
+                    # Dedup: raw exec_qty + prev_filled 기준
+                    _prev_f = ghost.get("filled_qty", 0)
+                    ghost_dedup_key = (order_no, _prev_f + exec_qty, exec_qty)
                     if ghost_dedup_key in self._ghost_fill_dedup:
-                        logger.debug("[GHOST_FILL_DUPLICATE_IGNORED] order_no=%s "
-                                     "qty=%d price=%.0f", order_no, exec_qty, exec_price)
+                        logger.debug("[GHOST_FILL_DUP] order_no=%s cum=%d exec=%d",
+                                     order_no, _prev_f + exec_qty, exec_qty)
                         return
                     self._ghost_fill_dedup.add(ghost_dedup_key)
 
-                    # Calculate already-recorded qty for this ghost
-                    already_filled = ghost.get("filled_qty", 0)
+                    prev_filled = _prev_f
+                    prev_applied = ghost.get("applied_qty", 0)
+                    requested = ghost.get("requested_qty", 0)
 
-                    ghost["status"]         = "GHOST_FILLED"
-                    ghost["filled_qty"]     = already_filled + exec_qty
+                    # Pre-clamp: same as active path (min to remaining)
+                    remaining = max(0, requested - prev_filled)
+                    if remaining <= 0:
+                        logger.info(
+                            "[GHOST_FILL_SATURATED] %s %s already filled %d/%d, "
+                            "ignoring +%d (order_no=%s)",
+                            ghost["side"], code, prev_filled, requested,
+                            exec_qty, order_no)
+                        if ghost["status"] != "GHOST_FILLED":
+                            ghost["status"] = "GHOST_FILLED"
+                            self._completed_order_nos.add(order_no)
+                        return
+                    usable_qty = min(exec_qty, remaining)
+                    new_filled = prev_filled + usable_qty
+
+                    ghost["filled_qty"] = new_filled
                     ghost["avg_fill_price"] = exec_price
-                    logger.critical(
-                        "[GHOST_FILL_DETECTED] %s %s exec=%d already_recorded=%d "
-                        "requested=%d @ %.0f (order_no=%s) — "
-                        "delayed fill after timeout!",
-                        ghost["side"], code, exec_qty, already_filled,
-                        ghost["requested_qty"], exec_price, order_no,
-                    )
 
-                    # Dispatch to external handler for portfolio sync
-                    if self._ghost_fill_callback:
-                        logger.info("[GHOST_FILL_CALLBACK_DISPATCH] %s %s qty=%d "
-                                    "order_no=%s", ghost["side"], code, exec_qty, order_no)
+                    # Invariant: applied_qty <= requested (defense-in-depth)
+                    if new_filled > requested:
+                        logger.critical(
+                            "[GHOST_INVARIANT_VIOLATION] %s %s filled=%d > "
+                            "requested=%d — should never happen after pre-clamp "
+                            "(order_no=%s)",
+                            ghost["side"], code, new_filled, requested, order_no)
+                        ghost["filled_qty"] = requested
+                        new_filled = requested
+
+                    # Terminal check
+                    if new_filled >= requested:
+                        ghost["status"] = "GHOST_FILLED"
+                        delta = requested - prev_applied  # exact remainder
+                    else:
+                        ghost["status"] = "GHOST_FILLING"
+                        delta = new_filled - prev_applied
+
+                    # Invariant check: delta must be non-negative
+                    if delta < 0:
+                        logger.critical(
+                            "[GHOST_NEGATIVE_DELTA] %s %s delta=%d "
+                            "prev_applied=%d new_filled=%d requested=%d "
+                            "(order_no=%s) — skipping",
+                            ghost["side"], code, delta, prev_applied,
+                            new_filled, requested, order_no)
+                        return
+
+                    logger.warning(
+                        "[GHOST_FILL] %s %s exec=%d usable=%d filled=%d/%d "
+                        "applied=%d delta=%d @ %.0f (order_no=%s) status=%s",
+                        ghost["side"], code, exec_qty, usable_qty,
+                        new_filled, requested, prev_applied, delta,
+                        exec_price, order_no, ghost["status"])
+
+                    # Dispatch delta to portfolio sync
+                    is_terminal = ghost["status"] == "GHOST_FILLED"
+                    if self._ghost_fill_callback and delta > 0:
                         try:
                             self._ghost_fill_callback({
                                 "order_no": order_no,
                                 "code": code,
                                 "side": ghost["side"],
-                                "exec_qty": exec_qty,
+                                "exec_qty": delta,
                                 "exec_price": exec_price,
-                                "requested_qty": ghost["requested_qty"],
-                                "already_recorded_qty": already_filled,
-                                "ghost_dedup_key": ghost_dedup_key,
+                                "requested_qty": requested,
+                                "already_recorded_qty": prev_applied,
+                                "is_terminal": is_terminal,
                             })
+                            ghost["applied_qty"] = prev_applied + delta
+                            if is_terminal:
+                                self._completed_order_nos.add(order_no)
+                                logger.info(
+                                    "[GHOST_FILL_FINALIZED] %s %s "
+                                    "filled=%d/%d applied=%d (order_no=%s)",
+                                    ghost["side"], code, new_filled, requested,
+                                    ghost["applied_qty"], order_no)
                         except Exception as e:
                             logger.error("[GHOST_FILL_CALLBACK_ERROR] %s: %s",
                                          code, e, exc_info=True)
+                            # applied_qty NOT updated → next chejan will retry
                 return
 
     def _process_chejan_fill(self, code: str, order_no: str,
@@ -1053,13 +1155,175 @@ class Gen4KiwoomProvider:
         self._ghost_fill_callback = callback
 
     def get_ghost_orders(self) -> List[Dict]:
-        """Unconfirmed orders after timeout. For RuntimeEngine/EOD warnings."""
+        """Unconfirmed orders after timeout. For RuntimeEngine/EOD warnings.
+        GHOST_FILLED = fully settled via ghost fills → NOT unresolved.
+        Only truly unresolved: TIMEOUT_PENDING, TIMEOUT_UNCERTAIN, GHOST_FILLING.
+        """
         return [g for g in self._ghost_orders
-                if g["status"] in ("TIMEOUT_PENDING", "TIMEOUT_UNCERTAIN", "GHOST_FILLED")]
+                if g["status"] in ("TIMEOUT_PENDING", "TIMEOUT_UNCERTAIN", "GHOST_FILLING")]
 
     def clear_ghost_orders(self) -> None:
         """Clear ghost list after EOD processing."""
         self._ghost_orders.clear()
+
+    # -- Open order query + cancel (for startup recovery) ---------------------
+
+    def query_open_orders(self) -> Optional[List[Dict]]:
+        """Query unfilled/partially-filled orders via opt10075 (미체결요청).
+        Returns: list of dicts on success (may be empty []),
+                 None on query failure (caller must distinguish).
+        """
+        account = self.get_account_no()
+        if not account:
+            logger.error("[OpenOrders] account number query failed")
+            return None
+
+        def _setup():
+            self._call("SetInputValue(QString,QString)", "계좌번호", account)
+            self._call("SetInputValue(QString,QString)", "비밀번호", "")
+            self._call("SetInputValue(QString,QString)", "비밀번호입력매체구분", "00")
+            self._call("SetInputValue(QString,QString)", "체결구분", "1")  # 1=미체결
+            self._call("SetInputValue(QString,QString)", "매매구분", "0")  # 0=전체
+
+        try:
+            rows = self._request_tr_with_retry(
+                trcode="opt10075",
+                rqname="미체결요청",
+                days=0,
+                setup_func=_setup,
+            )
+        except Exception as e:
+            logger.error("[OpenOrders] query failed: %s", e)
+            return None
+
+        # Log raw response for first-time validation
+        if rows:
+            logger.info("[OpenOrders] raw row count=%d, first_row_cols=%d",
+                        len(rows), len(rows[0]) if rows[0] else 0)
+            # Log first 3 rows raw for field mapping verification
+            for i, row in enumerate(rows[:3]):
+                logger.info("[OpenOrders_RAW] row[%d]: %s", i,
+                            [str(v).strip()[:20] for v in row[:12]])
+        else:
+            logger.info("[OpenOrders] empty response (0 rows)")
+
+        results = []
+        for row in rows:
+            if len(row) < 10:
+                logger.warning("[OpenOrders_SKIP] row too short: %d cols", len(row))
+                continue
+            order_no = str(row[1]).strip()
+            code = str(row[2]).strip().replace("A", "")
+            side_raw = str(row[5]).strip()
+            side = "BUY" if "매수" in side_raw else "SELL" if "매도" in side_raw else side_raw
+            status_raw = str(row[9]).strip() if len(row) > 9 else ""
+            try:
+                qty = abs(int(str(row[6]).strip().replace(",", "")))
+                filled = abs(int(str(row[7]).strip().replace(",", "")))
+            except (ValueError, IndexError):
+                qty, filled = 0, 0
+            order_time = str(row[0]).strip()
+
+            # Log every parsed order for verification
+            logger.info("[OpenOrders_PARSED] order_no=%s code=%s side=%s "
+                        "qty=%d filled=%d remain=%d status=%s time=%s",
+                        order_no, code, side, qty, filled,
+                        qty - filled, status_raw, order_time)
+
+            if order_no and qty > filled:
+                results.append({
+                    "order_no": order_no,
+                    "code": code,
+                    "side": side,
+                    "qty": qty,
+                    "filled_qty": filled,
+                    "remaining": qty - filled,
+                    "order_time": order_time,
+                    "status_raw": status_raw,
+                })
+
+        logger.info("[OpenOrders] %d unfilled orders found", len(results))
+        return results
+
+    def cancel_order(self, code: str, order_no: str, qty: int,
+                     side: str = "BUY") -> Dict:
+        """Cancel an open order. Returns {"ok": bool, "error": str}."""
+        account = self.get_account_no()
+        if not account:
+            return {"ok": False, "error": "account number query failed"}
+
+        # order_type: 3=매수취소, 4=매도취소
+        order_type = 3 if side == "BUY" else 4
+        rqname = f"취소_{code}_{order_no}"
+        screen = "7002"
+
+        try:
+            ret = self._call(
+                "SendOrder(QString,QString,QString,int,QString,int,int,QString,QString)",
+                rqname, screen, account, order_type, code, qty, 0, "00", order_no,
+                context=f"Cancel/{side}/{code}/order_no={order_no}",
+            )
+            if ret == 0:
+                logger.info("[CancelOrder] %s %s order_no=%s qty=%d — accepted",
+                            side, code, order_no, qty)
+                time.sleep(0.3)  # Allow cancel to process
+                return {"ok": True, "error": ""}
+            else:
+                logger.warning("[CancelOrder] %s %s order_no=%s ret=%d",
+                               side, code, order_no, ret)
+                return {"ok": False, "error": f"ret={ret}"}
+        except Exception as e:
+            logger.error("[CancelOrder] %s %s order_no=%s — %s",
+                         side, code, order_no, e)
+            return {"ok": False, "error": str(e)}
+
+    def cancel_all_open_orders(self) -> Optional[int]:
+        """Query and cancel ALL open orders, then verify.
+        Returns count of successfully cancelled orders, or None if query failed."""
+        orders = self.query_open_orders()
+        if orders is None:
+            logger.critical("[CancelAll] Open order query FAILED — cannot determine stale orders")
+            return None
+        if len(orders) == 0:
+            logger.info("[CancelAll] No open orders to cancel")
+            return 0
+
+        logger.warning("[OPEN_ORDERS_BEFORE_CANCEL] n=%d — cancelling all", len(orders))
+        cancelled = 0
+        for o in orders:
+            logger.info("[CancelAll] Cancelling %s %s order_no=%s remain=%d",
+                        o["side"], o["code"], o["order_no"], o["remaining"])
+            result = self.cancel_order(
+                code=o["code"],
+                order_no=o["order_no"],
+                qty=o["remaining"],
+                side=o["side"],
+            )
+            if result["ok"]:
+                cancelled += 1
+            else:
+                logger.warning("[CancelAll] Failed: %s %s — %s",
+                               o["code"], o["order_no"], result["error"])
+            time.sleep(0.5)  # Rate limit
+
+        logger.info("[CancelAll] %d/%d cancel requests sent", cancelled, len(orders))
+
+        # Verify: re-query after 3s to confirm cancels took effect
+        if cancelled > 0:
+            time.sleep(3.0)
+            remaining = self.query_open_orders()
+            if remaining is None:
+                logger.warning("[CancelAll_VERIFY] Re-query failed — cannot confirm cancels")
+            elif len(remaining) > 0:
+                logger.warning("[CancelAll_VERIFY] %d orders STILL open after cancel!",
+                               len(remaining))
+                for r in remaining:
+                    logger.warning("[CancelAll_VERIFY]   %s %s order_no=%s remain=%d",
+                                   r["side"], r["code"], r["order_no"], r["remaining"])
+            else:
+                logger.info("[CancelAll_VERIFY] All orders cancelled — 0 remaining")
+
+        return cancelled
 
     # -- TR event handler (opw00018 only) -------------------------------------
 
@@ -1094,6 +1358,8 @@ class Gen4KiwoomProvider:
             self._parse_opw00018(trcode, rqname)
         elif trcode == "opt20006":
             self._parse_opt20006(trcode, rqname)
+        elif trcode == "opt10075":
+            self._parse_opt10075(trcode, rqname)
 
         self._loop.quit()
 
@@ -1145,18 +1411,49 @@ class Gen4KiwoomProvider:
             i += 1
         self._data.extend(rows)
 
+    def _parse_opt10075(self, trcode: str, rqname: str) -> None:
+        """opt10075: unfilled orders parse.
+        Row layout matches query_open_orders() expectations:
+          [0]=주문시간, [1]=주문번호, [2]=종목코드, [3]=종목명,
+          [4]=주문가격, [5]=매매구분, [6]=주문수량, [7]=체결수량,
+          [8]=미체결수량, [9]=주문상태
+        """
+        _get = lambda idx, field: self._call(
+            "GetCommData(QString,QString,int,QString)", trcode, rqname, idx, field,
+        )
+        rows: List[List] = []
+        i = 0
+        while True:
+            order_no = str(_get(i, "주문번호")).strip()
+            if not order_no:
+                break
+            order_time = str(_get(i, "주문시간")).strip()
+            code       = str(_get(i, "종목코드")).strip()
+            name       = self._decode_kiwoom_str(_get(i, "종목명"))
+            price      = str(_get(i, "주문가격")).strip()
+            side       = str(_get(i, "매매구분")).strip()
+            qty        = str(_get(i, "주문수량")).strip()
+            filled     = str(_get(i, "체결수량")).strip()
+            remain     = str(_get(i, "미체결수량")).strip()
+            status     = str(_get(i, "주문상태")).strip()
+            rows.append([order_time, order_no, code, name, price,
+                         side, qty, filled, remain, status])
+            i += 1
+        self._data.extend(rows)
+
     # -- KOSPI index close via opt20006 ----------------------------------------
 
-    def get_kospi_close(self, trade_date: str = "") -> float:
-        """Get KOSPI index close price via opt20006 TR.
-        trade_date: YYYYMMDD (default: today).
+    def _get_index_close(self, index_code: str, index_name: str,
+                         trade_date: str = "") -> float:
+        """Get index close price via opt20006 TR.
+        index_code: '001' for KOSPI, '101' for KOSDAQ.
         Returns close price or 0.0 on failure.
         """
         if not trade_date:
             trade_date = datetime.now().strftime("%Y%m%d")
 
         def _setup():
-            self._call("SetInputValue(QString,QString)", "업종코드", "001")
+            self._call("SetInputValue(QString,QString)", "업종코드", index_code)
             self._call("SetInputValue(QString,QString)", "기준일자", trade_date)
             self._call("SetInputValue(QString,QString)", "수정주가구분", "1")
 
@@ -1166,15 +1463,89 @@ class Gen4KiwoomProvider:
                 days=1, setup_func=_setup)
             if rows and len(rows) > 0:
                 raw_val = abs(float(rows[0][4]))
-                # Kiwoom opt20006 returns index × 100 (no decimal)
-                # e.g. KOSPI 5558.38 → 555838
+                # Kiwoom opt20006 returns index * 100 (no decimal)
                 close_val = raw_val / 100.0
-                logger.info("[KOSPI] close=%.2f (raw=%d, date=%s)",
-                            close_val, int(raw_val), trade_date)
+                logger.info("[%s] close=%.2f (raw=%d, date=%s)",
+                            index_name, close_val, int(raw_val), trade_date)
                 return close_val
         except Exception as e:
-            logger.warning("[KOSPI] opt20006 failed: %s", e)
+            logger.warning("[%s] opt20006 failed: %s", index_name, e)
         return 0.0
+
+    def get_kospi_close(self, trade_date: str = "") -> float:
+        """Get KOSPI index close price."""
+        return self._get_index_close("001", "KOSPI", trade_date)
+
+    def get_kosdaq_close(self, trade_date: str = "") -> float:
+        """Get KOSDAQ index close price."""
+        return self._get_index_close("101", "KOSDAQ", trade_date)
+
+    def get_index_minute_bars(self, index_code: str = "001",
+                               trade_date: str = "",
+                               tick_range: int = 1) -> List[dict]:
+        """Get index minute bars via opt20005 (업종분봉조회).
+
+        Args:
+            index_code: '001' = KOSPI, '101' = KOSDAQ
+            trade_date: YYYYMMDD (default: today)
+            tick_range: 1 = 1-minute bars
+
+        Returns:
+            List of {time, open, high, low, close, volume} dicts,
+            sorted by time ascending. Empty list on failure.
+        """
+        if not trade_date:
+            trade_date = datetime.now().strftime("%Y%m%d")
+
+        def _setup():
+            self._call("SetInputValue(QString,QString)", "업종코드", index_code)
+            self._call("SetInputValue(QString,QString)", "틱범위", str(tick_range))
+
+        try:
+            rows = self._request_tr_with_retry(
+                trcode="opt20005", rqname="업종분봉조회",
+                days=500, setup_func=_setup)
+        except Exception as e:
+            logger.warning("[INDEX_MINUTE] opt20005 failed: %s", e)
+            return []
+
+        if not rows:
+            return []
+
+        result = []
+        for row in rows:
+            try:
+                # opt20005 output: [date_str, open, high, low, close, volume, ...]
+                # date_str format: YYYYMMDDHHMMSS
+                dt_str = str(row[0]).strip()
+                if len(dt_str) < 12:
+                    continue
+                dt_date = dt_str[:8]
+                # Filter to target date only
+                if dt_date != trade_date:
+                    continue
+                hhmm = dt_str[8:10] + ":" + dt_str[10:12]
+
+                vals = [abs(float(v)) / 100.0 for v in row[1:5]]  # OHLC /100
+                vol = abs(int(float(row[5]))) if len(row) > 5 else 0
+
+                result.append({
+                    "time": hhmm,
+                    "datetime": f"{dt_date[:4]}-{dt_date[4:6]}-{dt_date[6:8]} {hhmm}",
+                    "open": vals[0],
+                    "high": vals[1],
+                    "low": vals[2],
+                    "close": vals[3],
+                    "volume": vol,
+                })
+            except (ValueError, IndexError):
+                continue
+
+        # Sort ascending by time
+        result.sort(key=lambda x: x["time"])
+        name = "KOSPI" if index_code == "001" else "KOSDAQ"
+        logger.info("[%s_MINUTE] %d bars loaded for %s", name, len(result), trade_date)
+        return result
 
     # -- OnReceiveMsg ---------------------------------------------------------
 
@@ -1379,6 +1750,14 @@ class Gen4KiwoomProvider:
             if trcode == "opw00018" and self._msg_rejected:
                 logger.info(
                     "[Gen4KiwoomProvider] %s(%s) empty account (no holdings) -> empty result",
+                    rqname, trcode,
+                )
+                return []
+
+            # opt10075: 0 open orders is a valid empty result (not an error)
+            if trcode == "opt10075" and not self._timed_out:
+                logger.info(
+                    "[Gen4KiwoomProvider] %s(%s) no open orders -> empty result",
                     rqname, trcode,
                 )
                 return []

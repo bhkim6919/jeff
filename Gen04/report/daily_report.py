@@ -95,10 +95,28 @@ def load_daily_data(report_dir: Path, today_str: str, initial_cash: float) -> di
     eq_today = filt(equity_df)
     pos_today = filt(positions_df)
     trades_today = filt(trades_df)
-    # Exclude REBALANCE summary rows from trades
+    # Exclude REBALANCE rows, GHOST partial fills, and PAPER_TEST mode
     if not trades_today.empty and "code" in trades_today.columns:
         trades_today = trades_today[trades_today["code"] != "REBALANCE"]
+    if not trades_today.empty and "mode" in trades_today.columns:
+        trades_today = trades_today[
+            ~trades_today["mode"].isin(["GHOST", "PAPER_TEST"])]
+    # Aggregate duplicate code+side rows (partial fills within same session)
+    if not trades_today.empty and "code" in trades_today.columns:
+        trades_today["quantity"] = pd.to_numeric(trades_today["quantity"], errors="coerce").fillna(0).astype(int)
+        trades_today["price"] = pd.to_numeric(trades_today["price"], errors="coerce").fillna(0)
+        trades_today["_amount"] = trades_today["quantity"] * trades_today["price"]
+        agg = trades_today.groupby(["code", "side"], as_index=False).agg(
+            {"quantity": "sum", "_amount": "sum", "mode": "last"})
+        agg["price"] = (agg["_amount"] / agg["quantity"]).where(agg["quantity"] > 0, 0)
+        agg = agg.drop(columns=["_amount"])
+        trades_today = agg
     closes_today = filt(closes_df)
+    # Exclude PAPER_TEST closes, deduplicate by code
+    if not closes_today.empty and "mode" in closes_today.columns:
+        closes_today = closes_today[closes_today["mode"] != "PAPER_TEST"]
+    if not closes_today.empty and "code" in closes_today.columns:
+        closes_today = closes_today.drop_duplicates(subset=["code"], keep="last")
     decisions_today = filt(decisions_df)
     reconciles_today = filt(reconciles_df)
 
@@ -293,6 +311,87 @@ def _section(title: str, content: str) -> str:
 # Section Builders
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def build_basis_line(data: dict, today_str: str) -> str:
+    """기준 시각 / 계산 기준 한 줄 (상단 요약 바로 아래)."""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+    eq = data["equity_row"]
+    daily_pnl = float(eq.get("daily_pnl_pct", 0)) if eq is not None else 0
+
+    # Intraday high/low from equity_entries (if available from monitor logs)
+    intra_hi = data.get("_intraday_peak_pct")
+    intra_lo = data.get("_intraday_low_pct")
+    intra_text = ""
+    if intra_hi is not None and intra_lo is not None:
+        intra_text = (f" | 장중 고점 {_fp(intra_hi)}, "
+                      f"저점 {_fp(intra_lo)}")
+
+    return (f'<div style="font-size:11px;color:#90a4ae;margin-bottom:12px;'
+            f'padding:0 4px;">'
+            f'기준: {ts} KST | '
+            f'당일 수익률 = EOD 총자산 / 전일 종가 총자산 - 1'
+            f'{intra_text}'
+            f'</div>')
+
+
+def build_today_verdict(data: dict, config, verdict_kr: str,
+                         ops: dict, intraday_summary: dict) -> str:
+    """오늘의 판단 3줄 요약 (상단 카드)."""
+    eq = data["equity_row"]
+    daily_pnl = float(eq.get("daily_pnl_pct", 0)) if eq is not None else 0
+
+    # Line 1: 상태 + 리밸런싱 + 운영
+    if daily_pnl > 0:
+        perf = "상승 마감"
+    elif daily_pnl == 0:
+        perf = "보합 마감"
+    else:
+        perf = "하락 마감"
+    rebal = ops.get("rebal_status", "미실행")
+    save = ops.get("state_save", "N/A")
+    line1 = f"오늘 상태: {perf} ({_fp(daily_pnl)}) / 리밸런싱 {rebal} / 운영 {'정상' if save == 'OK' else '점검 필요'}"
+
+    # Line 2: 핵심 경고
+    warnings = []
+    _is = intraday_summary or {}
+    if _is.get("n_stocks", 0) > 0:
+        vwap_below = _is.get("vwap_below_count", 0)
+        n = _is["n_stocks"]
+        worst_dd = _is.get("worst_dd_pct", 0)
+        if vwap_below > n * 0.5:
+            warnings.append(f"VWAP 하회 {vwap_below}/{n}")
+        if worst_dd <= -4:
+            warnings.append(f"일부 종목 DD {worst_dd:.1f}%")
+    pf = int(eq.get("price_fail_count", 0)) if eq is not None else 0
+    if pf > 0:
+        warnings.append(f"가격 실패 {pf}건")
+    line2 = f"핵심 경고: {', '.join(warnings)}" if warnings else "핵심 경고: 없음"
+
+    # Line 3: 운영 안정성
+    cash_sync = ops.get("cash_sync", "N/A")
+    cash_delta = ops.get("cash_delta", "")
+    rt = ops.get("price_rt", 0)
+    fb = ops.get("price_fb", 0)
+    fail = ops.get("price_fail", 0)
+    stability = f"Cash Sync {cash_sync}"
+    if cash_delta:
+        stability += f" ({cash_delta})"
+    stability += f", Price Feed {'안정' if fail == 0 and fb == 0 else '불안정'}"
+    line3 = f"운영 안정성: {stability}"
+
+    lines = [line1, line2, line3]
+
+    bg = "#e8f5e9" if not warnings else "#fff8e1"
+    border = "#2e7d32" if not warnings else "#f57c00"
+
+    items = "".join(f'<div style="padding:2px 0;font-size:12px;">{l}</div>' for l in lines)
+
+    return (f'<div style="background:{bg};border-left:4px solid {border};'
+            f'border-radius:0 6px 6px 0;padding:10px 14px;margin-bottom:16px;">'
+            f'<div style="font-size:11px;font-weight:700;color:#1a237e;margin-bottom:4px;">'
+            f'오늘의 판단</div>'
+            f'{items}</div>')
+
+
 def build_summary(data: dict, config, verdict, verdict_kr, vcolor) -> str:
     eq = data["equity_row"]
     movers = find_top_movers(data["positions"], 3)
@@ -369,60 +468,145 @@ def build_trades(data: dict) -> str:
               f'<span style="background:#fce4ec;padding:3px 10px;border-radius:10px;'
               f'font-size:13px;">매도 {cost["n_sells"]}건</span></div>')
 
-    # Top 5 trades table
-    rows_html = ""
-    if not trades.empty:
-        top = trades.head(5)
-        for _, r in top.iterrows():
-            side = str(r.get("side", ""))
-            sc = "#d32f2f" if side == "BUY" else "#1565c0"
-            price = float(r.get("price", 0))
-            qty = int(r.get("quantity", 0))
-            code = str(r.get("code", ""))
-            name = resolve_stock_name(code)
-            rows_html += (f'<tr><td>{code}</td>'
-                          f'<td style="font-size:11px;color:#555;">{name}</td>'
-                          f'<td style="color:{sc};font-weight:600;">{side}</td>'
-                          f'<td style="text-align:right;">{qty:,}</td>'
-                          f'<td style="text-align:right;">{price:,.0f}</td></tr>')
-
-    # Closed positions
-    close_rows = ""
+    # Build close_log lookup: code -> close details (for enriching sell rows)
+    _close_map = {}
     if not closes.empty:
         for _, r in closes.iterrows():
-            pnl = float(r.get("pnl_pct", 0))
-            amt = float(r.get("pnl_amount", 0))
-            code = str(r.get("code", ""))
+            code = str(r.get("code", "")).zfill(6)
+            _close_map[code] = {
+                "entry_price": float(r.get("entry_price", 0)),
+                "exit_price": float(r.get("exit_price", 0)),
+                "pnl_pct": float(r.get("pnl_pct", 0)),
+                "pnl_amount": float(r.get("pnl_amount", 0)),
+                "exit_reason": str(r.get("exit_reason", "")),
+                "hold_days": int(r.get("hold_days", 0)),
+                "entry_rank": int(r.get("entry_rank", 0) or 0),
+                "score_mom": float(r.get("score_mom", 0) or 0),
+                "max_hwm_pct": float(r.get("max_hwm_pct", 0) or 0),
+            }
+
+    # Build decision_log lookup for BUY decisions: code -> {rank, score_mom}
+    _buy_decision_map = {}
+    decisions = data.get("decisions")
+    if decisions is not None and not decisions.empty:
+        _buys = decisions[decisions["side"] == "BUY"] if "side" in decisions.columns else decisions.iloc[0:0]
+        for _, r in _buys.iterrows():
+            code = str(r.get("code", "")).zfill(6)
+            _buy_decision_map[code] = {
+                "rank": int(r.get("rank", 0) or 0),
+                "score_mom": float(r.get("score_mom", 0) or 0),
+            }
+
+    def _sell_row(code, name, qty, entry_p, exit_p, pnl, pnl_amt, hold_days, max_hwm, rank, reason):
+        """Generate a sell row HTML."""
+        rank_s = f'{rank}' if rank > 0 else '-'
+        hwm_s = _fp(max_hwm) if max_hwm else '-'
+        hd_s = f'{hold_days}d' if hold_days > 0 else '-'
+        return (f'<tr><td>{code}</td>'
+                f'<td style="font-size:11px;color:#555;">{name}</td>'
+                f'<td style="text-align:center;color:#78909c;">{rank_s}</td>'
+                f'<td style="text-align:right;">{qty:,}</td>'
+                f'<td style="text-align:right;">{entry_p:,.0f}</td>'
+                f'<td style="text-align:right;">{exit_p:,.0f}</td>'
+                f'<td style="color:{_color(max_hwm)};text-align:right;">{hwm_s}</td>'
+                f'<td style="color:{_color(pnl)};text-align:right;'
+                f'font-weight:600;">{_fp(pnl)}</td>'
+                f'<td style="color:{_color(pnl_amt)};text-align:right;">'
+                f'{_fk(pnl_amt)}</td>'
+                f'<td style="text-align:center;color:#78909c;">{hd_s}</td>'
+                f'<td style="font-size:11px;color:#78909c;">{reason}</td></tr>')
+
+    # Buy trades
+    buy_rows = ""
+    # Sell trades (enriched with close_log)
+    sell_rows = ""
+    if not trades.empty:
+        for _, r in trades.iterrows():
+            side = str(r.get("side", ""))
+            code = str(r.get("code", "")).zfill(6)
             name = resolve_stock_name(code)
-            close_rows += (f'<tr><td>{code}</td>'
-                           f'<td style="font-size:11px;color:#555;">{name}</td>'
-                           f'<td>{r.get("exit_reason","")}</td>'
-                           f'<td style="color:{_color(pnl)};text-align:right;">{_fp(pnl)}</td>'
-                           f'<td style="color:{_color(amt)};text-align:right;">{_fk(amt)}</td></tr>')
+            price = float(r.get("price", 0))
+            qty = int(r.get("quantity", 0))
+            if side == "BUY":
+                bd = _buy_decision_map.get(code, {})
+                rank = bd.get("rank", 0)
+                mom = bd.get("score_mom", 0)
+                rank_s = f'{rank}' if rank > 0 else '-'
+                mom_s = f'{mom:.2f}' if mom else '-'
+                buy_rows += (f'<tr><td>{code}</td>'
+                             f'<td style="font-size:11px;color:#555;">{name}</td>'
+                             f'<td style="text-align:center;color:#78909c;">{rank_s}</td>'
+                             f'<td style="text-align:right;color:#78909c;">{mom_s}</td>'
+                             f'<td style="text-align:right;">{qty:,}</td>'
+                             f'<td style="text-align:right;">{price:,.0f}</td></tr>')
+            elif side == "SELL":
+                cl = _close_map.get(code)
+                if not cl:
+                    continue  # no close_log entry → likely paper_test residue
+                sell_rows += _sell_row(
+                    code, name, qty,
+                    cl.get("entry_price", 0), price,
+                    cl.get("pnl_pct", 0), cl.get("pnl_amount", 0),
+                    cl.get("hold_days", 0), cl.get("max_hwm_pct", 0),
+                    cl.get("entry_rank", 0), cl.get("exit_reason", "REBAL"))
+
+    # Closed positions not in trades (e.g. trail stop filled after monitor)
+    close_only_rows = ""
+    _traded_codes = set()
+    if not trades.empty and "code" in trades.columns:
+        _traded_codes = set(trades[trades["side"] == "SELL"]["code"].astype(str))
+    if not closes.empty:
+        for _, r in closes.iterrows():
+            code = str(r.get("code", "")).zfill(6)
+            if code in _traded_codes:
+                continue
+            name = resolve_stock_name(code)
+            close_only_rows += _sell_row(
+                code, name,
+                int(r.get("quantity", 0)),
+                float(r.get("entry_price", 0)),
+                float(r.get("exit_price", 0)),
+                float(r.get("pnl_pct", 0)),
+                float(r.get("pnl_amount", 0)),
+                int(r.get("hold_days", 0)),
+                float(r.get("max_hwm_pct", 0) or 0),
+                int(r.get("entry_rank", 0) or 0),
+                str(r.get("exit_reason", "")))
 
     table_style = 'style="width:100%;border-collapse:collapse;font-size:13px;"'
     th_style = 'style="text-align:left;padding:6px 8px;border-bottom:1px solid #e0e0e0;color:#78909c;font-size:12px;"'
     td_base = 'style="padding:6px 8px;border-bottom:1px solid #f5f5f5;"'
 
     content = header
-    if rows_html:
-        content += f"""<table {table_style}>
-            <tr><th {th_style}>종목</th><th {th_style}>종목명</th><th {th_style}>방향</th>
-            <th {th_style} style="text-align:right;">수량</th>
-            <th {th_style} style="text-align:right;">가격</th></tr>
-            {rows_html}</table>"""
-    if close_rows:
-        content += f"""<div style="margin-top:12px;font-size:13px;color:#78909c;">청산 종목</div>
+    sell_all_rows = sell_rows + close_only_rows
+    if sell_all_rows:
+        content += f"""<div style="margin-top:4px;font-size:13px;color:#1565c0;font-weight:600;">매도</div>
             <table {table_style}>
-            <tr><th {th_style}>종목</th><th {th_style}>종목명</th><th {th_style}>사유</th>
-            <th {th_style} style="text-align:right;">손익률</th>
-            <th {th_style} style="text-align:right;">손익액</th></tr>
-            {close_rows}</table>"""
+            <tr><th {th_style}>종목</th><th {th_style}>종목명</th>
+            <th {th_style} style="text-align:center;">순위</th>
+            <th {th_style} style="text-align:right;">수량</th>
+            <th {th_style} style="text-align:right;">매수가</th>
+            <th {th_style} style="text-align:right;">매도가</th>
+            <th {th_style} style="text-align:right;">최고↑</th>
+            <th {th_style} style="text-align:right;">수익률</th>
+            <th {th_style} style="text-align:right;">손익액</th>
+            <th {th_style} style="text-align:center;">보유일</th>
+            <th {th_style}>사유</th></tr>
+            {sell_all_rows}</table>"""
+    if buy_rows:
+        content += f"""<div style="margin-top:12px;font-size:13px;color:#d32f2f;font-weight:600;">매수</div>
+            <table {table_style}>
+            <tr><th {th_style}>종목</th><th {th_style}>종목명</th>
+            <th {th_style} style="text-align:center;">순위</th>
+            <th {th_style} style="text-align:right;">모멘텀</th>
+            <th {th_style} style="text-align:right;">수량</th>
+            <th {th_style} style="text-align:right;">매수가</th></tr>
+            {buy_rows}</table>"""
 
     return _section("거래 요약", content)
 
 
-def build_positions(data: dict) -> str:
+def build_positions(data: dict, intraday_summary: dict = None) -> str:
     pos = data["positions"]
     if pos.empty:
         return _section("미청산 포지션",
@@ -433,6 +617,12 @@ def build_positions(data: dict) -> str:
     # Resolve Korean stock names
     codes = pos["code"].astype(str).tolist()
     names = resolve_names_bulk(codes)
+
+    # Build intraday lookup: code -> {close_vs_vwap_pct, max_intraday_dd_pct}
+    intra_lookup = {}
+    if intraday_summary and intraday_summary.get("per_stock"):
+        for ps in intraday_summary["per_stock"]:
+            intra_lookup[str(ps.get("code", "")).zfill(6)] = ps
 
     th = 'style="text-align:left;padding:6px 8px;border-bottom:1px solid #e0e0e0;color:#78909c;font-size:11px;"'
     td = 'style="padding:5px 8px;font-size:12px;"'
@@ -449,31 +639,66 @@ def build_positions(data: dict) -> str:
         qty = int(r.get("quantity", 0))
         avg = float(r.get("avg_price", 0))
         cur = float(r.get("current_price", 0))
-        rf = str(r.get("risk_flag", "정상"))
         code = str(r.get("code", ""))
         stock_name = names.get(code.zfill(6), code)
 
-        if gap <= 2:
+        # Intraday data
+        intra = intra_lookup.get(code.zfill(6), {})
+        vs_vwap = intra.get("close_vs_vwap_pct", None)
+        intra_dd = intra.get("max_intraday_dd_pct", None)
+
+        # Enhanced risk flag: 4-level
+        vwap_below = (vs_vwap is not None and vs_vwap < 0)
+        dd_severe = (intra_dd is not None and intra_dd <= -4)
+        trail_near = gap <= 5
+
+        if (trail_near and (vwap_below or dd_severe)):
+            rf = "고위험"
             bg = "#ffebee"
             rf_color = "#d32f2f"
-        elif gap <= 5:
+        elif trail_near:
+            rf = "경계"
+            bg = "#fff3e0"
+            rf_color = "#e65100"
+        elif vwap_below and dd_severe:
+            rf = "주의"
             bg = "#fff8e1"
             rf_color = "#f57f17"
+        elif gap <= 2:
+            rf = "경계"
+            bg = "#ffebee"
+            rf_color = "#d32f2f"
         else:
+            rf = "정상"
             bg = "#fff"
             rf_color = "#2e7d32"
 
+        # Format vs VWAP / Intraday DD
+        if vs_vwap is not None:
+            vwap_str = f"{vs_vwap:+.2f}%"
+            vwap_color = "#1565c0" if vs_vwap < 0 else "#d32f2f" if vs_vwap > 0 else "#333"
+        else:
+            vwap_str = "-"
+            vwap_color = "#aaa"
+        if intra_dd is not None:
+            dd_str = f"{intra_dd:.2f}%"
+            dd_color = "#d32f2f" if intra_dd <= -4 else "#f57c00" if intra_dd <= -2 else "#333"
+        else:
+            dd_str = "-"
+            dd_color = "#aaa"
+
         rows += (f'<tr style="background:{bg};">'
                  f'<td {td}>{i}</td>'
-                 f'<td {td} style="font-weight:600;">{stock_name}'
+                 f'<td {td} style="font-weight:600;color:{_color(pnl)};">{stock_name}'
                  f'<span style="font-size:9px;color:#aaa;margin-left:4px;">{code}</span></td>'
                  f'<td {tdr}>{qty:,}</td>'
                  f'<td {tdr}>{avg:,.0f}</td>'
                  f'<td {tdr}>{cur:,.0f}</td>'
                  f'<td {tdr} style="color:{_color(pnl)};">{_fp(pnl)}</td>'
-                 f'<td {tdr} style="color:#90a4ae;font-size:10px;">{_fp(est_cost)}</td>'
+                 f'<td {tdr} style="color:{_color(amt)};">{amt:+,.0f}</td>'
                  f'<td {tdr} style="color:{_color(net_pnl)};font-weight:600;">{_fp(net_pnl)}</td>'
-                 f'<td {tdr} style="color:{_color(amt)};">{_fk(amt)}</td>'
+                 f'<td {tdr} style="color:{vwap_color};">{vwap_str}</td>'
+                 f'<td {tdr} style="color:{dd_color};">{dd_str}</td>'
                  f'<td {tdr}>{hd}일</td>'
                  f'<td {tdr} style="color:{rf_color};">{gap:.1f}%</td>'
                  f'<td {td} style="text-align:center;color:{rf_color};font-weight:600;">{rf}</td>'
@@ -482,28 +707,635 @@ def build_positions(data: dict) -> str:
     total_mv = pd.to_numeric(pos["market_value"], errors="coerce").sum()
     total_pnl = pd.to_numeric(pos["pnl_amount"], errors="coerce").sum()
 
+    # Sortable header helper
+    def _sh(label, col_idx, is_num=True, align="right"):
+        al = f"text-align:{align};"
+        return (f'<th class="g4-sortable" onclick="g4sort(\'pos-tbl\',{col_idx},{str(is_num).lower()})" '
+                f'style="{al}padding:6px 8px;border-bottom:1px solid #e0e0e0;'
+                f'color:#78909c;font-size:11px;">'
+                f'{label}<span class="g4-arrow" style="font-size:9px;"></span></th>')
+
     return _section("미청산 포지션",
         f"""<div style="font-size:12px;color:#78909c;margin-bottom:4px;">
-            trail_gap 기준 위험순 정렬 | gap = (현재가/청산가 - 1)%</div>
-        <div style="overflow-x:auto;">
-        <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:800px;">
-        <tr><th {th}>#</th><th {th}>종목명</th>
-        <th {th} style="text-align:right;">수량</th>
-        <th {th} style="text-align:right;">평균가</th>
-        <th {th} style="text-align:right;">현재가</th>
-        <th {th} style="text-align:right;">손익률</th>
-        <th {th} style="text-align:right;font-size:10px;">비용</th>
-        <th {th} style="text-align:right;">순손익률</th>
-        <th {th} style="text-align:right;">손익액</th>
-        <th {th} style="text-align:right;">보유</th>
-        <th {th} style="text-align:right;">Trail Gap</th>
-        <th {th} style="text-align:center;">상태</th></tr>
+            헤더 클릭으로 정렬 | 상태: 정상 / 주의(VWAP+DD) / 경계(Trail) / 고위험(복합)</div>
+        <div class="g4-sticky-wrap" style="overflow-x:auto;">
+        <table id="pos-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:1000px;">
+        <thead><tr>
+        {_sh('#', 0)}
+        {_sh('종목명', 1, False, 'left')}
+        {_sh('수량', 2)}
+        {_sh('평균가', 3)}
+        {_sh('현재가', 4)}
+        {_sh('손익률', 5)}
+        {_sh('손익금액', 6)}
+        {_sh('순손익률', 7)}
+        {_sh('vs VWAP', 8)}
+        {_sh('장중DD', 9)}
+        {_sh('보유', 10)}
+        {_sh('Trail Gap', 11)}
+        {_sh('상태', 12, False, 'center')}
+        </tr></thead>
+        <tbody>
         {rows}
         <tr style="border-top:2px solid #1565c0;font-weight:700;">
-        <td colspan="8" style="padding:6px 8px;">합계</td>
-        <td style="padding:6px 8px;text-align:right;color:{_color(total_pnl)};">{_fk(total_pnl)}</td>
+        <td colspan="6" style="padding:6px 8px;">합계</td>
+        <td style="padding:6px 8px;text-align:right;color:{_color(total_pnl)};">{total_pnl:+,.0f}</td>
+        <td colspan="3" style="padding:6px 8px;"></td>
         <td colspan="3" style="padding:6px 8px;text-align:right;">{total_mv:,.0f}</td></tr>
+        </tbody>
         </table></div>""")
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# NEW: Operations + Risk + Anomaly + Intraday Flow + Log Events + Verdict
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _parse_log_events(log_dir: Path, today_str: str) -> List[dict]:
+    """Parse today's live log for key events."""
+    date_compact = today_str.replace("-", "")
+    candidates = [
+        log_dir / f"gen4_live_{date_compact}.log",
+        log_dir / f"gen4_mock_{date_compact}.log",
+        log_dir / f"gen4_paper_test_{date_compact}.log",
+        log_dir / f"gen4_paper_{date_compact}.log",
+    ]
+    log_path = None
+    for p in candidates:
+        if p.exists():
+            log_path = p
+            break
+    if not log_path:
+        return []
+
+    patterns = {
+        "TRADING_MODE": "LOGIN",
+        "RECON": "RECON",
+        "STATE_SAVE_OK": "STATE_SAVE",
+        "STATE_SAVE_FAIL": "STATE_SAVE",
+        "REBAL_SELL_STATUS": "REBALANCE",
+        "REBALANCE_COMMIT_OK": "REBALANCE",
+        "REBAL_COMMIT_DEFERRED": "REBALANCE",
+        "REBAL_SELL_FAILED": "REBALANCE",
+        "PENDING_BUY": "PENDING_BUY",
+        "TRAIL_PRECHECK_NEAR": "TRAIL",
+        "EOD_TRAIL_CHECK": "TRAIL",
+        "EOD_TRAIL_EXIT": "TRAIL",
+        "TRAIL_SKIP": "TRAIL_SKIP",
+        "TRAIL_DISABLED_BY_DATA": "TRAIL_SKIP",
+        "CASH_DIVERGENCE": "CASH_SYNC",
+        "SAFE_MODE": "SAFE_MODE",
+        "DD_GUARD": "RISK",
+        "Monitor:": "MONITOR",
+        "WARNING": "WARNING",
+        "ERROR": "ERROR",
+        "CRITICAL": "CRITICAL",
+    }
+
+    events = []
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                for tag, category in patterns.items():
+                    if tag in line:
+                        # Extract time
+                        time_str = line[:19] if len(line) >= 19 else ""
+                        try:
+                            ts = time_str.split(" ")[1].split(",")[0][:5]  # HH:MM
+                        except (IndexError, ValueError):
+                            ts = ""
+                        # Extract level
+                        level = "INFO"
+                        if "[WARNING]" in line:
+                            level = "WARNING"
+                        elif "[ERROR]" in line:
+                            level = "ERROR"
+                        elif "[CRITICAL]" in line:
+                            level = "CRITICAL"
+                        # Extract summary (after the tag)
+                        idx = line.find(tag)
+                        summary = line[idx:idx+120].strip() if idx >= 0 else line[-120:]
+                        events.append({
+                            "time": ts,
+                            "category": category,
+                            "level": level,
+                            "summary": summary,
+                        })
+                        break  # first match per line
+    except Exception:
+        pass
+    return events
+
+
+def _extract_ops_status(events: List[dict], eq) -> dict:
+    """Extract operational status from parsed log events + equity row."""
+    status = {
+        "trading_mode": "N/A",
+        "rebal_status": "미실행",
+        "rebal_detail": "",
+        "cash_sync": "N/A",
+        "cash_delta": "",
+        "state_save": "N/A",
+        "price_rt": 0,
+        "price_fb": 0,
+        "price_fail": 0,
+    }
+
+    for e in events:
+        s = e["summary"]
+        if "TRADING_MODE" in s:
+            if "paper" in s.lower():
+                status["trading_mode"] = "PAPER"
+            elif "live" in s.lower():
+                status["trading_mode"] = "LIVE"
+            elif "mock" in s.lower():
+                status["trading_mode"] = "MOCK"
+        elif "REBALANCE_COMMIT_OK" in s:
+            status["rebal_status"] = "실행 완료"
+        elif "REBAL_COMMIT_DEFERRED" in s:
+            status["rebal_status"] = "DEFERRED"
+            status["rebal_detail"] = "sell 미확정"
+        elif "REBAL_SELL_FAILED" in s:
+            status["rebal_status"] = "FAILED"
+        elif "PENDING_BUY_START" in s or "PENDING_BUY_EXEC" in s:
+            status["rebal_status"] = "Pending Buy 실행"
+        elif "RECON" in s and "Cash synced" in s:
+            status["cash_sync"] = "OK"
+            # Extract delta
+            try:
+                parts = s.split("->")
+                if len(parts) == 2:
+                    old = float(parts[0].split()[-1].replace(",", ""))
+                    new = float(parts[1].strip().replace(",", ""))
+                    delta = new - old
+                    status["cash_delta"] = _fk(delta)
+            except (ValueError, IndexError):
+                pass
+        elif "STATE_SAVE_OK" in s:
+            status["state_save"] = "OK"
+        elif "STATE_SAVE_FAIL" in s:
+            status["state_save"] = "FAIL"
+
+    # Price feed from monitor logs
+    for e in events:
+        if e["category"] == "MONITOR" and "rt=" in e["summary"]:
+            try:
+                s = e["summary"]
+                # Extract rt=N fb=N fail=N
+                for part in s.split("[")[1].split("]")[0].split():
+                    if part.startswith("rt="):
+                        status["price_rt"] = int(part.split("=")[1])
+                    elif part.startswith("fb="):
+                        status["price_fb"] = int(part.split("=")[1])
+                    elif part.startswith("fail="):
+                        status["price_fail"] = int(part.split("=")[1])
+            except (IndexError, ValueError):
+                pass
+
+    # Fallback from equity row
+    if eq is not None:
+        pf = int(eq.get("price_fail_count", 0))
+        if pf > 0 and status["price_fail"] == 0:
+            status["price_fail"] = pf
+        rc = int(eq.get("reconcile_corrections", 0))
+        if rc > 0 and status["cash_sync"] == "N/A":
+            status["cash_sync"] = f"{rc}건 보정"
+
+    # Event counts for daily stability overview
+    status["_event_counts"] = {
+        "cash_sync_count": sum(1 for e in events if e["category"] in ("RECON", "CASH_SYNC")),
+        "state_save_count": sum(1 for e in events if e["category"] == "STATE_SAVE"),
+        "price_fb_count": status["price_fb"],
+        "price_fail_count": status["price_fail"],
+        "warning_count": sum(1 for e in events if e["level"] == "WARNING"),
+        "error_count": sum(1 for e in events if e["level"] in ("ERROR", "CRITICAL")),
+    }
+
+    return status
+
+
+def build_ops_status(data: dict, ops: dict) -> str:
+    """Section 1: Operations status card (상단)."""
+    mode = ops["trading_mode"]
+    mode_color = "#1565c0" if mode == "PAPER" else "#d32f2f" if mode == "LIVE" else "#78909c"
+
+    rebal = ops["rebal_status"]
+    rebal_color = "#2e7d32" if "완료" in rebal else "#f57f17" if rebal in ("DEFERRED", "Pending") else "#78909c"
+
+    cash = ops["cash_sync"]
+    cash_detail = f" ({ops['cash_delta']})" if ops["cash_delta"] else ""
+    cash_color = "#2e7d32" if cash == "OK" else "#d32f2f" if cash == "FAIL" else "#78909c"
+
+    save = ops["state_save"]
+    save_color = "#2e7d32" if save == "OK" else "#d32f2f" if save == "FAIL" else "#78909c"
+
+    rt, fb, fail = ops["price_rt"], ops["price_fb"], ops["price_fail"]
+    price_color = "#2e7d32" if fail == 0 else "#d32f2f"
+    price_text = f"RT={rt} / FB={fb} / FAIL={fail}"
+
+    def _ops_item(label, value, color):
+        return (f'<div style="display:flex;justify-content:space-between;'
+                f'padding:4px 0;font-size:13px;">'
+                f'<span style="color:#78909c;">{label}</span>'
+                f'<span style="color:{color};font-weight:600;">{value}</span></div>')
+
+    items = (
+        _ops_item("Mode", mode, mode_color) +
+        _ops_item("Rebalance", rebal + (f" ({ops['rebal_detail']})" if ops['rebal_detail'] else ""), rebal_color) +
+        _ops_item("Cash Sync", cash + cash_detail, cash_color) +
+        _ops_item("State Save", save, save_color) +
+        _ops_item("Price Feed", price_text, price_color)
+    )
+
+    # 하루 전체 안정성 이벤트 카운트
+    counts = ops.get("_event_counts", {})
+    if counts:
+        count_parts = []
+        for label, val in [
+            ("Cash보정", counts.get("cash_sync_count", 0)),
+            ("State저장", counts.get("state_save_count", 0)),
+            ("PriceFB", counts.get("price_fb_count", 0)),
+            ("PriceFail", counts.get("price_fail_count", 0)),
+            ("Warning", counts.get("warning_count", 0)),
+            ("Error", counts.get("error_count", 0)),
+        ]:
+            c = "#d32f2f" if ("Fail" in label or "Error" in label) and val > 0 else "#78909c"
+            count_parts.append(
+                f'<span style="color:{c};font-size:11px;">{label}:{val}</span>')
+        counts_html = (
+            f'<div style="margin-top:6px;padding-top:6px;border-top:1px solid #c5cae9;'
+            f'font-size:11px;display:flex;gap:10px;flex-wrap:wrap;">'
+            + " ".join(count_parts) + '</div>')
+    else:
+        counts_html = ""
+
+    return f"""<div style="background:#e8eaf6;border-radius:8px;padding:14px 18px;
+        margin-bottom:20px;border-left:4px solid #1565c0;">
+        <div style="font-size:13px;font-weight:700;color:#1a237e;margin-bottom:8px;">
+            운영 상태</div>
+        {items}
+        {counts_html}
+    </div>"""
+
+
+def build_risk_summary(intraday_summary: dict) -> str:
+    """Section 2: Risk summary card (리스크 요약)."""
+    if not intraday_summary or intraday_summary.get("n_stocks", 0) == 0:
+        return ""
+
+    n = intraday_summary["n_stocks"]
+    worst_dd = intraday_summary.get("worst_dd_pct", 0)
+    avg_dd = intraday_summary.get("avg_max_dd_pct", 0)
+    vwap_below = intraday_summary.get("vwap_below_count", 0)
+    spikes_3x = intraday_summary.get("total_volume_spikes_3x", 0)
+    risk_score = intraday_summary.get("risk_score", 0)
+
+    # Color rules
+    dd_color = "#d32f2f" if worst_dd <= -4 else "#f57c00" if worst_dd <= -2 else "#333"
+    vwap_color = "#f57c00" if vwap_below > n * 0.5 else "#333"
+    rs_color = "#d32f2f" if risk_score >= 70 else "#f57c00" if risk_score >= 40 else "#388e3c"
+
+    cards = (
+        _card("Worst DD", f"{worst_dd:.1f}%", dd_color,
+              intraday_summary.get("worst_dd_code", "")) +
+        _card("Avg DD", f"{avg_dd:.1f}%", "#f57c00" if avg_dd <= -2 else "#333") +
+        _card("VWAP 하회", f"{vwap_below}/{n}", vwap_color,
+              f"{vwap_below/n*100:.0f}%" if n > 0 else "") +
+        _card("Risk Score", f"{risk_score:.0f}", rs_color)
+    )
+    return _section("리스크 요약",
+        f'<div style="display:flex;gap:12px;flex-wrap:wrap;">{cards}</div>')
+
+
+def build_anomaly(data: dict, intraday_summary: dict, events: List[dict]) -> str:
+    """Section 3: Anomaly detection (이상 탐지)."""
+    alerts = []
+
+    # Intraday-based anomalies
+    if intraday_summary and intraday_summary.get("n_stocks", 0) > 0:
+        n = intraday_summary["n_stocks"]
+        worst_dd = intraday_summary.get("worst_dd_pct", 0)
+        vwap_below = intraday_summary.get("vwap_below_count", 0)
+        spikes_3x = intraday_summary.get("total_volume_spikes_3x", 0)
+        near_trail = intraday_summary.get("near_trail_count", 0)
+
+        if worst_dd <= -4:
+            alerts.append(("HIGH",
+                f"일부 종목 {worst_dd:.1f}% DD 발생 "
+                f"({intraday_summary.get('worst_dd_code', '')})"))
+        if vwap_below > n * 0.7:
+            alerts.append(("MED",
+                f"포트폴리오 {vwap_below}/{n} ({vwap_below/n*100:.0f}%) VWAP 하회"))
+        if spikes_3x > 10:
+            alerts.append(("MED",
+                f"볼륨 스파이크 3x: {spikes_3x}건 (변동성 확대)"))
+        if near_trail > 0:
+            alerts.append(("HIGH",
+                f"Trail Stop 근접 {near_trail}종목 (DD <= -10%)"))
+
+    # Price feed anomalies
+    eq = data["equity_row"]
+    if eq is not None:
+        pf = int(eq.get("price_fail_count", 0))
+        if pf > 0:
+            alerts.append(("MED", f"가격 조회 실패 {pf}건"))
+
+    # Log-based anomalies
+    critical_count = sum(1 for e in events if e["level"] == "CRITICAL")
+    error_count = sum(1 for e in events if e["level"] == "ERROR")
+    trail_skip_count = sum(1 for e in events if e["category"] == "TRAIL_SKIP")
+    safe_mode = any(e["category"] == "SAFE_MODE" for e in events)
+
+    if safe_mode:
+        alerts.append(("HIGH", "SAFE MODE 발동 — 신규 매수 차단"))
+    if critical_count > 0:
+        alerts.append(("HIGH", f"CRITICAL 이벤트 {critical_count}건"))
+    if error_count > 2:
+        alerts.append(("MED", f"ERROR 이벤트 {error_count}건"))
+    if trail_skip_count > 0:
+        alerts.append(("MED", f"Trail Stop 데이터 부재 {trail_skip_count}건"))
+
+    if not alerts:
+        return _section("이상 탐지",
+            '<div style="color:#2e7d32;padding:8px;font-size:13px;">'
+            '이상 없음</div>')
+
+    # 권장 액션 매핑 (경고 키워드 → 의미, 체크포인트, 주의사항)
+    _action_map = {
+        "DD": ("장중 급락으로 trail stop 근접 위험",
+               "내일 해당 종목 시가 및 거래량 확인",
+               "trail 발동 시 빈 슬롯 보충 없음에 유의"),
+        "VWAP": ("다수 종목이 VWAP 하회하여 매수 체력 약화",
+                 "내일 VWAP 회복 여부 및 거래량 추이 확인",
+                 "리밸런싱 시 추격매수 주의"),
+        "볼륨 스파이크": ("거래량 급증으로 변동성 확대",
+                    "내일 스파이크 지속 여부 확인",
+                    "급등 후 되돌림 가능성 주의"),
+        "Trail Stop 근접": ("trail stop 발동 임박 종목 존재",
+                      "내일 해당 종목 시가 갭 확인",
+                      "청산 시 자금 유입되나 빈 슬롯 보충 안 됨"),
+        "가격 조회 실패": ("일부 종목 실시간 가격 미수신",
+                    "내일 해당 종목 장 시작 후 가격 수신 정상화 확인",
+                    "fallback 가격 사용 시 trail 정확도 저하"),
+        "SAFE MODE": ("DD guard에 의해 전 종목 신규 매수 차단",
+                 "DD 회복률 확인, -20% 이상 회복 시 자동 해제",
+                 "해제 전까지 리밸런싱 매수 불가"),
+        "CRITICAL": ("시스템 크리티컬 오류 발생",
+                "로그 파일에서 CRITICAL 이벤트 원인 파악",
+                "forensic snapshot 확인, 필요시 수동 재시작"),
+        "ERROR": ("시스템 에러 다수 발생",
+             "로그 파일에서 ERROR 패턴 확인",
+             "연속 발생 시 monitor restart 동작 확인"),
+        "Trail Stop 데이터 부재": ("fallback price 사용으로 trail 판단 불가",
+                          "내일 가격 수신 정상화 확인",
+                          "연속 3일 이상 시 해당 종목 수동 점검"),
+    }
+
+    items = ""
+    for severity, msg in alerts:
+        if severity == "HIGH":
+            bg, border, icon = "#ffebee", "#d32f2f", "!!"
+        else:
+            bg, border, icon = "#fff8e1", "#ffc107", "!"
+
+        # 매칭되는 권장 액션 찾기
+        action_html = ""
+        for keyword, (meaning, checkpoint, caution) in _action_map.items():
+            if keyword in msg:
+                action_html = (
+                    f'<div style="font-size:11px;color:#555;margin-top:4px;'
+                    f'padding-left:20px;line-height:1.5;">'
+                    f'<span style="color:#78909c;">의미:</span> {meaning}<br>'
+                    f'<span style="color:#78909c;">체크:</span> {checkpoint}<br>'
+                    f'<span style="color:#78909c;">주의:</span> {caution}'
+                    f'</div>')
+                break
+
+        items += (f'<div style="background:{bg};border-left:4px solid {border};'
+                  f'padding:8px 12px;margin-bottom:6px;font-size:13px;'
+                  f'border-radius:0 4px 4px 0;">'
+                  f'<span style="font-weight:700;color:{border};margin-right:6px;">'
+                  f'{icon}</span>{msg}'
+                  f'{action_html}</div>')
+
+    return _section("이상 탐지", items)
+
+
+def build_intraday_flow(intraday_summary: dict, events: List[dict]) -> str:
+    """Section 4: Intraday flow summary (장중 흐름 요약)."""
+    if not intraday_summary or intraday_summary.get("n_stocks", 0) == 0:
+        return ""
+
+    per_stock = intraday_summary.get("per_stock", [])
+    if not per_stock:
+        return ""
+
+    # Find peak/low/dd across portfolio
+    peak_dd = 0.0
+    peak_code = ""
+    peak_time = ""
+    low_dd = 0.0
+    low_code = ""
+    low_time = ""
+
+    for r in per_stock:
+        dd = r.get("max_intraday_dd_pct", 0)
+        if dd < low_dd:
+            low_dd = dd
+            low_code = r.get("code", "")
+            low_time = r.get("max_dd_time", "")
+
+    # Extract equity changes from monitor events
+    equity_entries = []
+    for e in events:
+        if e["category"] == "MONITOR" and "equity=" in e["summary"]:
+            try:
+                s = e["summary"]
+                eq_part = s.split("equity=")[1].split(",")[0].replace(",", "")
+                eq_val = float(eq_part)
+                equity_entries.append((e["time"], eq_val))
+            except (IndexError, ValueError):
+                pass
+
+    flow_items = []
+    if equity_entries:
+        peak_entry = max(equity_entries, key=lambda x: x[1])
+        low_entry = min(equity_entries, key=lambda x: x[1])
+        if len(equity_entries) >= 2:
+            range_pct = (peak_entry[1] - low_entry[1]) / low_entry[1] * 100 if low_entry[1] > 0 else 0
+            flow_items.append(f"고점: {peak_entry[0]} ({peak_entry[1]:,.0f}원)")
+            flow_items.append(f"저점: {low_entry[0]} ({low_entry[1]:,.0f}원)")
+            flow_items.append(f"장중 변동폭: {range_pct:.2f}%")
+
+    avg_dd = intraday_summary.get("avg_max_dd_pct", 0)
+    worst_dd = intraday_summary.get("worst_dd_pct", 0)
+    worst_code = intraday_summary.get("worst_dd_code", "")
+
+    flow_items.append(f"평균 장중DD: {avg_dd:.2f}%")
+    flow_items.append(f"최악 DD: {worst_dd:.2f}% ({resolve_stock_name(worst_code)} "
+                      f"@ {low_time})")
+
+    # 추가 지표: peak-to-close DD, 저점 회복률, 후반 강도
+    if equity_entries and len(equity_entries) >= 2:
+        peak_entry = max(equity_entries, key=lambda x: x[1])
+        low_entry = min(equity_entries, key=lambda x: x[1])
+        last_entry = equity_entries[-1]
+
+        # Peak-to-close drawdown
+        if peak_entry[1] > 0:
+            ptc_dd = (last_entry[1] - peak_entry[1]) / peak_entry[1] * 100
+            flow_items.append(f"고점→종가 DD: {ptc_dd:.2f}%")
+
+        # 저점 이후 회복률
+        if low_entry[1] > 0 and last_entry[1] >= low_entry[1]:
+            recovery = (last_entry[1] - low_entry[1]) / low_entry[1] * 100
+            flow_items.append(f"저점 이후 회복: +{recovery:.2f}%")
+
+        # 후반 강도 (14:00 이후 변화)
+        afternoon_entries = [(t, v) for t, v in equity_entries if t >= "14:00"]
+        if len(afternoon_entries) >= 2:
+            af_first = afternoon_entries[0][1]
+            af_last = afternoon_entries[-1][1]
+            if af_first > 0:
+                af_change = (af_last - af_first) / af_first * 100
+                af_label = "강세" if af_change > 0.3 else "약세" if af_change < -0.3 else "보합"
+                flow_items.append(
+                    f"후반(14:00~) 강도: {af_change:+.2f}% ({af_label})")
+
+    items_html = "".join(
+        f'<div style="padding:3px 0;font-size:13px;">'
+        f'<span style="color:#78909c;margin-right:6px;">-</span>{item}</div>'
+        for item in flow_items
+    )
+
+    return _section("장중 흐름 요약", f"""
+        <div style="background:#fff;border-radius:8px;padding:14px 18px;
+            box-shadow:0 1px 3px rgba(0,0,0,.08);">
+            {items_html}
+        </div>""")
+
+
+def build_log_events(events: List[dict]) -> str:
+    """Section 6: Key log events summary (로그 핵심 이벤트)."""
+    if not events:
+        return ""
+
+    # Filter: only important categories
+    important = [e for e in events
+                 if e["category"] in ("LOGIN", "RECON", "REBALANCE", "PENDING_BUY",
+                                      "TRAIL", "TRAIL_SKIP", "CASH_SYNC", "SAFE_MODE",
+                                      "RISK", "STATE_SAVE")
+                 or e["level"] in ("ERROR", "CRITICAL")]
+
+    # Dedup: keep first per (category, level) pair, max 20
+    seen = set()
+    filtered = []
+    for e in important:
+        key = (e["category"], e["level"], e["summary"][:40])
+        if key not in seen:
+            seen.add(key)
+            filtered.append(e)
+    filtered = filtered[:20]
+
+    if not filtered:
+        return ""
+
+    th = ('style="text-align:left;padding:6px 8px;border-bottom:1px solid #e0e0e0;'
+          'color:#78909c;font-size:11px;"')
+
+    rows = ""
+    for e in filtered:
+        level = e["level"]
+        if level == "CRITICAL":
+            lc = "#d32f2f"
+            bg = "#ffebee"
+        elif level == "ERROR":
+            lc = "#c62828"
+            bg = "#fce4ec"
+        elif level == "WARNING":
+            lc = "#f57f17"
+            bg = "#fffde7"
+        else:
+            lc = "#333"
+            bg = "#fff"
+
+        # Truncate summary
+        summ = e["summary"][:80]
+        rows += (f'<tr style="background:{bg};">'
+                 f'<td style="padding:4px 8px;font-size:12px;color:#78909c;">{e["time"]}</td>'
+                 f'<td style="padding:4px 8px;font-size:11px;font-weight:600;color:{lc};">'
+                 f'{e["category"]}</td>'
+                 f'<td style="padding:4px 8px;font-size:11px;">{summ}</td></tr>')
+
+    return _section("로그 핵심 이벤트", f"""
+        <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <tr><th {th}>시각</th><th {th}>이벤트</th><th {th}>요약</th></tr>
+        {rows}
+        </table></div>""")
+
+
+def build_strategy_verdict(data: dict, intraday_summary: dict,
+                            verdict: str, ops: dict) -> str:
+    """Section 7: Strategy interpretation (전략 해석)."""
+    eq = data["equity_row"]
+    if eq is None:
+        return ""
+
+    daily_pnl = float(eq.get("daily_pnl_pct", 0))
+    n_pos = int(eq.get("n_positions", 0))
+
+    lines = []
+
+    # Performance assessment
+    if daily_pnl > 0.02:
+        lines.append(f"금일 포트폴리오 <b>상승 추세</b> 유지 ({_fp(daily_pnl)})")
+    elif daily_pnl > 0:
+        lines.append(f"금일 포트폴리오 <b>소폭 상승</b> ({_fp(daily_pnl)})")
+    elif daily_pnl > -0.02:
+        lines.append(f"금일 포트폴리오 <b>소폭 하락</b> ({_fp(daily_pnl)})")
+    else:
+        lines.append(f"금일 포트폴리오 <b>하락</b> ({_fp(daily_pnl)}) — 주의 필요")
+
+    # VWAP assessment
+    if intraday_summary and intraday_summary.get("n_stocks", 0) > 0:
+        n = intraday_summary["n_stocks"]
+        vwap_below = intraday_summary.get("vwap_below_count", 0)
+        risk_score = intraday_summary.get("risk_score", 0)
+        if vwap_below > n * 0.5:
+            lines.append(f"VWAP 하회 종목 다수 ({vwap_below}/{n}) — 상승 피로 신호")
+        if risk_score >= 70:
+            lines.append("Risk Score 고위험 구간 — 변동성 확대 주의")
+
+    # Rebalance assessment
+    if "실행" in ops.get("rebal_status", ""):
+        lines.append("리밸런싱 실행 완료 — 포트폴리오 재편성됨")
+    elif ops.get("rebal_status") == "DEFERRED":
+        lines.append("리밸런싱 지연 상태 — sell 미확정, 다음 세션 확인 필요")
+
+    # Position count
+    if n_pos < 15:
+        lines.append(f"보유 종목 {n_pos}/20 — trail stop 등으로 빈 슬롯 발생")
+
+    # Verdict
+    if verdict == "NORMAL":
+        lines.append("종합: <b>정상 운영</b> — 모니터링 유지")
+    elif verdict == "CAUTION":
+        lines.append("종합: <b>주의</b> — 로그 점검 권고")
+    else:
+        lines.append("종합: <b>위험</b> — 신규 진입 중단 검토")
+
+    items = "".join(f'<div style="padding:3px 0;">{l}</div>' for l in lines)
+    bg = "#e8f5e9" if verdict == "NORMAL" else "#fff8e1" if verdict == "CAUTION" else "#ffebee"
+    border = "#2e7d32" if verdict == "NORMAL" else "#f57f17" if verdict == "CAUTION" else "#d32f2f"
+
+    return _section("전략 해석", f"""
+        <div style="background:{bg};border-left:4px solid {border};
+            border-radius:0 8px 8px 0;padding:14px 18px;font-size:13px;line-height:1.8;">
+            {items}
+        </div>""")
 
 
 def build_risk(data: dict) -> str:
@@ -613,23 +1445,60 @@ def build_market_comparison(data: dict) -> str:
     daily_pnl = float(eq.get("daily_pnl_pct", 0)) if eq is not None else 0
     k_ret = get_kospi_return(kospi, today)
 
+    # KOSPI EOD close from equity_log (if available)
+    kospi_eod = None
+    if eq is not None and "kospi_close" in eq.index:
+        kc = eq.get("kospi_close", "")
+        if kc and str(kc) not in ("", "nan", "0.00"):
+            try:
+                kospi_eod = float(kc)
+            except (ValueError, TypeError):
+                pass
+
+    # Fallback: try to get KOSPI close from kospi_utils
+    if kospi_eod is None:
+        kospi_eod_val = get_kospi_close_on(kospi, today)
+        if kospi_eod_val is not None:
+            kospi_eod = kospi_eod_val
+
     if k_ret is None:
+        # Even without return, show close price if available
+        if kospi_eod is not None:
+            return _section("시장 대비 성과",
+                f'<div style="padding:12px;">'
+                f'<div style="color:#aaa;font-size:13px;">KOSPI 수익률 계산 불가 (전일 종가 부재)</div>'
+                f'<div style="color:#78909c;font-size:12px;margin-top:4px;">'
+                f'KOSPI EOD 종가: {kospi_eod:,.2f}</div>'
+                f'<div style="color:#78909c;font-size:11px;margin-top:2px;">'
+                f'절대수익/내부 리스크 기준으로만 해석 필요</div>'
+                f'</div>')
         return _section("시장 대비 성과",
-            '<div style="color:#aaa;padding:12px;">KOSPI 데이터 없음 (비거래일 또는 데이터 부재)</div>')
+            '<div style="padding:12px;">'
+            '<div style="color:#aaa;font-size:13px;">시장 비교 데이터 부재 (비거래일 또는 데이터 미수신)</div>'
+            '<div style="color:#78909c;font-size:12px;margin-top:4px;">'
+            '상대성과 평가 보류 — 절대수익/내부 리스크 기준으로만 해석 필요</div>'
+            '</div>')
 
     excess, label = compute_excess_return(daily_pnl, k_ret)
 
     label_color = {"Outperform": "#2e7d32", "Underperform": "#d32f2f", "In-line": "#78909c", "N/A": "#78909c"}
     lc = label_color.get(label, "#78909c")
 
+    kospi_sub = f"종가 {kospi_eod:,.2f}" if kospi_eod else ""
+
     cards = (
         _card("포트폴리오", _fp(daily_pnl), _color(daily_pnl)) +
-        _card("KOSPI", _fp(k_ret), _color(k_ret)) +
+        _card("KOSPI", _fp(k_ret), _color(k_ret), kospi_sub) +
         _card("초과 수익", _fp(excess), _color(excess),
               f'<span style="color:{lc};font-weight:600;">{label}</span>')
     )
+
+    basis = ('<div style="font-size:10px;color:#aaa;margin-top:6px;">'
+             'KOSPI 수익률 = 당일 종가 / 전일 종가 - 1 | '
+             '포트폴리오 수익률 = EOD 총자산 / 전일 종가 총자산 - 1</div>')
+
     return _section("시장 대비 성과",
-        f'<div style="display:flex;gap:12px;flex-wrap:wrap;">{cards}</div>')
+        f'<div style="display:flex;gap:12px;flex-wrap:wrap;">{cards}</div>{basis}')
 
 
 def build_cost(data: dict) -> str:
@@ -825,10 +1694,24 @@ def build_intraday_chart(data: dict, intraday_dir=None) -> str:
         if not weights:
             weights = {code: 1.0 / len(bars) for code in bars}
 
-        svg = render_portfolio_intraday_svg(bars, weights)
+        # Load KOSPI minute bars for overlay (if available)
+        kospi_bars = None
+        try:
+            import json as _json
+            today_compact = data["today_str"].replace("-", "")
+            report_dir = Path(data.get("_report_dir", "."))
+            kb_path = report_dir / f"kospi_minute_{today_compact}.json"
+            if kb_path.exists():
+                kospi_bars = _json.loads(kb_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+        svg = render_portfolio_intraday_svg(bars, weights, kospi_bars=kospi_bars)
         if not svg:
             return ""
-        return _section("장중 수익률 추이", svg)
+        legend = ('<div style="font-size:10px;color:#90a4ae;margin-top:4px;">'
+                  '실선: 포트폴리오 | 점선: KOSPI</div>' if kospi_bars else "")
+        return _section("장중 수익률 추이", svg + legend)
     except Exception as e:
         logger.warning(f"Intraday chart failed: {e}")
         return ""
@@ -969,12 +1852,49 @@ def build_intraday_analytics(intraday_summary: dict) -> str:
     return _section("장중 분석 (Intraday Analytics)", cards + table)
 
 
+def _build_eod_source_summary(eod_price_src) -> str:
+    """Build EOD price source quality summary section."""
+    if not eod_price_src:
+        return ""
+    src_counts = {}
+    for _, src in eod_price_src.values():
+        src_counts[src] = src_counts.get(src, 0) + 1
+    total = sum(src_counts.values())
+    verified = src_counts.get("intraday_last_close", 0) + \
+               src_counts.get("eod_master_close", 0)
+    quality_pct = (verified / total * 100) if total > 0 else 0
+    color = "#2e7d32" if quality_pct >= 90 else "#f57c00" if quality_pct >= 70 else "#c62828"
+    rows = ""
+    labels = {
+        "intraday_last_close": ("실시간 분봉", "#2e7d32"),
+        "eod_master_close": ("장마감 종가", "#1565c0"),
+        "provider_cached": ("캐시 (미검증)", "#f57c00"),
+        "position_fallback": ("포지션 저장가", "#e65100"),
+        "unavailable": ("조회 실패", "#c62828"),
+    }
+    for src_key, (label, scolor) in labels.items():
+        cnt = src_counts.get(src_key, 0)
+        if cnt > 0:
+            rows += (f'<tr><td style="color:{scolor};font-weight:600">'
+                     f'{label}</td><td>{cnt}</td></tr>\n')
+    return f"""
+<div class="card">
+<h2>EOD 가격 소스 품질</h2>
+<div style="font-size:28px;font-weight:700;color:{color};margin:8px 0;">
+    {quality_pct:.0f}% verified ({verified}/{total})
+</div>
+<table><thead><tr><th>소스</th><th>종목 수</th></tr></thead>
+<tbody>{rows}</tbody></table>
+</div>"""
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # HTML Assembly
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def generate_daily_html(data: dict, config, today_str: str,
-                        intraday_dir=None, intraday_summary=None) -> str:
+                        intraday_dir=None, intraday_summary=None,
+                        eod_price_src=None) -> str:
     eq = data["equity_row"]
     daily_pnl = float(eq.get("daily_pnl_pct", 0)) if eq is not None else 0
     pf = int(eq.get("price_fail_count", 0)) if eq is not None else 0
@@ -984,21 +1904,37 @@ def generate_daily_html(data: dict, config, today_str: str,
     verdict, verdict_kr, vcolor = compute_verdict(daily_pnl, pf, rc, mo)
     problems = detect_problems(data)
 
+    # Parse log events for operations + anomaly + log summary
+    # _report_dir = report/output, parent.parent = Gen04/
+    log_dir = Path(data.get("_report_dir", ".")).parent.parent / "logs"
+    log_events = _parse_log_events(log_dir, today_str)
+    ops = _extract_ops_status(log_events, eq)
+    _is = intraday_summary or {}
+
     sections = [
+        build_ops_status(data, ops),                    # 운영 상태 카드
         build_summary(data, config, verdict, verdict_kr, vcolor),
+        build_basis_line(data, today_str),              # 기준 시각 / 계산 기준
+        build_today_verdict(data, config, verdict_kr, ops, _is),  # 오늘의 판단 3줄
+        build_risk_summary(_is),                        # 리스크 요약 카드
+        build_anomaly(data, _is, log_events),           # 이상 탐지
         build_performance(data, config),
-        build_intraday_chart(data, intraday_dir),      # 장중 수익률 곡선
-        build_intraday_analytics(intraday_summary or {}),  # 장중 분석 (Phase 1)
+        build_intraday_chart(data, intraday_dir),       # 장중 수익률 곡선
+        build_intraday_flow(_is, log_events),           # NEW: 장중 흐름 요약
+        build_intraday_analytics(_is),                  # 장중 분석 (Phase 1)
         build_market_comparison(data),                  # KOSPI 대비 성과
         build_cost(data),                               # 비용 분석
         build_trades(data),
-        build_positions(data),                          # 종목명 + 빨/파 색상
-        build_risk_minicharts(data, intraday_dir),     # 위험 종목 장중 차트
+        build_positions(data, _is),                      # 종목명 + VWAP/DD 포함
+        build_risk_minicharts(data, intraday_dir),      # 위험 종목 장중 차트
         build_pnl_attribution(data),                    # 손익 원인 분석
         build_risk(data),
         build_system(data),                             # forensic, stale target
+        _build_eod_source_summary(eod_price_src),       # EOD 가격 소스 품질
+        build_log_events(log_events),                   # NEW: 로그 핵심 이벤트
         build_problems(problems),
         build_changes(data),
+        build_strategy_verdict(data, _is, verdict, ops),  # NEW: 전략 해석
         build_auto_verdict(verdict, verdict_kr, vcolor),
     ]
 
@@ -1013,10 +1949,85 @@ def generate_daily_html(data: dict, config, today_str: str,
 <title>Gen4 Daily Report — {today_str}</title>
 <style>
 body {{ font-family: 'Malgun Gothic','Segoe UI',sans-serif; background:#f0f2f5;
-       margin:0; padding:20px; color:#333; }}
+       margin:0; padding:20px; color:#333; line-height:1.5; }}
 .container {{ max-width:800px; margin:0 auto; }}
 h1 {{ font-size:20px; color:#1a237e; margin-bottom:16px; }}
+h2 {{ font-size:16px; color:#1a237e; border-bottom:2px solid #1565c0;
+     padding-bottom:6px; margin-bottom:12px; }}
+/* Card hover */
+.g4-card {{ flex:1; min-width:140px; background:#fff; border-radius:8px;
+    padding:16px; box-shadow:0 1px 3px rgba(0,0,0,.12); text-align:center;
+    transition: transform 0.18s ease, box-shadow 0.18s ease; }}
+.g4-card:hover {{ transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,.15); }}
+/* Table row hover */
+table tbody tr {{ transition: background 0.15s ease; }}
+table tbody tr:hover {{ background:#e3f2fd !important; }}
+/* Alert box hover */
+.g4-alert {{ transition: box-shadow 0.18s ease; }}
+.g4-alert:hover {{ box-shadow:0 2px 8px rgba(0,0,0,.12); }}
+/* Sortable header */
+.g4-sortable {{ cursor:pointer; user-select:none; transition: color 0.15s ease; }}
+.g4-sortable:hover {{ color:#1565c0 !important; }}
+/* Sticky table header */
+.g4-sticky-wrap {{ overflow-x:auto; max-height:none; }}
+.g4-sticky-wrap thead th {{ position:sticky; top:0; background:#f5f5f5; z-index:1; }}
+/* Ops card hover */
+.g4-ops {{ transition: box-shadow 0.18s ease; }}
+.g4-ops:hover {{ box-shadow:0 2px 8px rgba(0,0,0,.1); }}
 </style>
+<script>
+function g4sort(tableId, colIdx, isNum) {{
+  var table = document.getElementById(tableId);
+  if (!table) return;
+  var tbody = table.querySelector('tbody') || table;
+  var rows = Array.from(tbody.querySelectorAll('tr'));
+  // Exclude summary row (last row with colspan)
+  var dataRows = rows.filter(function(r) {{
+    return !r.querySelector('td[colspan]');
+  }});
+  var sumRow = rows.filter(function(r) {{
+    return r.querySelector('td[colspan]');
+  }});
+  // Get current sort state
+  var th = table.querySelectorAll('thead th, tr:first-child th')[colIdx];
+  var asc = th && th.getAttribute('data-sort') === 'asc';
+  // Reset all headers
+  var ths = table.querySelectorAll('thead th, tr:first-child th');
+  for (var i = 0; i < ths.length; i++) {{
+    ths[i].setAttribute('data-sort', '');
+    var arrow = ths[i].querySelector('.g4-arrow');
+    if (arrow) arrow.textContent = '';
+  }}
+  // Set current
+  if (th) {{
+    th.setAttribute('data-sort', asc ? 'desc' : 'asc');
+    var arrow = th.querySelector('.g4-arrow');
+    if (arrow) arrow.textContent = asc ? ' \\u25BC' : ' \\u25B2';
+  }}
+  var dir = asc ? -1 : 1;
+  dataRows.sort(function(a, b) {{
+    var cellA = a.cells[colIdx];
+    var cellB = b.cells[colIdx];
+    if (!cellA || !cellB) return 0;
+    var va = cellA.textContent.trim();
+    var vb = cellB.textContent.trim();
+    if (isNum) {{
+      // Parse: remove %, comma, +, 원, 일
+      va = parseFloat(va.replace(/[,%+원일\\s]/g, '')) || 0;
+      vb = parseFloat(vb.replace(/[,%+원일\\s]/g, '')) || 0;
+      return (va - vb) * dir;
+    }}
+    return va.localeCompare(vb, 'ko') * dir;
+  }});
+  // Re-append
+  for (var i = 0; i < dataRows.length; i++) {{
+    tbody.appendChild(dataRows[i]);
+  }}
+  for (var i = 0; i < sumRow.length; i++) {{
+    tbody.appendChild(sumRow[i]);
+  }}
+}}
+</script>
 </head>
 <body>
 <div class="container">
@@ -1038,7 +2049,8 @@ h1 {{ font-size:20px; color:#1a237e; margin-bottom:16px; }}
 def generate_daily_report(report_dir: Path, config,
                            today_str: str = "",
                            intraday_dir=None,
-                           intraday_summary=None) -> Optional[Path]:
+                           intraday_summary=None,
+                           eod_price_src=None) -> Optional[Path]:
     """Generate daily HTML report. Returns path or None."""
     today_str = today_str or date.today().strftime("%Y-%m-%d")
     report_dir = Path(report_dir)
@@ -1053,9 +2065,22 @@ def generate_daily_report(report_dir: Path, config,
         # Load KOSPI benchmark
         if hasattr(config, "INDEX_FILE") and config.INDEX_FILE.exists():
             data["_kospi"] = load_kospi_close(config.INDEX_FILE)
+
+        # Auto-load intraday_summary if not provided
+        if intraday_summary is None:
+            import json as _json
+            is_date = today_str.replace("-", "")
+            is_path = report_dir / f"intraday_summary_{is_date}.json"
+            if is_path.exists():
+                try:
+                    intraday_summary = _json.loads(is_path.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+
         html = generate_daily_html(data, config, today_str,
                                     intraday_dir=intraday_dir,
-                                    intraday_summary=intraday_summary)
+                                    intraday_summary=intraday_summary,
+                                    eod_price_src=eod_price_src)
 
         fname = f"daily_{today_str.replace('-', '')}.html"
         path = report_dir / fname
