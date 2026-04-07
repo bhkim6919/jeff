@@ -226,10 +226,16 @@ def create_app() -> FastAPI:
 
     @application.get("/api/lab/ranking")
     async def lab_ranking(
-        source: str = Query("등락률", description="등락률|거래량|거래대금"),
+        source: str = Query("실시간순위", description="실시간순위|등락률|거래량|거래대금|과거CSV"),
         top_n: int = Query(20, ge=5, le=50),
+        date: str = Query("", description="CSV date (YYYYMMDD) for 과거CSV source"),
     ):
-        """Fetch live top ranking stocks."""
+        """Fetch ranking stocks (live API or historical CSV)."""
+        if source == "과거CSV":
+            from web.lab_simulator import load_csv_ranking
+            ranking = load_csv_ranking(date_str=date, top_n=top_n)
+            return {"ranking": ranking, "source": source, "date": date}
+
         from web.lab_simulator import fetch_ranking
         try:
             provider = _get_provider()
@@ -238,6 +244,12 @@ def create_app() -> FastAPI:
         except Exception as e:
             from web.lab_simulator import _fallback_ranking
             return {"ranking": _fallback_ranking(top_n), "source": source, "fallback": True}
+
+    @application.get("/api/lab/dates")
+    async def lab_dates():
+        """Available CSV dates for historical backtesting."""
+        from web.lab_simulator import available_csv_dates
+        return {"dates": available_csv_dates()}
 
     @application.post("/api/lab/simulate")
     async def lab_simulate(request: Request):
