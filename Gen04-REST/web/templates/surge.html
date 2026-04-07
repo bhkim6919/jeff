@@ -45,94 +45,21 @@
         <!-- Live Dashboard (hidden until running) -->
         <div id="live-dashboard" style="display:none;">
 
-            <!-- Risk Status + Summary -->
-            <section class="surge-section">
-                <div class="section-title"><span>리스크 상태</span></div>
-                <div class="risk-cards" id="risk-cards">
-                    <div class="risk-card risk-ok"><div class="risk-label">일일 진입</div><div class="risk-value" id="r-daily">0/50</div></div>
-                    <div class="risk-card risk-ok"><div class="risk-label">동시 보유</div><div class="risk-value" id="r-concurrent">0/5</div></div>
-                    <div class="risk-card risk-ok"><div class="risk-label">연속 손실</div><div class="risk-value" id="r-consec">0</div></div>
-                    <div class="risk-card risk-ok" id="r-halt-card"><div class="risk-label">HALT</div><div class="risk-value" id="r-halt">OFF</div></div>
-                    <div class="risk-card"><div class="risk-label">총 거래</div><div class="risk-value" id="r-trades">0</div></div>
-                    <div class="risk-card"><div class="risk-label">잔고</div><div class="risk-value" id="r-cash">-</div></div>
-                </div>
-            </section>
-
-            <div class="surge-grid">
-
-                <!-- Live Positions -->
-                <section class="surge-section">
-                    <div class="section-title"><span>보유 포지션</span></div>
-                    <div class="surge-scroll">
-                        <table class="surge-table" id="positions-table">
-                            <thead>
-                                <tr>
-                                    <th>종목</th>
-                                    <th>진입가</th>
-                                    <th>현재bid</th>
-                                    <th>PnL%</th>
-                                    <th>TP</th>
-                                    <th>SL</th>
-                                    <th>보유</th>
-                                </tr>
-                            </thead>
-                            <tbody id="positions-body">
-                                <tr><td colspan="7" style="text-align:center; color: var(--text-dim);">대기 중</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
-
-                <!-- Candidates -->
-                <section class="surge-section">
-                    <div class="section-title"><span>관찰 후보</span></div>
-                    <div class="surge-scroll-sm">
-                        <table class="surge-table" id="candidates-table">
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>종목</th>
-                                    <th>가격</th>
-                                    <th>등락%</th>
-                                </tr>
-                            </thead>
-                            <tbody id="candidates-body">
-                                <tr><td colspan="4" style="text-align:center; color: var(--text-dim);">스캔 대기</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
-
+            <!-- 3-Strategy Comparison Cards -->
+            <div class="surge-grid-3" id="strategy-cards">
+                <!-- Filled by JS: 3 strategy lane cards (A, B, C) -->
             </div>
 
-            <!-- PnL Chart -->
+            <!-- Candidates (shared) -->
             <section class="surge-section">
-                <div class="section-title"><span>누적 PnL</span></div>
-                <div class="pnl-chart-container">
-                    <canvas id="pnl-chart"></canvas>
-                </div>
-            </section>
-
-            <!-- Trade Log -->
-            <section class="surge-section">
-                <div class="section-title"><span>거래 내역</span></div>
-                <div class="surge-scroll">
-                    <table class="surge-table" id="trades-table">
+                <div class="section-title"><span>관찰 후보 (공유)</span></div>
+                <div class="surge-scroll-sm">
+                    <table class="surge-table">
                         <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>종목</th>
-                                <th>진입가</th>
-                                <th>청산가</th>
-                                <th>사유</th>
-                                <th>Gross%</th>
-                                <th>Net%</th>
-                                <th>Net₩</th>
-                                <th>보유</th>
-                            </tr>
+                            <tr><th>#</th><th>종목</th><th>가격</th><th>등락%</th><th>거래량급증</th><th>체결강도</th></tr>
                         </thead>
-                        <tbody id="trades-body">
-                            <tr><td colspan="9" style="text-align:center; color: var(--text-dim);">거래 없음</td></tr>
+                        <tbody id="candidates-body">
+                            <tr><td colspan="6" style="text-align:center;color:var(--text-dim);">스캔 대기</td></tr>
                         </tbody>
                     </table>
                 </div>

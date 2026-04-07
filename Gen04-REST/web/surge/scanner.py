@@ -70,6 +70,11 @@ class SurgeCandidate:
     volume: int
     rank: int
     tr_ts: float              # time.time() when TR was received
+    # Secondary TR data (filled by enrich_*)
+    volume_surge: bool = False       # ka10023 거래량급증 통과 여부
+    volume_surge_pct: float = 0.0    # 거래량 증가율 %
+    strength: float = 0.0            # ka10046 체결강도 (100=균형, 120+=매수우위)
+    strength_pass: bool = False      # 체결강도 기준 통과 여부
 
 
 class SurgeScanner:
@@ -142,6 +147,95 @@ class SurgeScanner:
                 continue
 
         return candidates
+
+
+    def enrich_volume_surge(self, provider: Any, candidates: List[SurgeCandidate]) -> None:
+        """
+        ka10023 (거래량급증) 조회 → 후보에 volume_surge 마킹.
+        거래량급증 상위 종목 코드 set과 교차 확인.
+        """
+        try:
+            body = {
+                "mkt_tp_cd": "0",
+                "vol_tp_cd": "0",
+                "prc_tp_cd": "0",
+                "up_dn_tp": "1",
+                "cont_yn": "N",
+                "cont_key": "",
+            }
+            resp = provider._request("ka10023", "/api/dostk/mrkcond", body,
+                                     related_code="SURGE_VOL")
+        except Exception as e:
+            logger.warning(f"[SURGE_VOL] ka10023 failed: {e}")
+            return
+
+        if not resp or resp.get("return_code") not in (0, None):
+            return
+
+        output = resp.get("output", [])
+        surge_codes: Dict[str, float] = {}
+        for item in output[:50]:
+            try:
+                code = str(item.get("stk_cd", item.get("shtn_pdno", ""))).strip()
+                if code:
+                    vol_rate = float(item.get("vol_inrt", item.get("acml_vol_prdy_vrss_rate", 0)))
+                    surge_codes[code.zfill(6)] = vol_rate
+            except (ValueError, TypeError):
+                continue
+
+        for c in candidates:
+            rate = surge_codes.get(c.code, 0)
+            if rate >= 300:  # 300% 이상 거래량 급증
+                c.volume_surge = True
+                c.volume_surge_pct = rate
+
+        logger.info(f"[SURGE_VOL] ka10023: {len(surge_codes)} surge codes, "
+                    f"{sum(1 for c in candidates if c.volume_surge)} matched")
+
+    def enrich_strength(self, provider: Any, candidates: List[SurgeCandidate],
+                        min_strength: float = 115.0) -> None:
+        """
+        ka10046 (시간별체결강도) 조회 → 후보에 strength 마킹.
+        체결강도 상위 종목과 교차 확인.
+        """
+        try:
+            body = {
+                "mkt_tp_cd": "0",
+                "vol_tp_cd": "0",
+                "prc_tp_cd": "0",
+                "up_dn_tp": "1",
+                "cont_yn": "N",
+                "cont_key": "",
+            }
+            resp = provider._request("ka10046", "/api/dostk/mrkcond", body,
+                                     related_code="SURGE_STR")
+        except Exception as e:
+            logger.warning(f"[SURGE_STR] ka10046 failed: {e}")
+            return
+
+        if not resp or resp.get("return_code") not in (0, None):
+            return
+
+        output = resp.get("output", [])
+        strength_codes: Dict[str, float] = {}
+        for item in output[:50]:
+            try:
+                code = str(item.get("stk_cd", item.get("shtn_pdno", ""))).strip()
+                if code:
+                    stren = float(item.get("tday_rltv", item.get("stck_sdpr", 0)))
+                    strength_codes[code.zfill(6)] = stren
+            except (ValueError, TypeError):
+                continue
+
+        for c in candidates:
+            s = strength_codes.get(c.code, 0)
+            if s > 0:
+                c.strength = s
+                if s >= min_strength:
+                    c.strength_pass = True
+
+        logger.info(f"[SURGE_STR] ka10046: {len(strength_codes)} codes, "
+                    f"{sum(1 for c in candidates if c.strength_pass)} passed (>={min_strength})")
 
 
 def filter_candidates(
