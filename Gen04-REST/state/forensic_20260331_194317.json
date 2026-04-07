@@ -1,0 +1,25 @@
+{
+  "timestamp": "2026-03-31T19:43:17.998407",
+  "error": "Broker sync failed: [TR final fail] 계좌평가잔고내역(opw00018) - 3x retry all no response.",
+  "portfolio": {
+    "cash": 500000000,
+    "prev_close_equity": 500000000,
+    "peak_equity": 500000000,
+    "peak_month": 3,
+    "positions": {}
+  },
+  "runtime": {},
+  "prices_used": {},
+  "target_date": "",
+  "pending_orders": [],
+  "price_fail_codes": [],
+  "extra": {
+    "recon": {
+      "ok": false,
+      "error": "[TR final fail] 계좌평가잔고내역(opw00018) - 3x retry all no response.",
+      "corrections": 0,
+      "safe_mode": false,
+      "safe_mode_reason": ""
+    }
+  }
+}

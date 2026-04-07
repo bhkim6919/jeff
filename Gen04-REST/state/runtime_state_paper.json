@@ -1,0 +1,10 @@
+{
+  "timestamp": "2026-03-23T08:39:37.489000",
+  "last_rebalance_date": "20260326",
+  "rebalance_count": 2,
+  "pending_buys": [],
+  "rebal_sell_status": "",
+  "shutdown_reason": "sigint",
+  "session_start": "2026-03-30T08:16:54.713381",
+  "session_end": "2026-03-30T10:15:09.031845"
+}

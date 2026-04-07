@@ -1,0 +1,3 @@
+timestamp,code,price,best_ask,best_bid,ask_qty_1,bid_qty_1,total_ask,total_bid,net_bid,volume
+15:18:53.058,290520,2310.0,2310,2305,0,0,0,0,0,703545
+15:19:50.773,290520,2310.0,2340,2310,0,0,0,0,0,725232

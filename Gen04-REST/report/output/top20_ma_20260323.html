@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Gen4 Top20 Report - 20260323</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; margin: 0; padding: 20px; background: #f5f5f5; color: #333; }
+  h1 { color: #1a237e; border-bottom: 3px solid #1565c0; padding-bottom: 10px; margin-bottom: 20px; }
+  h2 { color: #1565c0; margin-top: 28px; margin-bottom: 12px; }
+  h3 { margin: 0 0 12px 0; color: #37474f; font-size: 15px; }
+  .section { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .card { background: #fff; padding: 16px 20px; border-radius: 10px; flex: 1; min-width: 250px;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+  .metrics { display: flex; flex-wrap: wrap; gap: 12px 24px; }
+  .metric { display: flex; flex-direction: column; }
+  .metric .label { font-size: 11px; color: #78909c; text-transform: uppercase; }
+  .metric .value { font-size: 15px; font-weight: 600; }
+  .alert { padding: 10px 16px; border-radius: 8px; margin: 8px 0; font-weight: bold; }
+  .alert-gold { background: #fff8e1; border-left: 4px solid #ffc107; color: #e65100; }
+  .alert-death { background: #fce4ec; border-left: 4px solid #e53935; color: #b71c1c; }
+  table { border-collapse: collapse; width: 100%; background: #fff; border-radius: 10px;
+          overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.08); margin-top: 8px; }
+  thead th { background: #1565c0; color: white; padding: 10px 6px; font-size: 11px;
+             white-space: nowrap; position: sticky; top: 0; cursor: help; }
+  thead th.group { background: #0d47a1; text-align: center; font-size: 12px; padding: 6px; }
+  td { padding: 7px 6px; border-bottom: 1px solid #eee; font-size: 12px; white-space: nowrap; }
+  td.num { text-align: right; }
+  td.center { text-align: center; }
+  td.ticker { font-weight: bold; color: #1565c0; }
+  tr:hover { background: #e3f2fd; }
+  .footer { color: #999; margin-top: 16px; font-size: 11px; }
+</style>
+</head>
+<body>
+<h1>Gen4 Core: Top20 MA Analysis Report</h1>
+
+<h2>Portfolio Summary</h2>
+<div class="section">
+  <div class="card">
+    <h3>Strategy</h3>
+    <div class="metrics">
+      <div class="metric"><span class="label">Method</span><span class="value">LowVol30%ile + Mom12-1</span></div>
+      <div class="metric"><span class="label">Universe</span><span class="value">387 stocks</span></div>
+      <div class="metric"><span class="label">Vol Threshold</span><span class="value">0.02687</span></div>
+      <div class="metric"><span class="label">Selected</span><span class="value">20 stocks</span></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Top20 Breadth</h3>
+    <div class="metrics">
+      <div class="metric"><span class="label">MA20 &gt;</span><span class="value">4/20 (20%)</span></div>
+      <div class="metric"><span class="label">MA60 &gt;</span><span class="value">14/20 (70%)</span></div>
+      <div class="metric"><span class="label">MA120 &gt;</span><span class="value">18/20 (90%)</span></div>
+      <div class="metric"><span class="label">Avg RSI</span><span class="value">43</span></div>
+      <div class="metric"><span class="label">Alignment</span><span class="value">
+        <span style="color:#4caf50">BULL 4</span> /
+        <span style="color:#ff9800">MIX 16</span> /
+        <span style="color:#f44336">BEAR 0</span>
+      </span></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Factor Stats</h3>
+    <div class="metrics">
+      <div class="metric"><span class="label">Avg Mom12-1</span><span class="value">96.7%</span></div>
+      <div class="metric"><span class="label">Avg Vol12m</span><span class="value">0.0224</span></div>
+      <div class="metric"><span class="label">Avg Ret20d</span><span class="value">-13.0%</span></div>
+      <div class="metric"><span class="label">Avg Ret60d</span><span class="value">+16.9%</span></div>
+    </div>
+  </div>
+</div>
+<div class="alert alert-death">Death Cross: 161390(1d), 069960</div>
+
+
+<h2>Stock Analysis</h2>
+<table>
+<thead>
+  <tr>
+    <th class="group" colspan="4">Info</th>
+    <th class="group" colspan="4">MA Position</th>
+    <th class="group" colspan="3">Signal</th>
+    <th class="group" colspan="5">Momentum</th>
+    <th class="group" colspan="4">Investor Flow</th>
+    <th class="group" colspan="2">Liquidity</th>
+    <th class="group" colspan="2">Gen4 Factor</th>
+  </tr>
+  <tr>
+    <th title="순번">#</th>
+    <th title="종목코드 (6자리)">Ticker</th>
+    <th title="종목명">Name</th>
+    <th title="전일 종가 (원)">Close</th>
+    <th title="종가 vs 20일 이동평균 이격도. 양수=MA 위, 음수=MA 아래">vs MA20</th>
+    <th title="종가 vs 60일 이동평균 이격도. 중기 추세 판단용">vs MA60</th>
+    <th title="종가 vs 120일 이동평균 이격도. 장기 추세 판단용">vs MA120</th>
+    <th title="MA 정렬: BULLISH(종가>MA20>MA60>MA120), BEARISH(역순), MIXED(혼재)">Align</th>
+    <th title="골든크로스(GC): MA20이 MA60상향돌파=매수신호. 데드크로스(DC): 하향돌파=매도신호">Cross</th>
+    <th title="RSI(14): 상대강도지수. 70이상=과매수, 30이하=과매도, 40~60=중립">RSI</th>
+    <th title="볼린저밴드 %B 위치. Upper(80%+)=과열, Mid(20~80%)=중립, Lower(20%-)=과매도">BB</th>
+    <th title="52주 신고 대비 현재 위치. 0%=신고가, -20%=신고대비 20% 하락">52wH</th>
+    <th title="전일 대비 수익률 (1일)">1d</th>
+    <th title="5거래일 수익률 (1주)">5d</th>
+    <th title="20거래일 수익률 (1개월)">20d</th>
+    <th title="60거래일 수익률 (3개월)">60d</th>
+    <th title="외국인 당일 순매수금액(억원). 양수=매수우위, 음수=매도우위">F1d</th>
+    <th title="기관 당일 순매수금액(억원). 양수=매수우위, 음수=매도우위">I1d</th>
+    <th title="외국인 5일 누적 순매수(억원). 단기 수급 추세">F5d</th>
+    <th title="기관 5일 누적 순매수(억원). 단기 수급 추세">I5d</th>
+    <th title="거래량 비율: 전일거래량/20일평균. 1.0x=평균, 2.0x=2배 급증, 0.5x=반토막">Vol</th>
+    <th title="20일 평균 일거래대금 (억원). 유동성 측정용">Amt</th>
+    <th title="Gen4 12개월 변동성 (낮을수록 좋음). LowVol 30%ile 필터 통과 종목">Vol12m</th>
+    <th title="Gen4 12-1개월 모멘텀 수익률. 높을수록 추세 강함">Mom12-1</th>
+  </tr>
+</thead>
+<tbody><tr>
+          <td>1</td><td class="ticker">316140</td><td>우리금융지주</td>
+          <td class="num">31,700</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-7.5%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-0.3%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+8.9%</span></td>
+          <td class="num"><span style="background:#fff9c4;padding:2px 8px;border-radius:4px">MIXED</span></td>
+          <td class="center"></td><td class="center">38</td>
+          <td class="num"><span style="background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px">Mid 26%</span></td><td class="center">-22.3%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-6.5%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-0.6%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-22.3%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+15.7%</span></td>
+          <td class="num"><span style="color:#1565c0">-165</span></td><td class="num"><span style="color:#1565c0">-68</span></td>
+          <td class="num"><span style="color:#1565c0">-334</span></td><td class="num"><span style="color:#d32f2f">+213</span></td>
+          <td class="num">0.7x</td>
+          <td class="num">1,108</td>
+          <td class="num">0.0212</td>
+          <td class="num">146.56%</td>
+        </tr>
+<tr>
+          <td>2</td><td class="ticker">139130</td><td>iM금융지주</td>
+          <td class="num">16,510</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-6.5%</span></td><td class="num"><span style="color:#333;font-weight:bold">+0.0%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+8.4%</span></td>
+          <td class="num"><span style="background:#fff9c4;padding:2px 8px;border-radius:4px">MIXED</span></td>
+          <td class="center"></td><td class="center">38</td>
+          <td class="num"><span style="background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px">Mid 30%</span></td><td class="center">-23.7%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-4.2%</span></td><td class="num"><span style="color:#333;font-weight:bold">+0.0%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-23.7%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+13.9%</span></td>
+          <td class="num"><span style="color:#1565c0">-21</span></td><td class="num"><span style="color:#d32f2f">+10</span></td>
+          <td class="num"><span style="color:#1565c0">-59</span></td><td class="num"><span style="color:#d32f2f">+55</span></td>
+          <td class="num">0.6x</td>
+          <td class="num">170</td>
+          <td class="num">0.0212</td>
+          <td class="num">134.82%</td>
+        </tr>
+<tr>
+          <td>3</td><td class="ticker">055550</td><td>신한지주</td>
+          <td class="num">89,900</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-4.4%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+2.4%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+10.3%</span></td>
+          <td class="num"><span style="background:#fff9c4;padding:2px 8px;border-radius:4px">MIXED</span></td>
+          <td class="center"></td><td class="center">41</td>
+          <td class="num"><span style="background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px">Mid 26%</span></td><td class="center">-15.2%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-8.2%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-0.1%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-11.9%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+18.0%</span></td>
+          <td class="num"><span style="color:#d32f2f">+163</span></td><td class="num"><span style="color:#1565c0">-326</span></td>
+          <td class="num"><span style="color:#d32f2f">+179</span></td><td class="num"><span style="color:#1565c0">-56</span></td>
+          <td class="num">1.0x</td>
+          <td class="num">2,002</td>
+          <td class="num">0.0210</td>
+          <td class="num">122.89%</td>
+        </tr>
+<tr>
+          <td>4</td><td class="ticker">175330</td><td>JB금융지주</td>
+          <td class="num">28,400</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-8.0%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+1.4%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+10.1%</span></td>
+          <td class="num"><span style="background:#fff9c4;padding:2px 8px;border-radius:4px">MIXED</span></td>
+          <td class="center"></td><td class="center">41</td>
+          <td class="num"><span style="background:#bbdefb;padding:2px 6px;border-radius:3px;font-size:11px">Lower 20%</span></td><td class="center">-24.3%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-8.2%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-1.7%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-24.3%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+15.7%</span></td>
+          <td class="num"><span style="color:#d32f2f">+22</span></td><td class="num"><span style="color:#1565c0">-52</span></td>
+          <td class="num"><span style="color:#d32f2f">+37</span></td><td class="num"><span style="color:#1565c0">-42</span></td>
+          <td class="num">0.7x</td>
+          <td class="num">192</td>
+          <td class="num">0.0252</td>
+          <td class="num">120.75%</td>
+        </tr>
+<tr>
+          <td>5</td><td class="ticker">105560</td><td>KB금융</td>
+          <td class="num">145,300</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-5.2%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+2.0%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+10.3%</span></td>
+          <td class="num"><span style="background:#fff9c4;padding:2px 8px;border-radius:4px">MIXED</span></td>
+          <td class="center"></td><td class="center">43</td>
+          <td class="num"><span style="background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px">Mid 26%</span></td><td class="center">-13.9%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-6.4%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-2.7%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-13.9%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+17.2%</span></td>
+          <td class="num"><span style="color:#1565c0">-186</span></td><td class="num"><span style="color:#1565c0">-20</span></td>
+          <td class="num"><span style="color:#1565c0">-1,069</span></td><td class="num"><span style="color:#d32f2f">+844</span></td>
+          <td class="num">0.8x</td>
+          <td class="num">2,241</td>
+          <td class="num">0.0239</td>
+          <td class="num">115.12%</td>
+        </tr>
+<tr>
+          <td>6</td><td class="ticker">086790</td><td>하나금융지주</td>
+          <td class="num">106,000</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-7.5%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-1.2%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+7.2%</span></td>
+          <td class="num"><span style="background:#fff9c4;padding:2px 8px;border-radius:4px">MIXED</span></td>
+          <td class="center"></td><td class="center">36</td>
+          <td class="num"><span style="background:#bbdefb;padding:2px 6px;border-radius:3px;font-size:11px">Lower 20%</span></td><td class="center">-19.3%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-6.4%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-2.2%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-19.3%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+15.6%</span></td>
+          <td class="num"><span style="color:#1565c0">-126</span></td><td class="num"><span style="color:#1565c0">-91</span></td>
+          <td class="num"><span style="color:#1565c0">-322</span></td><td class="num"><span style="color:#d32f2f">+101</span></td>
+          <td class="num">0.7x</td>
+          <td class="num">1,309</td>
+          <td class="num">0.0231</td>
+          <td class="num">114.80%</td>
+        </tr>
+<tr>
+          <td>7</td><td class="ticker">138930</td><td>BNK금융지주</td>
+          <td class="num">17,710</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-7.7%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+0.3%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+9.0%</span></td>
+          <td class="num"><span style="background:#fff9c4;padding:2px 8px;border-radius:4px">MIXED</span></td>
+          <td class="center"></td><td class="center">39</td>
+          <td class="num"><span style="background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px">Mid 23%</span></td><td class="center">-21.8%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-6.0%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-2.4%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-21.8%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+11.1%</span></td>
+          <td class="num"><span style="color:#1565c0">-17</span></td><td class="num"><span style="color:#1565c0">-22</span></td>
+          <td class="num"><span style="color:#1565c0">-75</span></td><td class="num"><span style="color:#d32f2f">+38</span></td>
+          <td class="num">0.7x</td>
+          <td class="num">239</td>
+          <td class="num">0.0214</td>
+          <td class="num">114.01%</td>
+        </tr>
+<tr>
+          <td>8</td><td class="ticker">078930</td><td>GS</td>
+          <td class="num">65,300</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-2.5%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+2.2%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+12.4%</span></td>
+          <td class="num"><span style="background:#fff9c4;padding:2px 8px;border-radius:4px">MIXED</span></td>
+          <td class="center"></td><td class="center">43</td>
+          <td class="num"><span style="background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px">Mid 38%</span></td><td class="center">-13.7%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-5.4%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+4.8%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-13.7%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+18.3%</span></td>
+          <td class="num"><span style="color:#d32f2f">+7</span></td><td class="num"><span style="color:#1565c0">-8</span></td>
+          <td class="num"><span style="color:#d32f2f">+131</span></td><td class="num"><span style="color:#d32f2f">+14</span></td>
+          <td class="num">0.5x</td>
+          <td class="num">285</td>
+          <td class="num">0.0238</td>
+          <td class="num">100.55%</td>
+        </tr>
+<tr>
+          <td>9</td><td class="ticker">005830</td><td>DB손해보험</td>
+          <td class="num">176,800</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-4.9%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+13.7%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+23.7%</span></td>
+          <td class="num"><span style="background:#fff9c4;padding:2px 8px;border-radius:4px">MIXED</span></td>
+          <td class="center"></td><td class="center">44</td>
+          <td class="num"><span style="background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px">Mid 23%</span></td><td class="center">-14.0%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-5.3%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+0.1%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-8.1%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+43.6%</span></td>
+          <td class="num"><span style="color:#1565c0">-26</span></td><td class="num"><span style="color:#1565c0">-1</span></td>
+          <td class="num"><span style="color:#1565c0">-101</span></td><td class="num"><span style="color:#d32f2f">+114</span></td>
+          <td class="num">0.5x</td>
+          <td class="num">669</td>
+          <td class="num">0.0249</td>
+          <td class="num">95.94%</td>
+        </tr>
+<tr>
+          <td>10</td><td class="ticker">161390</td><td>한국타이어앤테크놀로지</td>
+          <td class="num">54,200</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-12.8%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-14.1%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-4.8%</span></td>
+          <td class="num"><span style="background:#fff9c4;padding:2px 8px;border-radius:4px">MIXED</span></td>
+          <td class="center"><span style="color:#1565c0;font-weight:bold">DC(1d)</span></td><td class="center">31</td>
+          <td class="num"><span style="background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px">Mid 24%</span></td><td class="center">-28.6%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-5.6%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+0.4%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-28.3%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-8.1%</span></td>
+          <td class="num">0</td><td class="num"><span style="color:#1565c0">-32</span></td>
+          <td class="num"><span style="color:#1565c0">-22</span></td><td class="num"><span style="color:#1565c0">-25</span></td>
+          <td class="num">0.6x</td>
+          <td class="num">314</td>
+          <td class="num">0.0260</td>
+          <td class="num">91.49%</td>
+        </tr>
+<tr>
+          <td>11</td><td class="ticker">028050</td><td>삼성E&A</td>
+          <td class="num">35,950</td>
+          <td class="num"><span style="color:#d32f2f;font-weight:bold">+6.0%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+19.8%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+27.1%</span></td>
+          <td class="num"><span style="background:#c8e6c9;padding:2px 8px;border-radius:4px">BULLISH</span></td>
+          <td class="center"></td><td class="center">52</td>
+          <td class="num"><span style="background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px">Mid 72%</span></td><td class="center">-7.7%</td>
+          <td class="num"><span style="color:#d32f2f;font-weight:bold">+1.8%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+14.7%</span></td>
+          <td class="num"><span style="color:#d32f2f;font-weight:bold">+1.0%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+44.7%</span></td>
+          <td class="num"><span style="color:#1565c0">-1,323</span></td><td class="num"><span style="color:#1565c0">-104</span></td>
+          <td class="num"><span style="color:#1565c0">-1,782</span></td><td class="num"><span style="color:#d32f2f">+245</span></td>
+          <td class="num">4.3x</td>
+          <td class="num">540</td>
+          <td class="num">0.0255</td>
+          <td class="num">90.46%</td>
+        </tr>
+<tr>
+          <td>12</td><td class="ticker">001120</td><td>LX인터내셔널</td>
+          <td class="num">47,200</td>
+          <td class="num"><span style="color:#d32f2f;font-weight:bold">+7.8%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+20.4%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+34.0%</span></td>
+          <td class="num"><span style="background:#c8e6c9;padding:2px 8px;border-radius:4px">BULLISH</span></td>
+          <td class="center"></td><td class="center">60</td>
+          <td class="num"><span style="background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px">Mid 79%</span></td><td class="center">-2.6%</td>
+          <td class="num"><span style="color:#d32f2f;font-weight:bold">+0.1%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+3.9%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-1.0%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+43.0%</span></td>
+          <td class="num"><span style="color:#1565c0">-26</span></td><td class="num"><span style="color:#d32f2f">+55</span></td>
+          <td class="num"><span style="color:#1565c0">-18</span></td><td class="num"><span style="color:#d32f2f">+109</span></td>
+          <td class="num">1.1x</td>
+          <td class="num">114</td>
+          <td class="num">0.0205</td>
+          <td class="num">84.04%</td>
+        </tr>
+<tr>
+          <td>13</td><td class="ticker">033780</td><td>KT&G</td>
+          <td class="num">151,800</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-4.9%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-1.4%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+3.4%</span></td>
+          <td class="num"><span style="background:#fff9c4;padding:2px 8px;border-radius:4px">MIXED</span></td>
+          <td class="center"></td><td class="center">36</td>
+          <td class="num"><span style="background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px">Mid 27%</span></td><td class="center">-15.5%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-3.6%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-0.5%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-14.3%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+5.7%</span></td>
+          <td class="num"><span style="color:#d32f2f">+98</span></td><td class="num"><span style="color:#1565c0">-128</span></td>
+          <td class="num"><span style="color:#d32f2f">+180</span></td><td class="num"><span style="color:#1565c0">-160</span></td>
+          <td class="num">0.7x</td>
+          <td class="num">599</td>
+          <td class="num">0.0178</td>
+          <td class="num">82.40%</td>
+        </tr>
+<tr>
+          <td>14</td><td class="ticker">417310</td><td>코람코더원리츠</td>
+          <td class="num">9,630</td>
+          <td class="num"><span style="color:#d32f2f;font-weight:bold">+4.2%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+7.8%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+20.7%</span></td>
+          <td class="num"><span style="background:#c8e6c9;padding:2px 8px;border-radius:4px">BULLISH</span></td>
+          <td class="center"></td><td class="center">62</td>
+          <td class="num"><span style="background:#ffe0b2;padding:2px 6px;border-radius:3px;font-size:11px">Upper 87%</span></td><td class="center">-1.8%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-0.1%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+3.2%</span></td>
+          <td class="num"><span style="color:#d32f2f;font-weight:bold">+9.2%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+16.6%</span></td>
+          <td class="num"><span style="color:#d32f2f">+1</span></td><td class="num">0</td>
+          <td class="num"><span style="color:#d32f2f">+4</span></td><td class="num"><span style="color:#d32f2f">+3</span></td>
+          <td class="num">0.3x</td>
+          <td class="num">23</td>
+          <td class="num">0.0171</td>
+          <td class="num">80.57%</td>
+        </tr>
+<tr>
+          <td>15</td><td class="ticker">017940</td><td>E1</td>
+          <td class="num">100,100</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-0.1%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+8.5%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+16.6%</span></td>
+          <td class="num"><span style="background:#fff9c4;padding:2px 8px;border-radius:4px">MIXED</span></td>
+          <td class="center"></td><td class="center">47</td>
+          <td class="num"><span style="background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px">Mid 50%</span></td><td class="center">-11.0%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-9.7%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+3.6%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-11.0%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+11.5%</span></td>
+          <td class="num"><span style="color:#1565c0">-2</span></td><td class="num">0</td>
+          <td class="num"><span style="color:#d32f2f">+24</span></td><td class="num"><span style="color:#d32f2f">+18</span></td>
+          <td class="num">1.2x</td>
+          <td class="num">36</td>
+          <td class="num">0.0256</td>
+          <td class="num">79.30%</td>
+        </tr>
+<tr>
+          <td>16</td><td class="ticker">069960</td><td>현대백화점</td>
+          <td class="num">83,900</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-10.7%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-11.2%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-8.3%</span></td>
+          <td class="num"><span style="background:#fff9c4;padding:2px 8px;border-radius:4px">MIXED</span></td>
+          <td class="center"><span style="color:#1565c0;font-weight:bold">DC</span></td><td class="center">32</td>
+          <td class="num"><span style="background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px">Mid 25%</span></td><td class="center">-24.8%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-8.6%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-2.6%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-21.2%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-8.7%</span></td>
+          <td class="num"><span style="color:#d32f2f">+9</span></td><td class="num"><span style="color:#1565c0">-27</span></td>
+          <td class="num"><span style="color:#d32f2f">+6</span></td><td class="num"><span style="color:#1565c0">-21</span></td>
+          <td class="num">1.1x</td>
+          <td class="num">110</td>
+          <td class="num">0.0267</td>
+          <td class="num">76.08%</td>
+        </tr>
+<tr>
+          <td>17</td><td class="ticker">003460</td><td>유화증권</td>
+          <td class="num">3,635</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-2.4%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+14.3%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+22.3%</span></td>
+          <td class="num"><span style="background:#fff9c4;padding:2px 8px;border-radius:4px">MIXED</span></td>
+          <td class="center"></td><td class="center">41</td>
+          <td class="num"><span style="background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px">Mid 37%</span></td><td class="center">-12.8%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-5.0%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-0.4%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-2.0%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+25.6%</span></td>
+          <td class="num"><span style="color:#1565c0">-1</span></td><td class="num">0</td>
+          <td class="num"><span style="color:#1565c0">-2</span></td><td class="num">0</td>
+          <td class="num">0.2x</td>
+          <td class="num">69</td>
+          <td class="num">0.0232</td>
+          <td class="num">71.49%</td>
+        </tr>
+<tr>
+          <td>18</td><td class="ticker">004690</td><td>삼천리</td>
+          <td class="num">150,000</td>
+          <td class="num"><span style="color:#d32f2f;font-weight:bold">+4.0%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+9.5%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+13.6%</span></td>
+          <td class="num"><span style="background:#c8e6c9;padding:2px 8px;border-radius:4px">BULLISH</span></td>
+          <td class="center"></td><td class="center">52</td>
+          <td class="num"><span style="background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px">Mid 68%</span></td><td class="center">-12.8%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-2.8%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+7.1%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-4.9%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+15.4%</span></td>
+          <td class="num"><span style="color:#d32f2f">+3</span></td><td class="num"><span style="color:#d32f2f">+2</span></td>
+          <td class="num"><span style="color:#d32f2f">+29</span></td><td class="num"><span style="color:#d32f2f">+17</span></td>
+          <td class="num">1.2x</td>
+          <td class="num">33</td>
+          <td class="num">0.0229</td>
+          <td class="num">71.41%</td>
+        </tr>
+<tr>
+          <td>19</td><td class="ticker">024110</td><td>기업은행</td>
+          <td class="num">23,050</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-4.8%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+1.4%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+7.9%</span></td>
+          <td class="num"><span style="background:#fff9c4;padding:2px 8px;border-radius:4px">MIXED</span></td>
+          <td class="center"></td><td class="center">39</td>
+          <td class="num"><span style="background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px">Mid 30%</span></td><td class="center">-19.3%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-4.4%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+0.9%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-19.3%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+11.4%</span></td>
+          <td class="num"><span style="color:#1565c0">-195</span></td><td class="num"><span style="color:#d32f2f">+27</span></td>
+          <td class="num"><span style="color:#1565c0">-417</span></td><td class="num"><span style="color:#d32f2f">+223</span></td>
+          <td class="num">0.9x</td>
+          <td class="num">377</td>
+          <td class="num">0.0185</td>
+          <td class="num">71.28%</td>
+        </tr>
+<tr>
+          <td>20</td><td class="ticker">003690</td><td>코리안리</td>
+          <td class="num">12,900</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-3.4%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+4.8%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+9.8%</span></td>
+          <td class="num"><span style="background:#fff9c4;padding:2px 8px;border-radius:4px">MIXED</span></td>
+          <td class="center"></td><td class="center">45</td>
+          <td class="num"><span style="background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px">Mid 30%</span></td><td class="center">-10.4%</td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-2.1%</span></td><td class="num"><span style="color:#1565c0;font-weight:bold">-0.4%</span></td>
+          <td class="num"><span style="color:#1565c0;font-weight:bold">-8.3%</span></td><td class="num"><span style="color:#d32f2f;font-weight:bold">+11.5%</span></td>
+          <td class="num"><span style="color:#1565c0">-14</span></td><td class="num"><span style="color:#d32f2f">+7</span></td>
+          <td class="num"><span style="color:#1565c0">-19</span></td><td class="num"><span style="color:#d32f2f">+3</span></td>
+          <td class="num">0.6x</td>
+          <td class="num">74</td>
+          <td class="num">0.0191</td>
+          <td class="num">69.96%</td>
+        </tr>
+</tbody>
+</table>
+
+<h2>Investment Picks (Top 5)</h2>
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+
+  <div style="background:#fff;border-radius:10px;padding:14px 18px;flex:1;min-width:220px;
+              box-shadow:0 2px 6px rgba(0,0,0,0.08);border-top:4px solid #1b5e20">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:18px;font-weight:bold;color:#1a237e">#1</span>
+      <span style="background:#1b5e20;color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:bold">Strong Buy 77</span>
+    </div>
+    <div style="font-size:15px;font-weight:bold;color:#333">삼성E&A</div>
+    <div style="font-size:12px;color:#78909c;margin-bottom:6px">028050 | 35,950원</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px;margin-bottom:6px">
+      <span style="background:#e8f5e9;padding:2px 6px;border-radius:4px">RSI 52</span>
+      <span style="background:#e3f2fd;padding:2px 6px;border-radius:4px">MA20 +6.0%</span>
+      <span style="background:#fff3e0;padding:2px 6px;border-radius:4px">52wH -7.7%</span>
+      <span style="background:#f3e5f5;padding:2px 6px;border-radius:4px">Vol 4.3x</span>
+      <span style="background:#e0f7fa;padding:2px 6px;border-radius:4px">Vol12m 0.0255</span>
+      <span style="background:#fce4ec;padding:2px 6px;border-radius:4px">Mom 90.5%</span>
+      <span style="background:#fce4ec;padding:2px 6px;border-radius:4px">F <span style="color:#1565c0">-1,323</span></span><span style="background:#e8eaf6;padding:2px 6px;border-radius:4px">I <span style="color:#1565c0">-104</span></span>
+    </div>
+    <ul style="margin:4px 0;padding-left:16px;font-size:12px;color:#37474f"><li>강한 정배열 추세</li><li>RSI 52 중립 (적정)</li><li>저변동성 0.0255</li><li>강한 모멘텀 90.5%</li><li>기관 5일 순매수 +245억</li><li>52주 고점 근접</li></ul>
+    <div style="color:#e65100;font-size:11px;margin-top:4px"><b>Warning:</b><ul style="margin:2px 0;padding-left:16px"><li>외국인 1일 순매도 -1,323억</li><li>외인+기관 동반 매도</li><li>거래량 급증 (과열 주의)</li></ul></div>
+  </div>
+  <div style="background:#fff;border-radius:10px;padding:14px 18px;flex:1;min-width:220px;
+              box-shadow:0 2px 6px rgba(0,0,0,0.08);border-top:4px solid #1b5e20">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:18px;font-weight:bold;color:#1a237e">#2</span>
+      <span style="background:#1b5e20;color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:bold">Strong Buy 77</span>
+    </div>
+    <div style="font-size:15px;font-weight:bold;color:#333">삼천리</div>
+    <div style="font-size:12px;color:#78909c;margin-bottom:6px">004690 | 150,000원</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px;margin-bottom:6px">
+      <span style="background:#e8f5e9;padding:2px 6px;border-radius:4px">RSI 52</span>
+      <span style="background:#e3f2fd;padding:2px 6px;border-radius:4px">MA20 +4.0%</span>
+      <span style="background:#fff3e0;padding:2px 6px;border-radius:4px">52wH -12.8%</span>
+      <span style="background:#f3e5f5;padding:2px 6px;border-radius:4px">Vol 1.2x</span>
+      <span style="background:#e0f7fa;padding:2px 6px;border-radius:4px">Vol12m 0.0229</span>
+      <span style="background:#fce4ec;padding:2px 6px;border-radius:4px">Mom 71.4%</span>
+      <span style="background:#fce4ec;padding:2px 6px;border-radius:4px">F <span style="color:#d32f2f">+3</span></span><span style="background:#e8eaf6;padding:2px 6px;border-radius:4px">I <span style="color:#d32f2f">+2</span></span>
+    </div>
+    <ul style="margin:4px 0;padding-left:16px;font-size:12px;color:#37474f"><li>강한 정배열 추세</li><li>RSI 52 중립 (적정)</li><li>단기 눌림목 형성</li><li>저변동성 0.0229</li><li>강한 모멘텀 71.4%</li><li>외인+기관 동반 매수</li></ul>
+    
+  </div>
+  <div style="background:#fff;border-radius:10px;padding:14px 18px;flex:1;min-width:220px;
+              box-shadow:0 2px 6px rgba(0,0,0,0.08);border-top:4px solid #1b5e20">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:18px;font-weight:bold;color:#1a237e">#3</span>
+      <span style="background:#1b5e20;color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:bold">Strong Buy 71</span>
+    </div>
+    <div style="font-size:15px;font-weight:bold;color:#333">LX인터내셔널</div>
+    <div style="font-size:12px;color:#78909c;margin-bottom:6px">001120 | 47,200원</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px;margin-bottom:6px">
+      <span style="background:#e8f5e9;padding:2px 6px;border-radius:4px">RSI 60</span>
+      <span style="background:#e3f2fd;padding:2px 6px;border-radius:4px">MA20 +7.8%</span>
+      <span style="background:#fff3e0;padding:2px 6px;border-radius:4px">52wH -2.6%</span>
+      <span style="background:#f3e5f5;padding:2px 6px;border-radius:4px">Vol 1.1x</span>
+      <span style="background:#e0f7fa;padding:2px 6px;border-radius:4px">Vol12m 0.0205</span>
+      <span style="background:#fce4ec;padding:2px 6px;border-radius:4px">Mom 84.0%</span>
+      <span style="background:#fce4ec;padding:2px 6px;border-radius:4px">F <span style="color:#1565c0">-26</span></span><span style="background:#e8eaf6;padding:2px 6px;border-radius:4px">I <span style="color:#d32f2f">+55</span></span>
+    </div>
+    <ul style="margin:4px 0;padding-left:16px;font-size:12px;color:#37474f"><li>강한 정배열 추세</li><li>저변동성 0.0205</li><li>강한 모멘텀 84.0%</li><li>기관 5일 순매수 +109억</li><li>52주 고점 근접</li></ul>
+    
+  </div>
+  <div style="background:#fff;border-radius:10px;padding:14px 18px;flex:1;min-width:220px;
+              box-shadow:0 2px 6px rgba(0,0,0,0.08);border-top:4px solid #2e7d32">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:18px;font-weight:bold;color:#1a237e">#4</span>
+      <span style="background:#2e7d32;color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:bold">Buy 68</span>
+    </div>
+    <div style="font-size:15px;font-weight:bold;color:#333">기업은행</div>
+    <div style="font-size:12px;color:#78909c;margin-bottom:6px">024110 | 23,050원</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px;margin-bottom:6px">
+      <span style="background:#e8f5e9;padding:2px 6px;border-radius:4px">RSI 39</span>
+      <span style="background:#e3f2fd;padding:2px 6px;border-radius:4px">MA20 -4.8%</span>
+      <span style="background:#fff3e0;padding:2px 6px;border-radius:4px">52wH -19.3%</span>
+      <span style="background:#f3e5f5;padding:2px 6px;border-radius:4px">Vol 0.9x</span>
+      <span style="background:#e0f7fa;padding:2px 6px;border-radius:4px">Vol12m 0.0185</span>
+      <span style="background:#fce4ec;padding:2px 6px;border-radius:4px">Mom 71.3%</span>
+      <span style="background:#fce4ec;padding:2px 6px;border-radius:4px">F <span style="color:#1565c0">-195</span></span><span style="background:#e8eaf6;padding:2px 6px;border-radius:4px">I <span style="color:#d32f2f">+27</span></span>
+    </div>
+    <ul style="margin:4px 0;padding-left:16px;font-size:12px;color:#37474f"><li>상승 추세 유지</li><li>RSI 39 중립 (적정)</li><li>단기 눌림목 형성</li><li>저변동성 0.0185</li><li>강한 모멘텀 71.3%</li><li>기관 5일 순매수 +223억</li></ul>
+    <div style="color:#e65100;font-size:11px;margin-top:4px"><b>Warning:</b><ul style="margin:2px 0;padding-left:16px"><li>외국인 1일 순매도 -195억</li></ul></div>
+  </div>
+  <div style="background:#fff;border-radius:10px;padding:14px 18px;flex:1;min-width:220px;
+              box-shadow:0 2px 6px rgba(0,0,0,0.08);border-top:4px solid #2e7d32">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:18px;font-weight:bold;color:#1a237e">#5</span>
+      <span style="background:#2e7d32;color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:bold">Buy 67</span>
+    </div>
+    <div style="font-size:15px;font-weight:bold;color:#333">코람코더원리츠</div>
+    <div style="font-size:12px;color:#78909c;margin-bottom:6px">417310 | 9,630원</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px;margin-bottom:6px">
+      <span style="background:#e8f5e9;padding:2px 6px;border-radius:4px">RSI 62</span>
+      <span style="background:#e3f2fd;padding:2px 6px;border-radius:4px">MA20 +4.2%</span>
+      <span style="background:#fff3e0;padding:2px 6px;border-radius:4px">52wH -1.8%</span>
+      <span style="background:#f3e5f5;padding:2px 6px;border-radius:4px">Vol 0.3x</span>
+      <span style="background:#e0f7fa;padding:2px 6px;border-radius:4px">Vol12m 0.0171</span>
+      <span style="background:#fce4ec;padding:2px 6px;border-radius:4px">Mom 80.6%</span>
+      <span style="background:#fce4ec;padding:2px 6px;border-radius:4px">F <span style="color:#d32f2f">+1</span></span><span style="background:#e8eaf6;padding:2px 6px;border-radius:4px">I <span style="color:#666">+0</span></span>
+    </div>
+    <ul style="margin:4px 0;padding-left:16px;font-size:12px;color:#37474f"><li>강한 정배열 추세</li><li>단기 눌림목 형성</li><li>저변동성 0.0171</li><li>강한 모멘텀 80.6%</li><li>52주 고점 근접</li></ul>
+    
+  </div>
+</div>
+
+
+<p class="footer">
+  Gen4 Core v4.0 | LowVol + Mom12-1 Monthly Rebalance | 20 stocks from 387 universe | 2026-03-24 15:43:38
+</p>
+</body></html>

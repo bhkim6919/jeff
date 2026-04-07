@@ -1,0 +1,20 @@
+[
+  {
+    "priority": "MEDIUM",
+    "category": "ALERT",
+    "message": "Sector concentration: UNKNOWN = 100%",
+    "detail": "Single sector holds 100% of portfolio"
+  },
+  {
+    "priority": "MEDIUM",
+    "category": "ALERT",
+    "message": "Snapshot incomplete: missing config",
+    "detail": "Required data files not found or empty"
+  },
+  {
+    "priority": "MEDIUM",
+    "category": "ALERT",
+    "message": "Timestamp gap: 18148min between data sources",
+    "detail": "Earliest: equity_log Latest: portfolio_state"
+  }
+]

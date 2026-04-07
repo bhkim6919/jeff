@@ -7,21 +7,15 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <!-- ── Header Bar ─────────────────────────────────────── -->
+
+    <!-- ── Header ─────────────────────────────────────────── -->
     <header id="header">
         <div class="header-left">
-            <h1>Q-TRON <span class="accent">REST Monitor</span></h1>
-            <span id="server-badge" class="badge badge-mock">--</span>
-        </div>
-        <div class="header-center">
-            <div id="health-indicator" class="health-pill health-black">
-                <span class="health-dot"></span>
-                <span id="health-text">INITIALIZING</span>
-            </div>
-            <span id="health-reason" class="health-reason">Connecting...</span>
+            <h1 class="logo">Q-TRON <span class="logo-accent">REST</span></h1>
+            <span id="server-badge" class="badge badge-unknown">--</span>
         </div>
         <div class="header-right">
-            <div class="mode-switch">
+            <div class="mode-switch" id="mode-switch">
                 <button class="mode-btn active" data-mode="basic">Basic</button>
                 <button class="mode-btn" data-mode="operator">Operator</button>
                 <button class="mode-btn" data-mode="debug">Debug</button>
@@ -30,255 +24,261 @@
         </div>
     </header>
 
-    <!-- ── SSE Connection Status ──────────────────────────── -->
-    <div id="sse-bar" class="sse-bar sse-disconnected">
-        <span id="sse-status">SSE: Connecting...</span>
+    <!-- ── SSE Connection Bar ─────────────────────────────── -->
+    <div id="sse-bar" class="sse-bar sse-connecting">
+        <span id="sse-status">SSE 연결 중...</span>
     </div>
 
     <!-- ── Main Content ───────────────────────────────────── -->
-    <main id="main-content">
+    <main id="main">
 
-        <!-- ====== SECTION 1: Control Panel (Basic+) ====== -->
-        <section id="sec-control" class="panel-section">
-            <h2 class="section-title">Control Panel</h2>
-            <div class="card-grid">
+        <!-- ====== Hero Status (Basic+) ===================== -->
+        <section id="hero" class="hero">
+            <div class="hero-inner">
+                <div class="hero-health">
+                    <div id="health-dot" class="health-dot health-black"></div>
+                    <div class="hero-text">
+                        <h2 id="health-label" class="hero-title">초기화 중</h2>
+                        <p id="health-reason" class="hero-sub">서버 연결 대기...</p>
+                    </div>
+                </div>
+                <div class="hero-meta">
+                    <div class="hero-meta-item">
+                        <span class="meta-label">서버</span>
+                        <span id="hero-server" class="meta-value">--</span>
+                    </div>
+                    <div class="hero-meta-divider"></div>
+                    <div class="hero-meta-item">
+                        <span class="meta-label">토큰</span>
+                        <span id="hero-token" class="meta-value">--</span>
+                    </div>
+                    <div class="hero-meta-divider"></div>
+                    <div class="hero-meta-item">
+                        <span class="meta-label">마지막 동기화</span>
+                        <span id="hero-sync" class="meta-value">--</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ====== Summary Cards (Basic+) =================== -->
+        <section id="summary-cards" class="summary-cards">
+            <div class="summary-card">
+                <div class="summary-icon">&#128203;</div>
+                <div class="summary-label">보유종목</div>
+                <div id="card-holdings" class="summary-value">--</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-icon">&#128176;</div>
+                <div class="summary-label">현금</div>
+                <div id="card-cash" class="summary-value">--</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-icon">&#128200;</div>
+                <div class="summary-label">평가손익</div>
+                <div id="card-pnl" class="summary-value">--</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-icon">&#127974;</div>
+                <div class="summary-label">총자산</div>
+                <div id="card-total" class="summary-value">--</div>
+            </div>
+        </section>
+
+        <!-- ====== Holdings List (Basic+, 토스 스타일) ======= -->
+        <section id="holdings-section" class="holdings-section">
+            <h3 class="section-title">보유종목</h3>
+            <div id="holdings-list" class="holdings-list">
+                <div class="holdings-empty">데이터 로딩 중...</div>
+            </div>
+        </section>
+
+        <!-- ====== Alert Banner (Basic+) ==================== -->
+        <div id="alert-banner" class="alert-banner" style="display:none;">
+            <span id="alert-icon" class="alert-icon"></span>
+            <span id="alert-text" class="alert-text"></span>
+            <button id="alert-close" class="alert-close" title="닫기">&times;</button>
+        </div>
+
+        <!-- ====== Control Cards (Basic+) =================== -->
+        <section id="sec-control" class="section">
+            <h3 class="section-title">시스템 상태</h3>
+            <div class="card-grid-3">
                 <!-- Token Card -->
                 <div class="card">
-                    <div class="card-header">
-                        <span class="card-icon">&#128273;</span>
-                        <span>Token</span>
+                    <div class="card-head">
+                        <span class="card-head-icon">&#128273;</span>
+                        토큰
                     </div>
                     <div class="card-body">
-                        <div class="metric-row">
-                            <span class="metric-label">Status</span>
-                            <span id="token-status" class="metric-value status-unknown">--</span>
-                        </div>
-                        <div class="metric-row">
-                            <span class="metric-label">Remaining</span>
-                            <span id="token-remaining" class="metric-value">--</span>
-                        </div>
-                        <div class="metric-row">
-                            <span class="metric-label">Last Refresh</span>
-                            <span id="token-refresh" class="metric-value dim">--</span>
-                        </div>
+                        <div class="kv"><span class="k">상태</span><span id="token-status" class="v">--</span></div>
+                        <div class="kv"><span class="k">잔여시간</span><span id="token-remaining" class="v">--</span></div>
+                        <div class="kv"><span class="k">갱신시각</span><span id="token-refresh" class="v dim">--</span></div>
                     </div>
                 </div>
 
                 <!-- Latency Card -->
                 <div class="card">
-                    <div class="card-header">
-                        <span class="card-icon">&#9201;</span>
-                        <span>Latency</span>
+                    <div class="card-head">
+                        <span class="card-head-icon">&#9201;</span>
+                        응답속도
                     </div>
                     <div class="card-body">
-                        <div class="metric-row">
-                            <span class="metric-label">Last</span>
-                            <span id="lat-last" class="metric-value">-- ms</span>
-                        </div>
-                        <div class="metric-row">
-                            <span class="metric-label">Avg</span>
-                            <span id="lat-avg" class="metric-value">-- ms</span>
-                        </div>
-                        <div class="metric-row">
-                            <span class="metric-label">P95</span>
-                            <span id="lat-p95" class="metric-value">-- ms</span>
-                        </div>
+                        <div class="kv"><span class="k">최근</span><span id="lat-last" class="v mono">-- ms</span></div>
+                        <div class="kv"><span class="k">평균</span><span id="lat-avg" class="v mono">-- ms</span></div>
+                        <div class="kv"><span class="k">P95</span><span id="lat-p95" class="v mono">-- ms</span></div>
                     </div>
                 </div>
 
-                <!-- Counters Card -->
+                <!-- Request Counter Card -->
                 <div class="card">
-                    <div class="card-header">
-                        <span class="card-icon">&#128200;</span>
-                        <span>Requests</span>
+                    <div class="card-head">
+                        <span class="card-head-icon">&#128200;</span>
+                        요청통계
                     </div>
                     <div class="card-body">
-                        <div class="metric-row">
-                            <span class="metric-label">Total</span>
-                            <span id="cnt-total" class="metric-value">0</span>
-                        </div>
-                        <div class="metric-row">
-                            <span class="metric-label">Failures</span>
-                            <span id="cnt-failures" class="metric-value">0</span>
-                        </div>
-                        <div class="metric-row">
-                            <span class="metric-label">Failure Rate</span>
-                            <span id="cnt-rate" class="metric-value">0.0%</span>
-                        </div>
-                        <div class="metric-row">
-                            <span class="metric-label">Retries</span>
-                            <span id="cnt-retries" class="metric-value">0</span>
-                        </div>
+                        <div class="kv"><span class="k">전체</span><span id="cnt-total" class="v mono">0</span></div>
+                        <div class="kv"><span class="k">실패</span><span id="cnt-failures" class="v mono">0</span></div>
+                        <div class="kv"><span class="k">실패율</span><span id="cnt-rate" class="v mono">0.0%</span></div>
+                        <div class="kv"><span class="k">재시도</span><span id="cnt-retries" class="v mono">0</span></div>
                     </div>
                 </div>
+            </div>
+        </section>
 
+        <!-- ====== Data Freshness (Basic+) ================== -->
+        <section id="sec-freshness" class="section">
+            <h3 class="section-title">데이터 신선도</h3>
+            <div id="freshness-grid" class="freshness-grid">
+                <!-- JS populates -->
+            </div>
+        </section>
+
+        <!-- ====== Operator Mode: Request Traces ============ -->
+        <section id="sec-traces" class="section mode-operator mode-debug" hidden>
+            <h3 class="section-title">
+                <span>요청 추적 (최근 50건)</span>
+                <div class="trace-filters">
+                    <select id="trace-filter-status">
+                        <option value="">전체</option>
+                        <option value="ok">성공</option>
+                        <option value="error">오류</option>
+                        <option value="timeout">타임아웃</option>
+                        <option value="retry">재시도</option>
+                    </select>
+                    <input id="trace-filter-search" type="text" placeholder="검색..." />
+                </div>
+            </h3>
+            <div class="table-wrap">
+                <table class="data-table" id="traces-table">
+                    <thead>
+                        <tr>
+                            <th>시각</th>
+                            <th>엔드포인트</th>
+                            <th>API ID</th>
+                            <th>지연</th>
+                            <th>상태</th>
+                            <th>코드</th>
+                            <th>오류</th>
+                        </tr>
+                    </thead>
+                    <tbody id="traces-body">
+                        <tr><td colspan="7" class="empty-row">데이터 없음</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ====== Operator Mode: WebSocket + Sync ========== -->
+        <section id="sec-ws-sync" class="section mode-operator mode-debug" hidden>
+            <div class="card-grid-2">
                 <!-- WebSocket Card -->
                 <div class="card">
-                    <div class="card-header">
-                        <span class="card-icon">&#128268;</span>
-                        <span>WebSocket</span>
+                    <div class="card-head">
+                        <span class="card-head-icon">&#128268;</span>
+                        WebSocket
                     </div>
                     <div class="card-body">
-                        <div class="metric-row">
-                            <span class="metric-label">Connected</span>
-                            <span id="ws-connected" class="metric-value status-unknown">--</span>
-                        </div>
-                        <div class="metric-row">
-                            <span class="metric-label">Last Message</span>
-                            <span id="ws-last-msg" class="metric-value dim">--</span>
-                        </div>
-                        <div class="metric-row">
-                            <span class="metric-label">Messages</span>
-                            <span id="ws-msg-count" class="metric-value">0</span>
-                        </div>
-                        <div class="metric-row">
-                            <span class="metric-label">Reconnects</span>
-                            <span id="ws-reconnects" class="metric-value">0</span>
-                        </div>
+                        <div class="kv"><span class="k">연결</span><span id="ws-connected" class="v">--</span></div>
+                        <div class="kv"><span class="k">마지막 메시지</span><span id="ws-last-msg" class="v dim">--</span></div>
+                        <div class="kv"><span class="k">수신수</span><span id="ws-msg-count" class="v mono">0</span></div>
+                        <div class="kv"><span class="k">재연결</span><span id="ws-reconnects" class="v mono">0</span></div>
                     </div>
                 </div>
 
                 <!-- Timestamps Card -->
                 <div class="card">
-                    <div class="card-header">
-                        <span class="card-icon">&#128197;</span>
-                        <span>Timestamps</span>
+                    <div class="card-head">
+                        <span class="card-head-icon">&#128197;</span>
+                        타임스탬프
                     </div>
                     <div class="card-body">
-                        <div class="metric-row">
-                            <span class="metric-label">First Request</span>
-                            <span id="ts-first" class="metric-value dim">--</span>
-                        </div>
-                        <div class="metric-row">
-                            <span class="metric-label">Last Request</span>
-                            <span id="ts-last" class="metric-value dim">--</span>
-                        </div>
-                        <div class="metric-row">
-                            <span class="metric-label">Last Success</span>
-                            <span id="ts-success" class="metric-value dim">--</span>
-                        </div>
-                        <div class="metric-row">
-                            <span class="metric-label">Last Failure</span>
-                            <span id="ts-failure" class="metric-value dim">--</span>
-                        </div>
+                        <div class="kv"><span class="k">첫 요청</span><span id="ts-first" class="v dim">--</span></div>
+                        <div class="kv"><span class="k">마지막 요청</span><span id="ts-last" class="v dim">--</span></div>
+                        <div class="kv"><span class="k">마지막 성공</span><span id="ts-success" class="v dim">--</span></div>
+                        <div class="kv"><span class="k">마지막 실패</span><span id="ts-failure" class="v dim">--</span></div>
                     </div>
                 </div>
             </div>
         </section>
 
-        <!-- ====== SECTION 2: Freshness (Basic+) ====== -->
-        <section id="sec-freshness" class="panel-section">
-            <h2 class="section-title">Data Freshness</h2>
-            <div id="freshness-grid" class="freshness-grid">
-                <!-- Populated by JS -->
-            </div>
-        </section>
-
-        <!-- ====== SECTION 3: Request Traces (Operator+) ====== -->
-        <section id="sec-traces" class="panel-section mode-operator mode-debug" style="display:none;">
-            <h2 class="section-title">
-                Request Traces
-                <div class="trace-filters">
-                    <select id="trace-filter-status">
-                        <option value="">All Status</option>
-                        <option value="ok">OK</option>
-                        <option value="error">Error</option>
-                        <option value="timeout">Timeout</option>
-                        <option value="retry">Retry</option>
-                    </select>
-                    <input id="trace-filter-search" type="text" placeholder="Search endpoint/code..." />
-                </div>
-            </h2>
+        <!-- ====== Operator Mode: REST vs COM Sync ========== -->
+        <section id="sec-sync" class="section mode-operator mode-debug" hidden>
+            <h3 class="section-title">REST vs COM 동기화</h3>
             <div class="table-wrap">
-                <table id="traces-table" class="data-table">
+                <table class="data-table" id="sync-table">
                     <thead>
                         <tr>
-                            <th>Time</th>
-                            <th>Endpoint</th>
-                            <th>API ID</th>
-                            <th>Latency</th>
-                            <th>Status</th>
-                            <th>Code</th>
-                            <th>Error</th>
-                        </tr>
-                    </thead>
-                    <tbody id="traces-body">
-                        <!-- Populated by JS -->
-                    </tbody>
-                </table>
-            </div>
-        </section>
-
-        <!-- ====== SECTION 4: Sync Comparison (Operator+) ====== -->
-        <section id="sec-sync" class="panel-section mode-operator mode-debug" style="display:none;">
-            <h2 class="section-title">REST vs COM Sync</h2>
-            <div class="table-wrap">
-                <table id="sync-table" class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Field</th>
-                            <th>REST Value</th>
-                            <th>COM Value</th>
-                            <th>Match</th>
-                            <th>Diff</th>
-                            <th>REST Time</th>
-                            <th>COM Time</th>
-                            <th>Last Match</th>
+                            <th>필드</th>
+                            <th>REST 값</th>
+                            <th>COM 값</th>
+                            <th>일치</th>
+                            <th>차이</th>
+                            <th>REST 시각</th>
+                            <th>COM 시각</th>
+                            <th>마지막 일치</th>
                         </tr>
                     </thead>
                     <tbody id="sync-body">
-                        <!-- Populated by JS -->
+                        <tr><td colspan="8" class="empty-row">동기화 데이터 없음</td></tr>
                     </tbody>
                 </table>
             </div>
         </section>
 
-        <!-- ====== SECTION 5: Flow Visualization (Operator+) ====== -->
-        <section id="sec-flow" class="panel-section mode-operator mode-debug" style="display:none;">
-            <h2 class="section-title">Request Flow</h2>
-            <div id="flow-container" class="flow-container">
-                <div class="flow-stage">
-                    <div class="flow-label">Request</div>
-                    <div id="flow-req" class="flow-box">--</div>
-                </div>
-                <div class="flow-arrow">&#10140;</div>
-                <div class="flow-stage">
-                    <div class="flow-label">Response</div>
-                    <div id="flow-resp" class="flow-box">--</div>
-                </div>
-                <div class="flow-arrow">&#10140;</div>
-                <div class="flow-stage">
-                    <div class="flow-label">State Update</div>
-                    <div id="flow-state" class="flow-box">--</div>
-                </div>
-                <div class="flow-arrow">&#10140;</div>
-                <div class="flow-stage">
-                    <div class="flow-label">UI Reflect</div>
-                    <div id="flow-ui" class="flow-box">--</div>
-                </div>
-            </div>
-            <div class="flow-meta">
-                <span>Last failure: <strong id="flow-last-fail">--</strong></span>
-                <span>Last known good: <strong id="flow-last-good">--</strong></span>
-            </div>
+        <!-- ====== Debug Mode: Raw JSON Viewer ============== -->
+        <section id="sec-raw-json" class="section mode-debug" hidden>
+            <h3 class="section-title">
+                <span>Raw JSON 뷰어</span>
+                <button id="btn-copy-json" class="btn-sm">복사</button>
+            </h3>
+            <pre id="raw-json" class="raw-json-box">대기 중...</pre>
         </section>
 
-        <!-- ====== SECTION 6: Latency Histogram (Debug) ====== -->
-        <section id="sec-histogram" class="panel-section mode-debug" style="display:none;">
-            <h2 class="section-title">Latency Distribution</h2>
+        <!-- ====== Debug Mode: Latency Histogram ============ -->
+        <section id="sec-histogram" class="section mode-debug" hidden>
+            <h3 class="section-title">응답시간 분포</h3>
             <div id="histogram-container" class="histogram-container">
-                <!-- Populated by JS (CSS bar chart) -->
+                <!-- JS populates -->
             </div>
         </section>
 
-        <!-- ====== SECTION 7: Raw Log (Debug) ====== -->
-        <section id="sec-logs" class="panel-section mode-debug" style="display:none;">
-            <h2 class="section-title">
-                Raw Log
-                <button id="btn-refresh-logs" class="btn-small">Refresh</button>
-            </h2>
+        <!-- ====== Debug Mode: Log Stream =================== -->
+        <section id="sec-logs" class="section mode-debug" hidden>
+            <h3 class="section-title">
+                <span>로그 스트림</span>
+                <button id="btn-refresh-logs" class="btn-sm">새로고침</button>
+            </h3>
             <div id="log-container" class="log-container">
-                <!-- Populated by JS -->
+                <div class="empty-row">로그 없음</div>
+            </div>
+        </section>
+
+        <!-- ====== Debug Mode: State Diff =================== -->
+        <section id="sec-diff" class="section mode-debug" hidden>
+            <h3 class="section-title">상태 변경 추적</h3>
+            <div id="diff-container" class="diff-container">
+                <div class="empty-row">변경 사항 대기 중...</div>
             </div>
         </section>
 
@@ -286,9 +286,9 @@
 
     <!-- ── Footer ─────────────────────────────────────────── -->
     <footer>
-        <span>Q-TRON Gen4-REST Monitor v1.0</span>
+        <span>Q-TRON Gen4-REST Monitor v2.0</span>
         <span id="footer-uptime">Uptime: --</span>
-        <span>READ-ONLY &mdash; No order execution</span>
+        <span>READ-ONLY &mdash; 주문 실행 불가</span>
     </footer>
 
     <script src="/static/dashboard.js"></script>

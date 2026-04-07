@@ -79,6 +79,27 @@ def create_app() -> FastAPI:
         """Full state snapshot (JSON). For polling or initial load."""
         return tracker.snapshot()
 
+    # ── Portfolio (live REST API data) ─────────────────
+    _provider_cache = {"instance": None}
+
+    def _get_provider():
+        if _provider_cache["instance"] is None:
+            import sys, os
+            sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+            from data.rest_provider import KiwoomRestProvider
+            _provider_cache["instance"] = KiwoomRestProvider(server_type="REAL")
+        return _provider_cache["instance"]
+
+    @application.get("/api/portfolio")
+    async def get_portfolio():
+        """Fetch live portfolio from Kiwoom REST API (kt00018)."""
+        try:
+            provider = _get_provider()
+            summary = provider.query_account_summary()
+            return summary
+        except Exception as e:
+            return {"error": str(e), "holdings_reliable": False}
+
     @application.get("/api/traces")
     async def get_traces(
         limit: int = Query(100, ge=1, le=500),
@@ -168,6 +189,17 @@ def create_app() -> FastAPI:
 
 # ── SSE Generators ────────────────────────────────────────────
 
+_global_provider_cache = {"instance": None}
+
+def _get_global_provider():
+    if _global_provider_cache["instance"] is None:
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from data.rest_provider import KiwoomRestProvider
+        _global_provider_cache["instance"] = KiwoomRestProvider(server_type="REAL")
+    return _global_provider_cache["instance"]
+
+
 async def _sse_generator(
     request: Request,
     interval: float = 2.0,
@@ -180,6 +212,27 @@ async def _sse_generator(
 
         try:
             data = tracker.snapshot()
+            # Inject live portfolio data (every 10th cycle = ~20s)
+            if not hasattr(_sse_generator, '_cycle'):
+                _sse_generator._cycle = 0
+            _sse_generator._cycle += 1
+            if _sse_generator._cycle % 10 == 1:  # First call + every 20s
+                try:
+                    provider = _get_global_provider()
+                    summary = provider.query_account_summary()
+                    if summary.get("error") is None:
+                        data["account"] = {
+                            "holdings_count": len(summary.get("holdings", [])),
+                            "cash": summary.get("available_cash", 0),
+                            "total_asset": summary.get("추정예탁자산", 0),
+                            "total_buy": summary.get("총매입금액", 0),
+                            "total_eval": summary.get("총평가금액", 0),
+                            "total_pnl": summary.get("총평가손익금액", 0),
+                            "pnl_pct": round(summary.get("총평가손익금액", 0) / max(summary.get("총매입금액", 1), 1) * 100, 2),
+                            "holdings": summary.get("holdings", []),
+                        }
+                except Exception as e:
+                    logging.getLogger("web").warning(f"Portfolio fetch: {e}")
             payload = json.dumps(data, ensure_ascii=False, default=str)
             yield f"event: {event_type}\ndata: {payload}\n\n"
         except Exception as e:

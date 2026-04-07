@@ -1,0 +1,219 @@
+{
+  "timestamp": "2026-03-30T10:15:09.011448",
+  "version": "4.0",
+  "cash": 13442185,
+  "prev_close_equity": 498545413.0,
+  "peak_equity": 510741264.13663733,
+  "peak_month": 3,
+  "positions": {
+    "316140": {
+      "code": "316140",
+      "quantity": 735,
+      "avg_price": 32208,
+      "entry_date": "2026-03-23",
+      "high_watermark": 33900.0,
+      "trail_stop_price": 29832.0,
+      "sector": "",
+      "invested_total": 23700103.812,
+      "trail_skip_days": 0
+    },
+    "055550": {
+      "code": "055550",
+      "quantity": 254,
+      "avg_price": 92000.0,
+      "entry_date": "2026-03-23",
+      "high_watermark": 97900.0,
+      "trail_stop_price": 86152.0,
+      "sector": "",
+      "invested_total": 23394873.2,
+      "trail_skip_days": 0
+    },
+    "086790": {
+      "code": "086790",
+      "quantity": 220,
+      "avg_price": 107103,
+      "entry_date": "2026-03-23",
+      "high_watermark": 113200.0,
+      "trail_stop_price": 99616.0,
+      "sector": "",
+      "invested_total": 23589757.059,
+      "trail_skip_days": 0
+    },
+    "105560": {
+      "code": "105560",
+      "quantity": 160,
+      "avg_price": 146966,
+      "entry_date": "2026-03-23",
+      "high_watermark": 155200.0,
+      "trail_stop_price": 136576.0,
+      "sector": "",
+      "invested_total": 23541601.744,
+      "trail_skip_days": 0
+    },
+    "138930": {
+      "code": "138930",
+      "quantity": 1322,
+      "avg_price": 17959,
+      "entry_date": "2026-03-23",
+      "high_watermark": 18850.0,
+      "trail_stop_price": 16588.0,
+      "sector": "",
+      "invested_total": 23769101.0677,
+      "trail_skip_days": 0
+    },
+    "175330": {
+      "code": "175330",
+      "quantity": 805,
+      "avg_price": 28873,
+      "entry_date": "2026-03-23",
+      "high_watermark": 31100,
+      "trail_stop_price": 27368.0,
+      "sector": "",
+      "invested_total": 23269494.17975,
+      "trail_skip_days": 0
+    },
+    "005830": {
+      "code": "005830",
+      "quantity": 133,
+      "avg_price": 179180,
+      "entry_date": "2026-03-23",
+      "high_watermark": 198800.0,
+      "trail_stop_price": 174944.0,
+      "sector": "",
+      "invested_total": 23858345.581,
+      "trail_skip_days": 0
+    },
+    "078930": {
+      "code": "078930",
+      "quantity": 361,
+      "avg_price": 67384,
+      "entry_date": "2026-03-23",
+      "high_watermark": 70200,
+      "trail_stop_price": 61776.0,
+      "sector": "",
+      "invested_total": 24353598.4676,
+      "trail_skip_days": 0
+    },
+    "028050": {
+      "code": "028050",
+      "quantity": 706,
+      "avg_price": 36302,
+      "entry_date": "2026-03-23",
+      "high_watermark": 36306.31413612566,
+      "trail_stop_price": 31949.556439790576,
+      "sector": "",
+      "invested_total": 25658685.5938,
+      "trail_skip_days": 0
+    },
+    "161390": {
+      "code": "161390",
+      "quantity": 426,
+      "avg_price": 57847,
+      "entry_date": "2026-03-23",
+      "high_watermark": 59000.0,
+      "trail_stop_price": 51920.0,
+      "sector": "",
+      "invested_total": 23940900.41,
+      "trail_skip_days": 0
+    },
+    "001120": {
+      "code": "001120",
+      "quantity": 528,
+      "avg_price": 47229,
+      "entry_date": "2026-03-23",
+      "high_watermark": 47800.0,
+      "trail_stop_price": 42064.0,
+      "sector": "",
+      "invested_total": 24965589.4488,
+      "trail_skip_days": 0
+    },
+    "004690": {
+      "code": "004690",
+      "quantity": 161,
+      "avg_price": 152944,
+      "entry_date": "2026-03-24",
+      "high_watermark": 153700.0,
+      "trail_stop_price": 135256.0,
+      "sector": "",
+      "invested_total": 24652301.5816,
+      "trail_skip_days": 0
+    },
+    "017940": {
+      "code": "017940",
+      "quantity": 324,
+      "avg_price": 101711,
+      "entry_date": "2026-03-30",
+      "high_watermark": 103000.0,
+      "trail_stop_price": 90640.0,
+      "sector": "",
+      "invested_total": 0.0,
+      "trail_skip_days": 0
+    },
+    "006400": {
+      "code": "006400",
+      "quantity": 61,
+      "avg_price": 405500,
+      "entry_date": "2026-03-30",
+      "high_watermark": 409000.0,
+      "trail_stop_price": 359920.0,
+      "sector": "",
+      "invested_total": 0.0,
+      "trail_skip_days": 0
+    },
+    "001060": {
+      "code": "001060",
+      "quantity": 1023,
+      "avg_price": 31870,
+      "entry_date": "2026-03-30",
+      "high_watermark": 32050,
+      "trail_stop_price": 28204.0,
+      "sector": "",
+      "invested_total": 0.0,
+      "trail_skip_days": 0
+    },
+    "001800": {
+      "code": "001800",
+      "quantity": 961,
+      "avg_price": 25206,
+      "entry_date": "2026-03-30",
+      "high_watermark": 25200,
+      "trail_stop_price": 22176.0,
+      "sector": "",
+      "invested_total": 0.0,
+      "trail_skip_days": 0
+    },
+    "009150": {
+      "code": "009150",
+      "quantity": 53,
+      "avg_price": 433943,
+      "entry_date": "2026-03-30",
+      "high_watermark": 434000,
+      "trail_stop_price": 381920.0,
+      "sector": "",
+      "invested_total": 0.0,
+      "trail_skip_days": 0
+    },
+    "003550": {
+      "code": "003550",
+      "quantity": 279,
+      "avg_price": 88343,
+      "entry_date": "2026-03-30",
+      "high_watermark": 89000,
+      "trail_stop_price": 78320.0,
+      "sector": "",
+      "invested_total": 0.0,
+      "trail_skip_days": 0
+    },
+    "034730": {
+      "code": "034730",
+      "quantity": 72,
+      "avg_price": 333514,
+      "entry_date": "2026-03-30",
+      "high_watermark": 334000,
+      "trail_stop_price": 293920.0,
+      "sector": "",
+      "invested_total": 0.0,
+      "trail_skip_days": 0
+    }
+  }
+}

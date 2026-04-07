@@ -1,0 +1,116 @@
+{
+  "date": "20260320",
+  "mode": "paper_test",
+  "status": "OK",
+  "errors": [],
+  "snapshot_hash": "1b0d1201e35780f3",
+  "operational_flags": [],
+  "validation_errors": [],
+  "pnl_summary": {
+    "date": "20260320",
+    "daily_pnl_pct": 0.012826,
+    "monthly_dd_pct": 0.0,
+    "risk_mode": "NORMAL",
+    "equity": 502984949.0,
+    "cash": 50298494.0,
+    "n_positions": 18,
+    "n_buys": 2,
+    "n_sells": 0,
+    "n_closes": 2,
+    "total_cost": 116915.0,
+    "top_contributors": [
+      {
+        "code": "000660",
+        "pnl_pct": 0.069283
+      },
+      {
+        "code": "006400",
+        "pnl_pct": -0.084423
+      }
+    ],
+    "bottom_contributors": [
+      {
+        "code": "000660",
+        "pnl_pct": 0.069283
+      },
+      {
+        "code": "006400",
+        "pnl_pct": -0.084423
+      }
+    ],
+    "realized_trades": [
+      {
+        "code": "000660",
+        "pnl_pct": 0.069283
+      },
+      {
+        "code": "006400",
+        "pnl_pct": -0.084423
+      }
+    ]
+  },
+  "mdd_contributors": {
+    "date": "20260320",
+    "contributors": [
+      {
+        "code": "055550",
+        "invested": 24745360.0,
+        "dd_from_hwm_pct": -0.1200000000000001,
+        "hwm": 92333.4328358209,
+        "trail_stop": 81253.42089552239
+      },
+      {
+        "code": "005930",
+        "invested": 15664734,
+        "dd_from_hwm_pct": -0.12,
+        "hwm": 189200.0,
+        "trail_stop": 166496.0
+      },
+      {
+        "code": "037460",
+        "invested": 16143388,
+        "dd_from_hwm_pct": -0.12,
+        "hwm": 27450.0,
+        "trail_stop": 24156.0
+      },
+      {
+        "code": "032830",
+        "invested": 15878025,
+        "dd_from_hwm_pct": -0.12,
+        "hwm": 228000.0,
+        "trail_stop": 200640.0
+      },
+      {
+        "code": "009970",
+        "invested": 16547510,
+        "dd_from_hwm_pct": -0.12,
+        "hwm": 227000.0,
+        "trail_stop": 199760.0
+      }
+    ]
+  },
+  "alerts": [
+    {
+      "priority": "MEDIUM",
+      "category": "ALERT",
+      "message": "Sector concentration: UNKNOWN = 100%",
+      "detail": "Single sector holds 100% of portfolio"
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "ALERT",
+      "message": "Snapshot incomplete: missing config",
+      "detail": "Required data files not found or empty"
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "ALERT",
+      "message": "Timestamp gap: 18148min between data sources",
+      "detail": "Earliest: equity_log Latest: portfolio_state"
+    }
+  ],
+  "alerts_total_before_filter": 3,
+  "recommendations": [],
+  "drift_warnings": [],
+  "elapsed_sec": 0.01
+}
