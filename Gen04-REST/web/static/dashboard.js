@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initTraceFilters();
     initAlertClose();
     initCopyJson();
+    initProfitTabs();
     connectSSE();
     setInterval(updateUptime, 1000);
 });
@@ -104,6 +105,8 @@ function updateDashboard(data) {
     // Always update (Basic+)
     updateHero(data);
     updateSummaryCards(data);
+    storeAccountData(data);
+    updateRebalSchedule(data);
     updateHoldingsList(data);
     updateAlertBanner(data);
     updateControlCards(data);
@@ -201,8 +204,15 @@ function updateSummaryCards(data) {
 
     if (account.pnl_pct !== undefined) {
         const pct = account.pnl_pct;
-        pnlEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
+        pnlEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
         pnlEl.className = 'summary-value ' + (pct > 0 ? 'positive' : pct < 0 ? 'negative' : 'neutral');
+        // 손익 금액도 표시
+        const pnlAmtEl = document.getElementById('card-pnl-amt');
+        if (pnlAmtEl && account.total_pnl !== undefined) {
+            const amt = account.total_pnl;
+            pnlAmtEl.textContent = (amt >= 0 ? '+' : '') + formatKRW(amt);
+            pnlAmtEl.className = 'summary-sub ' + (amt > 0 ? 'positive' : amt < 0 ? 'negative' : 'neutral');
+        }
     } else {
         pnlEl.textContent = '--';
         pnlEl.className = 'summary-value neutral';
@@ -210,6 +220,11 @@ function updateSummaryCards(data) {
 
     if (account.total_asset !== undefined) {
         totalEl.textContent = formatKRW(account.total_asset);
+        // 평가금액 표시
+        const evalEl = document.getElementById('card-eval');
+        if (evalEl && account.total_eval !== undefined) {
+            evalEl.textContent = '평가 ' + formatKRW(account.total_eval);
+        }
     } else {
         totalEl.textContent = '--';
         totalEl.className = 'summary-value neutral';
@@ -223,6 +238,105 @@ function formatKRW(val) {
     if (abs >= 1e8) return sign + (abs / 1e8).toFixed(1) + '억';
     if (abs >= 1e4) return sign + (abs / 1e4).toFixed(0) + '만';
     return val.toLocaleString();
+}
+
+// ── Rebalance Schedule ───────────────────────────────
+function updateRebalSchedule(data) {
+    const rebal = data.rebalance || {};
+    const lastEl = document.getElementById('rebal-last');
+    const nextEl = document.getElementById('rebal-next');
+    const ddayEl = document.getElementById('rebal-dday');
+    if (!lastEl || !rebal.last) return;
+
+    const lastDate = rebal.last; // "20260403" format
+    const cycle = rebal.cycle || 21;
+
+    // Format last date
+    const ly = lastDate.substring(0,4);
+    const lm = lastDate.substring(4,6);
+    const ld = lastDate.substring(6,8);
+    lastEl.textContent = `${ly}.${lm}.${ld}`;
+
+    // Calculate next rebalance (approximate: last + cycle trading days ≈ cycle * 1.4 calendar days)
+    const lastDt = new Date(parseInt(ly), parseInt(lm)-1, parseInt(ld));
+    const calendarDays = Math.round(cycle * 1.4); // 21 trading days ≈ 30 calendar days
+    const nextDt = new Date(lastDt.getTime() + calendarDays * 86400000);
+    const ny = nextDt.getFullYear();
+    const nm = String(nextDt.getMonth()+1).padStart(2,'0');
+    const nd = String(nextDt.getDate()).padStart(2,'0');
+    nextEl.textContent = `${ny}.${nm}.${nd}`;
+
+    // D-day
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const diffDays = Math.ceil((nextDt - today) / 86400000);
+    if (diffDays > 0) {
+        ddayEl.textContent = `D-${diffDays}`;
+        ddayEl.className = 'rebal-dday' + (diffDays <= 3 ? ' urgent' : '');
+    } else if (diffDays === 0) {
+        ddayEl.textContent = 'D-DAY';
+        ddayEl.className = 'rebal-dday urgent';
+    } else {
+        ddayEl.textContent = `D+${Math.abs(diffDays)}`;
+        ddayEl.className = 'rebal-dday overdue';
+    }
+}
+
+// ── Profit Analysis (수익분석) ───────────────────────
+let _profitData = null;
+let _currentPeriod = 'day';
+
+function initProfitTabs() {
+    document.querySelectorAll('.profit-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.profit-tab').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            _currentPeriod = btn.dataset.period;
+            renderProfit();
+        });
+    });
+    // Fetch profit data
+    fetchProfit();
+    setInterval(fetchProfit, 60000); // Refresh every 60s
+}
+
+function fetchProfit() {
+    fetch('/api/profit')
+        .then(r => r.json())
+        .then(data => { _profitData = data; renderProfit(); })
+        .catch(() => {});
+}
+
+function renderProfit() {
+    if (!_profitData) return;
+    const realized = _profitData[_currentPeriod] || 0;
+    const fees = _profitData.fees || 0;
+
+    // Unrealized from account data
+    const account = window._lastAccountData || {};
+    const unrealized = account.total_pnl || 0;
+    const total = unrealized + realized;
+
+    const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const sign = val >= 0 ? '+' : '';
+        el.textContent = sign + formatKRW(val);
+        el.className = 'profit-value ' + (val > 0 ? 'positive' : val < 0 ? 'negative' : 'neutral');
+    };
+    setVal('profit-unrealized', unrealized);
+    setVal('profit-realized', realized);
+    setVal('profit-total', total);
+    const feesEl = document.getElementById('profit-fees');
+    if (feesEl) {
+        feesEl.textContent = '-' + formatKRW(Math.abs(fees));
+        feesEl.className = 'profit-value neutral';
+    }
+}
+
+// Store account data for profit section
+function storeAccountData(data) {
+    if (data.account) window._lastAccountData = data.account;
 }
 
 // ── Holdings List (토스 스타일) ──────────────────────

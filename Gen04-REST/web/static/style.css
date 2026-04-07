@@ -358,6 +358,148 @@ main {
 .summary-value.negative { color: #F04452; }  /* 토스 레드 */
 .summary-value.neutral  { color: var(--text-secondary); }
 
+/* ── Summary Sub Values ───────────────────────────────────── */
+
+.summary-sub {
+    font-size: 12px;
+    margin-top: 2px;
+    color: var(--text-muted);
+}
+
+.summary-sub.positive { color: #3182F6; }
+.summary-sub.negative { color: #F04452; }
+
+/* ── Rebalance Schedule ──────────────────────────────────── */
+
+.rebal-section {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.rebal-card {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 16px;
+    text-align: center;
+}
+
+.rebal-highlight {
+    border: 1px solid #3182F6;
+    background: rgba(49, 130, 246, 0.05);
+}
+
+.rebal-icon {
+    font-size: 24px;
+    margin-bottom: 4px;
+}
+
+.rebal-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+.rebal-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.rebal-dday {
+    font-size: 22px;
+    font-weight: 800;
+    color: #3182F6;
+    margin-top: 4px;
+}
+
+.rebal-dday.urgent {
+    color: #F04452;
+    animation: pulse-text 1.5s infinite;
+}
+
+.rebal-dday.overdue {
+    color: #ffd600;
+}
+
+@keyframes pulse-text {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* ── Profit Analysis (토스 스타일) ────────────────────────── */
+
+.profit-section {
+    margin-bottom: 24px;
+}
+
+.profit-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.profit-tab {
+    flex: 1;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.profit-tab:hover {
+    background: rgba(255,255,255,0.05);
+}
+
+.profit-tab.active {
+    background: #3182F6;
+    color: white;
+    border-color: #3182F6;
+}
+
+.profit-content {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 16px;
+}
+
+.profit-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.profit-row:last-child {
+    border-bottom: none;
+}
+
+.profit-label {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.profit-value {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.profit-value.positive { color: #3182F6; }
+.profit-value.negative { color: #F04452; }
+.profit-value.neutral { color: var(--text-muted); }
+
+.profit-total-value {
+    font-size: 17px;
+    font-weight: 700;
+}
+
 /* ── Holdings List (토스 스타일) ───────────────────────────── */
 
 .holdings-section {

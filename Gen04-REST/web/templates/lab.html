@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Q-TRON LAB</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/lab.css">
+</head>
+<body>
+
+    <!-- Header -->
+    <header id="header">
+        <div class="header-left">
+            <h1 class="logo">Q-TRON <span class="logo-accent">LAB</span></h1>
+            <span class="badge badge-mock">SIMULATION</span>
+        </div>
+        <div class="header-right">
+            <a href="/" class="nav-link">Dashboard</a>
+            <span id="clock" class="clock">--:--:--</span>
+        </div>
+    </header>
+
+    <main id="main">
+
+        <!-- Parameter Panel -->
+        <section class="lab-section">
+            <div class="section-title">
+                <span>파라미터 설정</span>
+                <button class="btn-sm" id="btn-reset">초기화</button>
+            </div>
+            <div class="param-grid" id="param-grid">
+                <!-- Filled by JS -->
+            </div>
+            <div class="action-bar">
+                <button class="btn-primary" id="btn-simulate">시뮬레이션 시작</button>
+                <span class="action-hint" id="sim-status"></span>
+            </div>
+        </section>
+
+        <!-- Strategy Results -->
+        <section class="lab-section" id="results-section" hidden>
+            <div class="section-title">
+                <span>전략 비교 결과</span>
+                <span class="result-timestamp" id="result-ts"></span>
+            </div>
+            <div class="strategy-grid" id="strategy-grid">
+                <!-- Filled by JS -->
+            </div>
+        </section>
+
+        <!-- Ranking Table -->
+        <section class="lab-section">
+            <div class="section-title">
+                <span id="ranking-title">순위 종목 (로딩 중...)</span>
+                <button class="btn-sm" id="btn-refresh-ranking">새로고침</button>
+            </div>
+            <div class="ranking-list" id="ranking-list">
+                <!-- Filled by JS -->
+            </div>
+        </section>
+
+    </main>
+
+    <footer>
+        <span>Q-TRON Lab Simulator v1.0</span>
+        <span>가상 시뮬레이션 전용 (실제 주문 없음)</span>
+    </footer>
+
+    <script src="/static/lab.js"></script>
+</body>
+</html>

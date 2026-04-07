@@ -50,12 +50,28 @@ def create_app() -> FastAPI:
         docs_url="/docs",
     )
 
+    # IP monitor — check every 10 min in background
+    import threading
+    def _ip_monitor_loop():
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from data.ip_monitor import check_ip
+        import time as _time
+        while True:
+            try:
+                check_ip()
+            except Exception:
+                pass
+            _time.sleep(600)
+    _ip_thread = threading.Thread(target=_ip_monitor_loop, daemon=True)
+    _ip_thread.start()
+
     # CORS (allow local development)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
         allow_credentials=True,
-        allow_methods=["GET"],
+        allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
 
@@ -89,6 +105,68 @@ def create_app() -> FastAPI:
             from data.rest_provider import KiwoomRestProvider
             _provider_cache["instance"] = KiwoomRestProvider(server_type="REAL")
         return _provider_cache["instance"]
+
+    @application.get("/api/rebalance")
+    async def get_rebalance():
+        """Rebalance schedule from state file."""
+        try:
+            state_dir = Path(__file__).resolve().parent.parent / "state"
+            # Try REST state first, then COM state
+            for name in ["portfolio_state_live.json", "portfolio_state_paper.json"]:
+                sf = state_dir / name
+                if sf.exists():
+                    import json as _json
+                    with open(sf, "r", encoding="utf-8") as f:
+                        state = _json.load(f)
+                    last_rebal = state.get("last_rebalance_date", "")
+                    # Also check Gen04 COM state
+                    # Runtime state has rebalance date
+                    com_rt = Path(__file__).resolve().parent.parent.parent / "Gen04" / "state" / "runtime_state_live.json"
+                    if com_rt.exists():
+                        with open(com_rt, "r", encoding="utf-8") as f:
+                            rt = _json.load(f)
+                        last_rebal = rt.get("last_rebalance_date", last_rebal)
+                    return {"last_rebalance": last_rebal, "cycle_days": 21}
+            return {"last_rebalance": "", "cycle_days": 21}
+        except Exception as e:
+            return {"last_rebalance": "", "cycle_days": 21, "error": str(e)}
+
+    @application.get("/api/profit")
+    async def get_profit():
+        """Profit analysis from trade logs."""
+        try:
+            import csv
+            from datetime import datetime, timedelta
+            log_dir = Path(__file__).resolve().parent.parent.parent / "Gen04" / "data" / "logs"
+            trades_file = log_dir / "trades.csv"
+            result = {"day": 0, "week": 0, "month": 0, "year": 0, "fees": 0}
+            if not trades_file.exists():
+                return result
+            now = datetime.now()
+            with open(trades_file, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    try:
+                        dt_str = row.get("datetime", row.get("date", ""))
+                        pnl = float(row.get("pnl", row.get("realized_pnl", 0)) or 0)
+                        fee = float(row.get("commission", row.get("fee", 0)) or 0)
+                        tax = float(row.get("tax", 0) or 0)
+                        dt = datetime.strptime(dt_str[:10], "%Y-%m-%d") if dt_str else now
+                        delta = (now - dt).days
+                        if delta <= 1:
+                            result["day"] += pnl
+                        if delta <= 7:
+                            result["week"] += pnl
+                        if delta <= 30:
+                            result["month"] += pnl
+                        if delta <= 365:
+                            result["year"] += pnl
+                        result["fees"] += fee + tax
+                    except Exception:
+                        continue
+            return {k: round(v) for k, v in result.items()}
+        except Exception as e:
+            return {"day": 0, "week": 0, "month": 0, "year": 0, "fees": 0, "error": str(e)}
 
     @application.get("/api/portfolio")
     async def get_portfolio():
@@ -132,6 +210,55 @@ def create_app() -> FastAPI:
             "reason": snap["health"]["reason"],
             "timestamp": snap["timestamp_str"],
         }
+
+    # ── Lab Simulator ─────────────────────────────────────
+
+    @application.get("/lab", response_class=HTMLResponse)
+    async def lab_page(request: Request):
+        """Lab simulator page."""
+        return templates.TemplateResponse(request, "lab.html")
+
+    @application.get("/api/lab/params")
+    async def lab_params():
+        """Return default Lab parameters and their ranges."""
+        from web.lab_simulator import DEFAULT_PARAMS, PARAM_RANGES
+        return {"defaults": DEFAULT_PARAMS, "ranges": PARAM_RANGES}
+
+    @application.get("/api/lab/ranking")
+    async def lab_ranking(
+        source: str = Query("등락률", description="등락률|거래량|거래대금"),
+        top_n: int = Query(20, ge=5, le=50),
+    ):
+        """Fetch live top ranking stocks."""
+        from web.lab_simulator import fetch_ranking
+        try:
+            provider = _get_provider()
+            ranking = fetch_ranking(provider, source=source, top_n=top_n)
+            return {"ranking": ranking, "source": source}
+        except Exception as e:
+            from web.lab_simulator import _fallback_ranking
+            return {"ranking": _fallback_ranking(top_n), "source": source, "fallback": True}
+
+    @application.post("/api/lab/simulate")
+    async def lab_simulate(request: Request):
+        """Run simulation with given params, return 3-strategy results."""
+        from web.lab_simulator import fetch_ranking, run_simulation
+        body = await request.json()
+        params = body.get("params", {})
+        ranking_data = body.get("ranking")
+
+        if not ranking_data:
+            try:
+                provider = _get_provider()
+                source = params.get("ranking_source", "등락률")
+                top_n = params.get("top_n", 20)
+                ranking_data = fetch_ranking(provider, source=source, top_n=top_n)
+            except Exception:
+                from web.lab_simulator import _fallback_ranking
+                ranking_data = _fallback_ranking(params.get("top_n", 20))
+
+        result = run_simulation(ranking_data, params)
+        return result
 
     # ── SSE Stream ────────────────────────────────────────
 
@@ -190,6 +317,7 @@ def create_app() -> FastAPI:
 # ── SSE Generators ────────────────────────────────────────────
 
 _global_provider_cache = {"instance": None}
+_portfolio_cache = {"data": None, "ts": 0}
 
 def _get_global_provider():
     if _global_provider_cache["instance"] is None:
@@ -216,12 +344,12 @@ async def _sse_generator(
             if not hasattr(_sse_generator, '_cycle'):
                 _sse_generator._cycle = 0
             _sse_generator._cycle += 1
-            if _sse_generator._cycle % 10 == 1:  # First call + every 20s
+            if _sse_generator._cycle % 10 == 1:  # Refresh every ~20s
                 try:
                     provider = _get_global_provider()
                     summary = provider.query_account_summary()
                     if summary.get("error") is None:
-                        data["account"] = {
+                        _portfolio_cache["data"] = {
                             "holdings_count": len(summary.get("holdings", [])),
                             "cash": summary.get("available_cash", 0),
                             "total_asset": summary.get("추정예탁자산", 0),
@@ -231,8 +359,24 @@ async def _sse_generator(
                             "pnl_pct": round(summary.get("총평가손익금액", 0) / max(summary.get("총매입금액", 1), 1) * 100, 2),
                             "holdings": summary.get("holdings", []),
                         }
+                        _portfolio_cache["ts"] = time.time()
                 except Exception as e:
                     logging.getLogger("web").warning(f"Portfolio fetch: {e}")
+            # Always include cached portfolio
+            if _portfolio_cache["data"]:
+                data["account"] = _portfolio_cache["data"]
+            # Rebalance schedule (lightweight, always include)
+            if _sse_generator._cycle % 10 == 2:
+                try:
+                    rt_file = Path(__file__).resolve().parent.parent.parent / "Gen04" / "state" / "runtime_state_live.json"
+                    if rt_file.exists():
+                        with open(rt_file, "r", encoding="utf-8") as _f:
+                            _rt = json.load(_f)
+                        _portfolio_cache["rebal"] = _rt.get("last_rebalance_date", "")
+                except Exception:
+                    pass
+            if _portfolio_cache.get("rebal"):
+                data["rebalance"] = {"last": _portfolio_cache["rebal"], "cycle": 21}
             payload = json.dumps(data, ensure_ascii=False, default=str)
             yield f"event: {event_type}\ndata: {payload}\n\n"
         except Exception as e:

@@ -20,6 +20,7 @@
                 <button class="mode-btn" data-mode="operator">Operator</button>
                 <button class="mode-btn" data-mode="debug">Debug</button>
             </div>
+            <a href="/lab" class="nav-link" style="color:var(--text-secondary);text-decoration:none;font-size:13px;font-weight:600;padding:5px 14px;border-radius:6px;">Lab</a>
             <span id="clock" class="clock">--:--:--</span>
         </div>
     </header>
@@ -77,11 +78,57 @@
                 <div class="summary-icon">&#128200;</div>
                 <div class="summary-label">평가손익</div>
                 <div id="card-pnl" class="summary-value">--</div>
+                <div id="card-pnl-amt" class="summary-sub">--</div>
             </div>
             <div class="summary-card">
                 <div class="summary-icon">&#127974;</div>
                 <div class="summary-label">총자산</div>
                 <div id="card-total" class="summary-value">--</div>
+                <div id="card-eval" class="summary-sub">평가 --</div>
+            </div>
+        </section>
+
+        <!-- ====== Rebalance Schedule (Basic+) =============== -->
+        <section id="rebal-section" class="rebal-section">
+            <div class="rebal-card">
+                <div class="rebal-icon">&#128197;</div>
+                <div class="rebal-label">마지막 리밸런싱</div>
+                <div id="rebal-last" class="rebal-value">--</div>
+            </div>
+            <div class="rebal-card rebal-highlight">
+                <div class="rebal-icon">&#9200;</div>
+                <div class="rebal-label">다음 리밸런싱</div>
+                <div id="rebal-next" class="rebal-value">--</div>
+                <div id="rebal-dday" class="rebal-dday">D-?</div>
+            </div>
+        </section>
+
+        <!-- ====== Profit Analysis (Basic+, 토스 스타일) ===== -->
+        <section id="profit-section" class="profit-section">
+            <h3 class="section-title">수익 분석</h3>
+            <div class="profit-tabs">
+                <button class="profit-tab active" data-period="day">일</button>
+                <button class="profit-tab" data-period="week">주</button>
+                <button class="profit-tab" data-period="month">월</button>
+                <button class="profit-tab" data-period="year">년</button>
+            </div>
+            <div id="profit-content" class="profit-content">
+                <div class="profit-row">
+                    <span class="profit-label">평가손익</span>
+                    <span id="profit-unrealized" class="profit-value">--</span>
+                </div>
+                <div class="profit-row">
+                    <span class="profit-label">실현손익</span>
+                    <span id="profit-realized" class="profit-value">--</span>
+                </div>
+                <div class="profit-row">
+                    <span class="profit-label">총손익</span>
+                    <span id="profit-total" class="profit-value profit-total-value">--</span>
+                </div>
+                <div class="profit-row">
+                    <span class="profit-label">수수료+세금</span>
+                    <span id="profit-fees" class="profit-value">--</span>
+                </div>
             </div>
         </section>
 
