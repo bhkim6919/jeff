@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Q-TRON REST Monitor</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- ── Header Bar ─────────────────────────────────────── -->
+    <header id="header">
+        <div class="header-left">
+            <h1>Q-TRON <span class="accent">REST Monitor</span></h1>
+            <span id="server-badge" class="badge badge-mock">--</span>
+        </div>
+        <div class="header-center">
+            <div id="health-indicator" class="health-pill health-black">
+                <span class="health-dot"></span>
+                <span id="health-text">INITIALIZING</span>
+            </div>
+            <span id="health-reason" class="health-reason">Connecting...</span>
+        </div>
+        <div class="header-right">
+            <div class="mode-switch">
+                <button class="mode-btn active" data-mode="basic">Basic</button>
+                <button class="mode-btn" data-mode="operator">Operator</button>
+                <button class="mode-btn" data-mode="debug">Debug</button>
+            </div>
+            <span id="clock" class="clock">--:--:--</span>
+        </div>
+    </header>
+
+    <!-- ── SSE Connection Status ──────────────────────────── -->
+    <div id="sse-bar" class="sse-bar sse-disconnected">
+        <span id="sse-status">SSE: Connecting...</span>
+    </div>
+
+    <!-- ── Main Content ───────────────────────────────────── -->
+    <main id="main-content">
+
+        <!-- ====== SECTION 1: Control Panel (Basic+) ====== -->
+        <section id="sec-control" class="panel-section">
+            <h2 class="section-title">Control Panel</h2>
+            <div class="card-grid">
+                <!-- Token Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-icon">&#128273;</span>
+                        <span>Token</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="metric-row">
+                            <span class="metric-label">Status</span>
+                            <span id="token-status" class="metric-value status-unknown">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Remaining</span>
+                            <span id="token-remaining" class="metric-value">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Last Refresh</span>
+                            <span id="token-refresh" class="metric-value dim">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Latency Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-icon">&#9201;</span>
+                        <span>Latency</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="metric-row">
+                            <span class="metric-label">Last</span>
+                            <span id="lat-last" class="metric-value">-- ms</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Avg</span>
+                            <span id="lat-avg" class="metric-value">-- ms</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">P95</span>
+                            <span id="lat-p95" class="metric-value">-- ms</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Counters Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-icon">&#128200;</span>
+                        <span>Requests</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="metric-row">
+                            <span class="metric-label">Total</span>
+                            <span id="cnt-total" class="metric-value">0</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Failures</span>
+                            <span id="cnt-failures" class="metric-value">0</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Failure Rate</span>
+                            <span id="cnt-rate" class="metric-value">0.0%</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Retries</span>
+                            <span id="cnt-retries" class="metric-value">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- WebSocket Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-icon">&#128268;</span>
+                        <span>WebSocket</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="metric-row">
+                            <span class="metric-label">Connected</span>
+                            <span id="ws-connected" class="metric-value status-unknown">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Last Message</span>
+                            <span id="ws-last-msg" class="metric-value dim">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Messages</span>
+                            <span id="ws-msg-count" class="metric-value">0</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Reconnects</span>
+                            <span id="ws-reconnects" class="metric-value">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Timestamps Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-icon">&#128197;</span>
+                        <span>Timestamps</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="metric-row">
+                            <span class="metric-label">First Request</span>
+                            <span id="ts-first" class="metric-value dim">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Last Request</span>
+                            <span id="ts-last" class="metric-value dim">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Last Success</span>
+                            <span id="ts-success" class="metric-value dim">--</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Last Failure</span>
+                            <span id="ts-failure" class="metric-value dim">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ====== SECTION 2: Freshness (Basic+) ====== -->
+        <section id="sec-freshness" class="panel-section">
+            <h2 class="section-title">Data Freshness</h2>
+            <div id="freshness-grid" class="freshness-grid">
+                <!-- Populated by JS -->
+            </div>
+        </section>
+
+        <!-- ====== SECTION 3: Request Traces (Operator+) ====== -->
+        <section id="sec-traces" class="panel-section mode-operator mode-debug" style="display:none;">
+            <h2 class="section-title">
+                Request Traces
+                <div class="trace-filters">
+                    <select id="trace-filter-status">
+                        <option value="">All Status</option>
+                        <option value="ok">OK</option>
+                        <option value="error">Error</option>
+                        <option value="timeout">Timeout</option>
+                        <option value="retry">Retry</option>
+                    </select>
+                    <input id="trace-filter-search" type="text" placeholder="Search endpoint/code..." />
+                </div>
+            </h2>
+            <div class="table-wrap">
+                <table id="traces-table" class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Endpoint</th>
+                            <th>API ID</th>
+                            <th>Latency</th>
+                            <th>Status</th>
+                            <th>Code</th>
+                            <th>Error</th>
+                        </tr>
+                    </thead>
+                    <tbody id="traces-body">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ====== SECTION 4: Sync Comparison (Operator+) ====== -->
+        <section id="sec-sync" class="panel-section mode-operator mode-debug" style="display:none;">
+            <h2 class="section-title">REST vs COM Sync</h2>
+            <div class="table-wrap">
+                <table id="sync-table" class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Field</th>
+                            <th>REST Value</th>
+                            <th>COM Value</th>
+                            <th>Match</th>
+                            <th>Diff</th>
+                            <th>REST Time</th>
+                            <th>COM Time</th>
+                            <th>Last Match</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sync-body">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ====== SECTION 5: Flow Visualization (Operator+) ====== -->
+        <section id="sec-flow" class="panel-section mode-operator mode-debug" style="display:none;">
+            <h2 class="section-title">Request Flow</h2>
+            <div id="flow-container" class="flow-container">
+                <div class="flow-stage">
+                    <div class="flow-label">Request</div>
+                    <div id="flow-req" class="flow-box">--</div>
+                </div>
+                <div class="flow-arrow">&#10140;</div>
+                <div class="flow-stage">
+                    <div class="flow-label">Response</div>
+                    <div id="flow-resp" class="flow-box">--</div>
+                </div>
+                <div class="flow-arrow">&#10140;</div>
+                <div class="flow-stage">
+                    <div class="flow-label">State Update</div>
+                    <div id="flow-state" class="flow-box">--</div>
+                </div>
+                <div class="flow-arrow">&#10140;</div>
+                <div class="flow-stage">
+                    <div class="flow-label">UI Reflect</div>
+                    <div id="flow-ui" class="flow-box">--</div>
+                </div>
+            </div>
+            <div class="flow-meta">
+                <span>Last failure: <strong id="flow-last-fail">--</strong></span>
+                <span>Last known good: <strong id="flow-last-good">--</strong></span>
+            </div>
+        </section>
+
+        <!-- ====== SECTION 6: Latency Histogram (Debug) ====== -->
+        <section id="sec-histogram" class="panel-section mode-debug" style="display:none;">
+            <h2 class="section-title">Latency Distribution</h2>
+            <div id="histogram-container" class="histogram-container">
+                <!-- Populated by JS (CSS bar chart) -->
+            </div>
+        </section>
+
+        <!-- ====== SECTION 7: Raw Log (Debug) ====== -->
+        <section id="sec-logs" class="panel-section mode-debug" style="display:none;">
+            <h2 class="section-title">
+                Raw Log
+                <button id="btn-refresh-logs" class="btn-small">Refresh</button>
+            </h2>
+            <div id="log-container" class="log-container">
+                <!-- Populated by JS -->
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ── Footer ─────────────────────────────────────────── -->
+    <footer>
+        <span>Q-TRON Gen4-REST Monitor v1.0</span>
+        <span id="footer-uptime">Uptime: --</span>
+        <span>READ-ONLY &mdash; No order execution</span>
+    </footer>
+
+    <script src="/static/dashboard.js"></script>
+</body>
+</html>

@@ -248,7 +248,12 @@ class KiwoomWebSocket:
     # ── Message Dispatch ──────────────────────────────────────
 
     def _dispatch(self, msg: dict) -> None:
-        """Route incoming WebSocket message to appropriate callback."""
+        """Route incoming WebSocket message to appropriate callback.
+
+        SAFETY: Callbacks must NEVER place synchronous orders.
+        WebSocket thread != main thread. Order placement from here
+        causes race conditions with RECON and portfolio state.
+        """
         trnm = msg.get("trnm", "")
 
         # REG/REMOVE responses — log only

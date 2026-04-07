@@ -18,8 +18,13 @@ import requests
 from dotenv import load_dotenv
 
 from data.provider_base import BrokerProvider
+from data.rest_logger import setup_rest_logging
 from data.rest_token_manager import TokenManager
 from data.rest_websocket import KiwoomWebSocket
+from web.api_state import tracker as api_tracker
+
+# 로깅 자동 초기화 (import 시 1회)
+setup_rest_logging()
 
 logger = logging.getLogger("gen4.rest")
 
@@ -65,6 +70,9 @@ class KiwoomRestProvider(BrokerProvider):
             raise RuntimeError("KIWOOM_APP_KEY / KIWOOM_APP_SECRET not set in .env")
 
         self._token_mgr = TokenManager(app_key, app_secret, self._base_url)
+
+        # Tracker: server info + token
+        api_tracker.set_server_info(server_type, self._base_url)
 
         # Rate limiter
         self._last_request_time = 0.0
@@ -113,8 +121,9 @@ class KiwoomRestProvider(BrokerProvider):
         path: str,
         body: dict,
         retry_on_401: bool = True,
+        related_code: str = "",
     ) -> dict:
-        """Central REST API caller with rate limit and token refresh."""
+        """Central REST API caller with rate limit, token refresh, and tracker."""
         if not self._alive:
             return {"return_code": -1, "return_msg": "Provider shut down"}
 
@@ -129,11 +138,21 @@ class KiwoomRestProvider(BrokerProvider):
         url = f"{self._base_url}{path}"
         self._last_request_time = time.time()
 
+        # Tracker: start
+        req_id = api_tracker.record_request_start(path, api_id, related_code=related_code)
+        t0 = time.time()
+
         try:
             resp = requests.post(url, json=body, headers=headers, timeout=15)
+            latency = (time.time() - t0) * 1000
+
             if resp.status_code >= 500:
                 logger.error(f"[REST] {api_id} HTTP {resp.status_code}")
+                api_tracker.record_request_end(
+                    req_id, status="error", http_status=resp.status_code, latency_ms=latency,
+                    error=f"HTTP {resp.status_code}")
                 return {"return_code": -1, "return_msg": f"HTTP {resp.status_code}"}
+
             data = resp.json()
 
             # Token expired → refresh and retry once
@@ -142,21 +161,36 @@ class KiwoomRestProvider(BrokerProvider):
                 if "토큰" in msg or "token" in msg.lower() or "401" in msg:
                     logger.warning(f"[REST] Token expired, refreshing...")
                     self._token_mgr.invalidate()
-                    return self._request(api_id, path, body, retry_on_401=False)
+                    api_tracker.record_request_end(
+                        req_id, status="retry", latency_ms=latency, error="token_expired", retry_count=1)
+                    return self._request(api_id, path, body, retry_on_401=False, related_code=related_code)
 
-            if data.get("return_code") not in (0, None):
+            rc = data.get("return_code", -1)
+            if rc not in (0, None):
                 logger.warning(
-                    f"[REST] {api_id} rc={data.get('return_code')} "
+                    f"[REST] {api_id} rc={rc} "
                     f"msg={data.get('return_msg', '')[:80]}"
                 )
+                api_tracker.record_request_end(
+                    req_id, status="error", http_status=resp.status_code, latency_ms=latency,
+                    error=data.get("return_msg", "")[:200])
+            else:
+                api_tracker.record_request_end(
+                    req_id, status="ok", http_status=resp.status_code, latency_ms=latency)
 
             return data
 
         except requests.Timeout:
+            latency = (time.time() - t0) * 1000
             logger.error(f"[REST_TIMEOUT] {api_id} {path}")
+            api_tracker.record_request_end(
+                req_id, status="timeout", latency_ms=latency, error="HTTP timeout")
             return {"return_code": -1, "return_msg": "HTTP timeout"}
         except Exception as e:
+            latency = (time.time() - t0) * 1000
             logger.error(f"[REST_ERROR] {api_id}: {e}")
+            api_tracker.record_request_end(
+                req_id, status="error", latency_ms=latency, error=str(e)[:200])
             return {"return_code": -1, "return_msg": str(e)}
 
     # ── Lifecycle ─────────────────────────────────────────────
@@ -283,6 +317,8 @@ class KiwoomRestProvider(BrokerProvider):
                 "pnl_rate": item.get("prft_rt", "0"),
             })
 
+        api_tracker.update_freshness("account_summary")
+        api_tracker.update_freshness("holdings")
         return {
             "추정예탁자산": prsm_asset,
             "총매입금액": int(data.get("tot_pur_amt", "0")),
@@ -420,6 +456,7 @@ class KiwoomRestProvider(BrokerProvider):
                 "order_time": item.get("ord_tm", ""),
                 "status_raw": item.get("ord_stt", ""),
             })
+        api_tracker.update_freshness("open_orders")
         return orders
 
     def cancel_order(
