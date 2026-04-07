@@ -287,6 +287,10 @@ def create_app() -> FastAPI:
         """Start real-time simulation with WebSocket price tracking."""
         from web.lab_realtime import RealtimeSimulator
 
+        # Mutual exclusion: surge simulator
+        if _surge_instance["sim"] and _surge_instance["sim"].running:
+            return {"error": "Surge sim is running. Stop it first."}
+
         # Stop existing sim if running
         if _sim_instance["sim"] and _sim_instance["sim"].running:
             _sim_instance["sim"].stop()
@@ -368,7 +372,10 @@ def create_app() -> FastAPI:
         if _surge_instance["sim"] and _surge_instance["sim"].running:
             _surge_instance["sim"].stop()
 
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception:
+            return {"error": "Invalid JSON body"}
         config = config_from_dict(body.get("params", {}))
 
         provider = _get_provider()

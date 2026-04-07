@@ -233,10 +233,9 @@ class SurgeSimulator:
                 self._original_price_cb(code, values)
             return
 
-        self._tick_count += 1
-
         # 2. Lock 안에서 모든 상태 변경
         with self._lock:
+            self._tick_count += 1
             # 2a. Write to price cache
             self._price_cache[code] = parsed
 
@@ -387,6 +386,17 @@ class SurgeSimulator:
                 ask=ask_price, ask_size=snap.get("ask_size", 0),
             )
             self._state.transition(code, StockState.SKIPPED, "FILL_FAILED")
+            return
+
+        # Cash sufficiency check
+        total_cost = fill.fill_price * fill.fill_qty + fill.fee
+        if self._cash < total_cost:
+            self._logger.log(
+                SurgeLogTag.ENTRY_BLOCKED,
+                code=code, name=candidate.name,
+                trigger_reason=f"INSUFFICIENT_CASH({self._cash:.0f}<{total_cost:.0f})",
+            )
+            self._state.transition(code, StockState.SKIPPED, "INSUFFICIENT_CASH")
             return
 
         # Entry success

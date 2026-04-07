@@ -105,7 +105,7 @@ SURGE_PARAM_RANGES: Dict[str, Dict[str, Any]] = {
     "initial_cash":        {"type": "range", "min": 1_000_000, "max": 100_000_000, "step": 1_000_000, "unit": "원"},
     "per_trade_pct":       {"type": "range", "min": 5.0, "max": 50.0, "step": 5.0, "unit": "%"},
     "scan_interval_sec":   {"type": "range", "min": 10,  "max": 120, "step": 10, "unit": "초"},
-    "ranking_source":      {"type": "select", "options": ["실시간순위", "등락률", "거래량", "거래대금"]},
+    "ranking_source":      {"type": "select", "options": ["등락률", "거래량", "거래대금"]},
     "ranking_top_n":       {"type": "range", "min": 5, "max": 50, "step": 5},
 }
 
