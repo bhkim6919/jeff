@@ -278,6 +278,67 @@ def create_app() -> FastAPI:
         result = run_simulation(ranking_data, params)
         return result
 
+    # ── Lab Realtime Simulator ────────────────────────────
+
+    _sim_instance: dict = {"sim": None}
+
+    @application.post("/api/lab/realtime/start")
+    async def lab_realtime_start(request: Request):
+        """Start real-time simulation with WebSocket price tracking."""
+        from web.lab_realtime import RealtimeSimulator
+
+        # Stop existing sim if running
+        if _sim_instance["sim"] and _sim_instance["sim"].running:
+            _sim_instance["sim"].stop()
+
+        body = await request.json()
+        params = body.get("params", {})
+        ranking = body.get("ranking", [])
+
+        if not ranking:
+            return {"error": "No ranking data provided"}
+
+        provider = _get_provider()
+        sim = RealtimeSimulator(provider, params)
+        result = sim.start(ranking)
+
+        if result.get("error"):
+            return result
+
+        _sim_instance["sim"] = sim
+        _global_sim_ref["sim"] = sim
+        return {"ok": True, "codes": result.get("codes", [])}
+
+    @application.get("/api/lab/realtime/state")
+    async def lab_realtime_state():
+        """Current real-time simulation state."""
+        sim = _sim_instance.get("sim") or _global_sim_ref.get("sim")
+        if not sim:
+            return {"running": False, "strategies": [], "events": []}
+        return sim.get_state()
+
+    @application.post("/api/lab/realtime/stop")
+    async def lab_realtime_stop():
+        """Stop real-time simulation, close all virtual positions."""
+        sim = _sim_instance.get("sim")
+        if not sim or not sim.running:
+            return {"error": "No simulation running"}
+        result = sim.stop()
+        return result
+
+    @application.get("/sse/lab")
+    async def sse_lab_stream(request: Request):
+        """SSE stream for real-time lab simulation state (1s interval)."""
+        return StreamingResponse(
+            _sse_lab_generator(request, interval=1.0),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     # ── SSE Stream ────────────────────────────────────────
 
     @application.get("/sse/state")
@@ -451,6 +512,34 @@ async def _sse_health_generator(
 
         await asyncio.sleep(interval)
 
+
+async def _sse_lab_generator(
+    request: Request,
+    interval: float = 1.0,
+) -> AsyncGenerator[str, None]:
+    """Generate SSE events with real-time lab simulation state."""
+    while True:
+        if await request.is_disconnected():
+            break
+
+        try:
+            # Access the sim instance from the app closure
+            sim = _global_sim_ref.get("sim")
+            if sim:
+                data = sim.get_state()
+            else:
+                data = {"running": False, "strategies": [], "events": []}
+            payload = json.dumps(data, ensure_ascii=False, default=str)
+            yield f"event: lab\ndata: {payload}\n\n"
+        except Exception as e:
+            error_data = json.dumps({"error": str(e)})
+            yield f"event: error\ndata: {error_data}\n\n"
+
+        await asyncio.sleep(interval)
+
+
+# Shared ref for SSE generator to access sim instance
+_global_sim_ref: dict = {"sim": None}
 
 # ── Module-level app instance ─────────────────────────────────
 

@@ -34,7 +34,30 @@
             </div>
             <div class="action-bar">
                 <button class="btn-primary" id="btn-simulate">시뮬레이션 시작</button>
+                <button class="btn-realtime" id="btn-realtime">실시간 시뮬레이션</button>
                 <span class="action-hint" id="sim-status"></span>
+            </div>
+        </section>
+
+        <!-- Realtime Simulation Panel -->
+        <section class="lab-section" id="realtime-section" hidden>
+            <div class="section-title">
+                <span>실시간 시뮬레이션</span>
+                <div class="rt-header-right">
+                    <span class="rt-timer" id="rt-timer">00:00</span>
+                    <span class="rt-tick-count" id="rt-tick-count">0 ticks</span>
+                    <button class="btn-stop" id="btn-rt-stop">중지</button>
+                </div>
+            </div>
+
+            <!-- Live Strategy Cards -->
+            <div class="strategy-grid" id="rt-strategy-grid">
+                <!-- Filled by JS -->
+            </div>
+
+            <!-- Event Log -->
+            <div class="rt-events" id="rt-events">
+                <!-- Filled by JS -->
             </div>
         </section>
 
