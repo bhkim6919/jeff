@@ -10,6 +10,8 @@ echo  Rebalance + Trail Stop + Daily Report
 echo ============================================================
 echo.
 
+:: Start LIVE engine (foreground)
+:: GUI: run_monitor_v2_live.bat separately
 "%PYTHON%" -u main.py --live
 echo.
 echo ============================================================

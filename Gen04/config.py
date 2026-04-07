@@ -70,7 +70,7 @@ class Gen4Config:
     FORCE_REBALANCE_CONFIRMED: bool = False  # set True by --force-rebalance --confirm
 
     # ── Capital ──────────────────────────────────────────────────────
-    INITIAL_CASH: int = 500_000_000
+    INITIAL_CASH: int = 5_000_000    # LIVE account starting capital
 
     # ── Universe filters ─────────────────────────────────────────────
     MARKETS: List[str] = field(default_factory=lambda: ["KOSPI", "KOSDAQ"])
@@ -103,7 +103,7 @@ class Gen4Config:
 
     @property
     def SECTOR_MAP(self) -> Path:
-        return self.BASE_DIR.parent / "Gen03-02" / "data" / "sector_map.json"
+        return self.BASE_DIR / "data" / "sector_map.json"
 
     @property
     def STATE_DIR(self) -> Path:
@@ -157,7 +157,7 @@ class Gen4Config:
     #   mock  = internal simulation only (no broker)
     #   paper = broker mock trading (키움 모의투자)
     #   live  = broker real trading (실거래)
-    TRADING_MODE: str = "paper"      # "mock" | "paper" | "paper_test" | "shadow_test" | "live"
+    TRADING_MODE: str = "live"       # "mock" | "paper" | "paper_test" | "shadow_test" | "live"
 
     # Deprecated — use TRADING_MODE instead.
     # Kept for backward compatibility; ignored if TRADING_MODE is set explicitly.
