@@ -1,0 +1,330 @@
+/* ================================================================
+   Q-TRON SURGE Simulator — Dark Theme Styles
+   ================================================================ */
+
+/* ── Layout ─────────────────────────────────────────────────── */
+
+.surge-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.surge-grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.surge-full {
+    grid-column: 1 / -1;
+}
+
+/* ── Sections ───────────────────────────────────────────────── */
+
+.surge-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.surge-section .section-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+/* ── Parameter Grid ─────────────────────────────────────────── */
+
+.surge-param-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 10px;
+}
+
+.surge-param-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.surge-param-item label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.surge-param-item input,
+.surge-param-item select {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xs);
+    color: var(--text);
+    padding: 6px 8px;
+    font-size: 13px;
+    font-family: var(--font-mono);
+}
+
+.surge-param-item .param-value {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--accent);
+    text-align: right;
+    min-width: 50px;
+}
+
+.surge-param-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.surge-param-row input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+}
+
+/* ── Action Bar ─────────────────────────────────────────────── */
+
+.surge-action-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-light);
+}
+
+.btn-surge-start {
+    background: var(--green);
+    color: #000;
+    border: none;
+    padding: 8px 24px;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.btn-surge-start:hover { opacity: 0.85; }
+.btn-surge-start:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-surge-stop {
+    background: var(--red);
+    color: #fff;
+    border: none;
+    padding: 8px 24px;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.btn-surge-stop:hover { opacity: 0.85; }
+
+.surge-status {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+}
+
+/* ── Risk Cards ─────────────────────────────────────────────── */
+
+.risk-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+}
+
+.risk-card {
+    background: var(--bg-page);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+    text-align: center;
+}
+
+.risk-card .risk-label {
+    font-size: 10px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.risk-card .risk-value {
+    font-size: 18px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    color: var(--text);
+}
+
+.risk-card.risk-warn .risk-value { color: var(--yellow); }
+.risk-card.risk-danger .risk-value { color: var(--red); }
+.risk-card.risk-ok .risk-value { color: var(--green); }
+
+/* ── Tables ─────────────────────────────────────────────────── */
+
+.surge-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    font-family: var(--font-mono);
+}
+
+.surge-table th {
+    text-align: left;
+    padding: 6px 8px;
+    font-size: 10px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--bg-card);
+}
+
+.surge-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--border-light);
+    color: var(--text);
+}
+
+.surge-table tr:hover td {
+    background: var(--bg-hover);
+}
+
+.surge-table .pnl-pos { color: var(--green); }
+.surge-table .pnl-neg { color: var(--red); }
+
+.surge-table .exit-tp { color: var(--green); font-weight: 600; }
+.surge-table .exit-sl { color: var(--red); font-weight: 600; }
+.surge-table .exit-time { color: var(--yellow); }
+.surge-table .exit-force { color: var(--orange); }
+
+/* ── Scrollable containers ──────────────────────────────────── */
+
+.surge-scroll {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.surge-scroll-sm {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+/* ── Event Log ──────────────────────────────────────────────── */
+
+.event-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.event-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 6px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    border-radius: var(--radius-xs);
+}
+
+.event-item:hover {
+    background: var(--bg-hover);
+}
+
+.event-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    min-width: 80px;
+    text-align: center;
+}
+
+.tag-entry { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
+.tag-exit { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
+.tag-blocked { background: var(--yellow-bg); color: var(--yellow); border: 1px solid var(--yellow-border); }
+.tag-info { background: var(--accent-bg); color: var(--accent); border: 1px solid rgba(88, 166, 255, 0.3); }
+
+.event-time { color: var(--text-dim); min-width: 80px; }
+.event-code { color: var(--accent); min-width: 60px; }
+.event-msg { color: var(--text-secondary); flex: 1; }
+
+/* ── PnL Chart ──────────────────────────────────────────────── */
+
+.pnl-chart-container {
+    position: relative;
+    width: 100%;
+    height: 200px;
+    background: var(--bg-page);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+}
+
+.pnl-chart-container canvas {
+    width: 100%;
+    height: 100%;
+}
+
+/* ── Timer ───────────────────────────────────────────────────── */
+
+.surge-timer {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.surge-tick-count {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+}
+
+/* ── Summary Cards ──────────────────────────────────────────── */
+
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+}
+
+.summary-card {
+    background: var(--bg-page);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    padding: 8px;
+    text-align: center;
+}
+
+.summary-card .s-label {
+    font-size: 9px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+}
+
+.summary-card .s-value {
+    font-size: 16px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    color: var(--text);
+    margin-top: 2px;
+}

@@ -339,6 +339,94 @@ def create_app() -> FastAPI:
             },
         )
 
+    # ── Surge Simulator ──────────────────────────────────
+
+    _surge_instance: dict = {"sim": None}
+
+    @application.get("/surge", response_class=HTMLResponse)
+    async def surge_page(request: Request):
+        """Surge trader simulator page."""
+        return templates.TemplateResponse(request, "surge.html")
+
+    @application.get("/api/surge/params")
+    async def surge_params():
+        """Default surge simulator params and ranges."""
+        from web.surge.config import DEFAULT_SURGE_CONFIG, SURGE_PARAM_RANGES
+        return {"defaults": DEFAULT_SURGE_CONFIG.to_dict(), "ranges": SURGE_PARAM_RANGES}
+
+    @application.post("/api/surge/start")
+    async def surge_start(request: Request):
+        """Start surge simulator. Mutually exclusive with lab realtime."""
+        from web.surge.engine import SurgeSimulator
+        from web.surge.config import config_from_dict
+
+        # Mutual exclusion: lab realtime
+        if _sim_instance["sim"] and _sim_instance["sim"].running:
+            return {"error": "Lab realtime sim is running. Stop it first."}
+
+        # Stop existing surge sim
+        if _surge_instance["sim"] and _surge_instance["sim"].running:
+            _surge_instance["sim"].stop()
+
+        body = await request.json()
+        config = config_from_dict(body.get("params", {}))
+
+        provider = _get_provider()
+        sim = SurgeSimulator(provider, config)
+        result = sim.start()
+
+        if result.get("error"):
+            return result
+
+        _surge_instance["sim"] = sim
+        _surge_sim_ref["sim"] = sim
+        return result
+
+    @application.post("/api/surge/stop")
+    async def surge_stop():
+        """Stop surge simulator."""
+        sim = _surge_instance.get("sim")
+        if not sim or not sim.running:
+            return {"error": "No surge simulation running"}
+        return sim.stop()
+
+    @application.get("/api/surge/state")
+    async def surge_state():
+        """Current surge simulation state."""
+        sim = _surge_instance.get("sim") or _surge_sim_ref.get("sim")
+        if not sim:
+            return {"running": False, "positions": [], "trades": [], "events": []}
+        return sim.get_state()
+
+    @application.get("/api/surge/trades")
+    async def surge_trades():
+        """Surge trade history."""
+        sim = _surge_instance.get("sim") or _surge_sim_ref.get("sim")
+        if not sim:
+            return {"trades": []}
+        return {"trades": sim.get_trades()}
+
+    @application.get("/api/surge/summary")
+    async def surge_summary():
+        """Daily summary metrics."""
+        sim = _surge_instance.get("sim") or _surge_sim_ref.get("sim")
+        if not sim:
+            return {"summary": {}}
+        return {"summary": sim.get_summary()}
+
+    @application.get("/sse/surge")
+    async def sse_surge_stream(request: Request):
+        """SSE stream for surge simulation state (1s interval)."""
+        return StreamingResponse(
+            _sse_surge_generator(request, interval=1.0),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     # ── SSE Stream ────────────────────────────────────────
 
     @application.get("/sse/state")
@@ -540,6 +628,31 @@ async def _sse_lab_generator(
 
 # Shared ref for SSE generator to access sim instance
 _global_sim_ref: dict = {"sim": None}
+_surge_sim_ref: dict = {"sim": None}
+
+async def _sse_surge_generator(
+    request: Request,
+    interval: float = 1.0,
+) -> AsyncGenerator[str, None]:
+    """Generate SSE events with surge simulation state."""
+    while True:
+        if await request.is_disconnected():
+            break
+
+        try:
+            sim = _surge_sim_ref.get("sim")
+            if sim and sim.has_state_changed():
+                data = sim.get_state()
+                payload = json.dumps(data, ensure_ascii=False, default=str)
+                yield f"event: surge\ndata: {payload}\n\n"
+            else:
+                yield f"event: heartbeat\ndata: {{}}\n\n"
+        except Exception as e:
+            error_data = json.dumps({"error": str(e)})
+            yield f"event: error\ndata: {error_data}\n\n"
+
+        await asyncio.sleep(interval)
+
 
 # ── Module-level app instance ─────────────────────────────────
 

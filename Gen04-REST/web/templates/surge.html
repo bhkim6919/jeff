@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Q-TRON SURGE</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/surge.css">
+</head>
+<body>
+
+    <!-- Header -->
+    <header id="header">
+        <div class="header-left">
+            <h1 class="logo">Q-TRON <span class="logo-accent" style="color: var(--orange);">SURGE</span></h1>
+            <span class="badge badge-mock">SIMULATOR</span>
+        </div>
+        <div class="header-right">
+            <a href="/" class="nav-link">Dashboard</a>
+            <a href="/lab" class="nav-link">Lab</a>
+            <span id="clock" class="clock">--:--:--</span>
+        </div>
+    </header>
+
+    <main id="main">
+
+        <!-- Parameter Panel -->
+        <section class="surge-section">
+            <div class="section-title">
+                <span>파라미터 설정</span>
+                <button class="btn-sm" id="btn-reset" onclick="resetParams()">초기화</button>
+            </div>
+            <div class="surge-param-grid" id="param-grid">
+                <!-- Filled by JS -->
+            </div>
+            <div class="surge-action-bar">
+                <button class="btn-surge-start" id="btn-start" onclick="startSim()">시뮬레이션 시작</button>
+                <button class="btn-surge-stop" id="btn-stop" onclick="stopSim()" style="display:none;">중지</button>
+                <span class="surge-timer" id="timer">00:00</span>
+                <span class="surge-tick-count" id="tick-count">0 ticks</span>
+                <span class="surge-status" id="sim-status"></span>
+            </div>
+        </section>
+
+        <!-- Live Dashboard (hidden until running) -->
+        <div id="live-dashboard" style="display:none;">
+
+            <!-- Risk Status + Summary -->
+            <section class="surge-section">
+                <div class="section-title"><span>리스크 상태</span></div>
+                <div class="risk-cards" id="risk-cards">
+                    <div class="risk-card risk-ok"><div class="risk-label">일일 진입</div><div class="risk-value" id="r-daily">0/50</div></div>
+                    <div class="risk-card risk-ok"><div class="risk-label">동시 보유</div><div class="risk-value" id="r-concurrent">0/5</div></div>
+                    <div class="risk-card risk-ok"><div class="risk-label">연속 손실</div><div class="risk-value" id="r-consec">0</div></div>
+                    <div class="risk-card risk-ok" id="r-halt-card"><div class="risk-label">HALT</div><div class="risk-value" id="r-halt">OFF</div></div>
+                    <div class="risk-card"><div class="risk-label">총 거래</div><div class="risk-value" id="r-trades">0</div></div>
+                    <div class="risk-card"><div class="risk-label">잔고</div><div class="risk-value" id="r-cash">-</div></div>
+                </div>
+            </section>
+
+            <div class="surge-grid">
+
+                <!-- Live Positions -->
+                <section class="surge-section">
+                    <div class="section-title"><span>보유 포지션</span></div>
+                    <div class="surge-scroll">
+                        <table class="surge-table" id="positions-table">
+                            <thead>
+                                <tr>
+                                    <th>종목</th>
+                                    <th>진입가</th>
+                                    <th>현재bid</th>
+                                    <th>PnL%</th>
+                                    <th>TP</th>
+                                    <th>SL</th>
+                                    <th>보유</th>
+                                </tr>
+                            </thead>
+                            <tbody id="positions-body">
+                                <tr><td colspan="7" style="text-align:center; color: var(--text-dim);">대기 중</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Candidates -->
+                <section class="surge-section">
+                    <div class="section-title"><span>관찰 후보</span></div>
+                    <div class="surge-scroll-sm">
+                        <table class="surge-table" id="candidates-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>종목</th>
+                                    <th>가격</th>
+                                    <th>등락%</th>
+                                </tr>
+                            </thead>
+                            <tbody id="candidates-body">
+                                <tr><td colspan="4" style="text-align:center; color: var(--text-dim);">스캔 대기</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+            </div>
+
+            <!-- PnL Chart -->
+            <section class="surge-section">
+                <div class="section-title"><span>누적 PnL</span></div>
+                <div class="pnl-chart-container">
+                    <canvas id="pnl-chart"></canvas>
+                </div>
+            </section>
+
+            <!-- Trade Log -->
+            <section class="surge-section">
+                <div class="section-title"><span>거래 내역</span></div>
+                <div class="surge-scroll">
+                    <table class="surge-table" id="trades-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>종목</th>
+                                <th>진입가</th>
+                                <th>청산가</th>
+                                <th>사유</th>
+                                <th>Gross%</th>
+                                <th>Net%</th>
+                                <th>Net₩</th>
+                                <th>보유</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trades-body">
+                            <tr><td colspan="9" style="text-align:center; color: var(--text-dim);">거래 없음</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Event Log -->
+            <section class="surge-section">
+                <div class="section-title"><span>이벤트 로그</span></div>
+                <div class="surge-scroll-sm" id="event-log">
+                    <div class="event-list" id="event-list"></div>
+                </div>
+            </section>
+
+        </div>
+
+    </main>
+
+    <script src="/static/surge.js"></script>
+</body>
+</html>
