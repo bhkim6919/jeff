@@ -81,6 +81,18 @@ class TokenManager:
                 f"token={self._token[:12]}..."
             )
 
+            # Update tracker for dashboard
+            try:
+                from web.api_state import tracker as _tracker
+                _tracker.update_token_state(True, self._expires_at)
+            except Exception:
+                pass  # tracker not available (standalone mode)
+
         except Exception as e:
             logger.error(f"[TOKEN_FAIL] {e}")
+            try:
+                from web.api_state import tracker as _tracker
+                _tracker.update_token_state(False, 0)
+            except Exception:
+                pass
             raise
