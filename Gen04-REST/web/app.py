@@ -251,6 +251,12 @@ def create_app() -> FastAPI:
         from web.lab_simulator import available_csv_dates
         return {"dates": available_csv_dates()}
 
+    @application.get("/api/lab/history")
+    async def lab_history(limit: int = Query(20, ge=1, le=100)):
+        """Saved simulation results (summary)."""
+        from web.lab_simulator import get_saved_results
+        return {"results": get_saved_results(limit)}
+
     @application.post("/api/lab/simulate")
     async def lab_simulate(request: Request):
         """Run simulation with given params, return 3-strategy results."""

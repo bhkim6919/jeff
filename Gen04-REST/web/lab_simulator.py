@@ -605,7 +605,7 @@ def run_simulation(ranking: List[Dict], params: Optional[Dict] = None) -> Dict:
     result_b = _simulate_strategy_b(ranking, params)
     result_c = _simulate_strategy_c(ranking, params)
 
-    return {
+    result = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "initial_cash": INITIAL_CASH,
         "ranking_count": len(ranking),
@@ -616,3 +616,87 @@ def run_simulation(ranking: List[Dict], params: Optional[Dict] = None) -> Dict:
             asdict(result_c),
         ],
     }
+
+    # Auto-save results
+    _save_result(result)
+    return result
+
+
+def _save_result(result: Dict) -> None:
+    """Save simulation result to JSON + CSV."""
+    import csv
+    from pathlib import Path
+
+    result_dir = Path(__file__).resolve().parent.parent / "data" / "lab_results"
+    result_dir.mkdir(parents=True, exist_ok=True)
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # 1. JSON (전체 결과)
+    json_file = result_dir / f"sim_{ts}.json"
+    try:
+        import json
+        with open(json_file, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+        logger.info(f"[LAB_SAVE] JSON: {json_file.name}")
+    except Exception as e:
+        logger.warning(f"[LAB_SAVE] JSON failed: {e}")
+
+    # 2. CSV (거래내역 누적)
+    csv_file = result_dir / "trades_history.csv"
+    is_new = not csv_file.exists()
+    try:
+        with open(csv_file, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            if is_new:
+                writer.writerow([
+                    "sim_time", "strategy", "rank", "code", "name",
+                    "entry_price", "exit_price", "qty", "pnl", "pnl_pct",
+                    "exit_reason", "source", "params_hash",
+                ])
+            params_hash = ts  # simple identifier
+            source = result.get("params", {}).get("ranking_source", "")
+            for strat in result.get("strategies", []):
+                sname = strat.get("name", "")
+                for t in strat.get("trades", []):
+                    writer.writerow([
+                        result["timestamp"], sname, t.get("rank", ""),
+                        t.get("code", ""), t.get("name", ""),
+                        t.get("entry_price", 0), t.get("exit_price", 0),
+                        t.get("qty", 0), t.get("pnl", 0),
+                        t.get("pnl_pct", 0), t.get("exit_reason", ""),
+                        source, params_hash,
+                    ])
+        logger.info(f"[LAB_SAVE] CSV: {csv_file.name}")
+    except Exception as e:
+        logger.warning(f"[LAB_SAVE] CSV failed: {e}")
+
+
+def get_saved_results(limit: int = 20) -> List[Dict]:
+    """Return list of saved simulation results (summary only)."""
+    import json
+    from pathlib import Path
+
+    result_dir = Path(__file__).resolve().parent.parent / "data" / "lab_results"
+    if not result_dir.exists():
+        return []
+
+    results = []
+    for f in sorted(result_dir.glob("sim_*.json"), reverse=True)[:limit]:
+        try:
+            with open(f, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            # Summary only
+            best = max(data.get("strategies", []), key=lambda s: s.get("total_pnl", 0), default={})
+            results.append({
+                "file": f.name,
+                "timestamp": data.get("timestamp", ""),
+                "source": data.get("params", {}).get("ranking_source", ""),
+                "ranking_count": data.get("ranking_count", 0),
+                "best_strategy": best.get("name", ""),
+                "best_pnl": best.get("total_pnl", 0),
+                "best_win_rate": best.get("win_rate", 0),
+            })
+        except Exception:
+            continue
+    return results
