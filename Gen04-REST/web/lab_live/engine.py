@@ -19,10 +19,87 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
+import hashlib
+import os
+
 from web.lab_live.config import LabLiveConfig
 from web.lab_live.state_store import (
     save_state, load_state, save_trades, load_trades, append_equity,
+    atomic_write_json, safe_read_json,
 )
+
+
+# ── Date Lock (file-based, stale recovery) ──────────────
+
+def _acquire_date_lock(lock_dir: Path, eod_date: str, stale_sec: float = 1800) -> bool:
+    """Acquire file lock for date. Returns False if held by active process."""
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_dir / f"{eod_date}.lock"
+
+    if lock_path.exists():
+        try:
+            lock_data = json.loads(lock_path.read_text(encoding="utf-8"))
+            pid = lock_data.get("pid", 0)
+            started = lock_data.get("started_at", "")
+
+            # PID alive check
+            pid_alive = True
+            try:
+                os.kill(pid, 0)
+            except (OSError, ProcessLookupError):
+                pid_alive = False
+
+            # Stale check (30 min)
+            stale = False
+            if started:
+                try:
+                    dt = datetime.fromisoformat(started)
+                    age = (datetime.now() - dt).total_seconds()
+                    stale = age > stale_sec
+                except Exception:
+                    stale = True
+
+            if pid_alive and not stale:
+                return False  # Lock held
+
+            logging.getLogger("lab.live").warning(
+                f"[LAB_LOCK] Stale lock for {eod_date}, clearing"
+            )
+        except Exception:
+            pass
+        lock_path.unlink(missing_ok=True)
+
+    # Acquire
+    atomic_write_json(lock_path, {
+        "pid": os.getpid(),
+        "started_at": datetime.now().isoformat(),
+        "eod_date": eod_date,
+    })
+    return True
+
+
+def _release_date_lock(lock_dir: Path, eod_date: str):
+    lock_path = lock_dir / f"{eod_date}.lock"
+    lock_path.unlink(missing_ok=True)
+
+
+# ── Snapshot ID (reproducibility) ───────────────────────
+
+def _compute_data_snapshot_id(close_df: pd.DataFrame, dates: pd.Series) -> str:
+    """Content-based hash of OHLCV data for reproducibility."""
+    h = hashlib.sha256()
+    h.update(str(len(close_df.columns)).encode())
+    h.update(str(len(dates)).encode())
+    if len(dates) > 0:
+        h.update(str(dates.iloc[0]).encode())
+        h.update(str(dates.iloc[-1]).encode())
+    # Sample first/last column values
+    for col in list(close_df.columns)[:10]:
+        vals = close_df[col].dropna()
+        if len(vals) > 0:
+            h.update(f"{vals.iloc[0]:.2f}".encode())
+            h.update(f"{vals.iloc[-1]:.2f}".encode())
+    return h.hexdigest()[:16]
 
 logger = logging.getLogger("lab_live.engine")
 
@@ -69,6 +146,8 @@ class LabLiveSimulator:
         self._last_run_date = ""
         self._sector_map = {}
         self._start_time = None
+        self._data_snapshot_id = ""
+        self._missing_data_ratio = 0.0
 
     # ── Initialization ───────────────────────────────────────
 
@@ -172,6 +251,23 @@ class LabLiveSimulator:
                 return {"error": "Not initialized"}
 
             t0 = time.time()
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            lock_dir = self.config.state_file.parent / "locks"
+
+            # Date lock — prevent concurrent/duplicate EOD
+            if not _acquire_date_lock(lock_dir, today_str):
+                return {"error": f"Date lock held for {today_str}. Another run in progress."}
+
+            try:
+                return self._run_daily_locked(t0, lock_dir, today_str)
+            finally:
+                _release_date_lock(lock_dir, today_str)
+
+    def _run_daily_locked(self, t0, lock_dir, lock_date) -> dict:
+        from lab.snapshot import build_snapshot, safe_slice
+        from lab.universe import build_universe
+
+        with self._lock:
             logger.info("[LAB_LIVE] Daily run starting...")
 
             # Load from DB (CSV fallback)
@@ -215,6 +311,28 @@ class LabLiveSimulator:
             # Universe
             univ = build_universe(close, vol, today_idx,
                                   self.config.univ_min_close, self.config.univ_min_amount)
+
+            # Missing data filter — exclude tickers with >20% NaN in lookback
+            _min_hist = 252
+            _max_missing = 0.20
+            _filtered_univ = []
+            _excluded_count = 0
+            for tk in univ:
+                if tk not in close.columns:
+                    _excluded_count += 1
+                    continue
+                series = close[tk].iloc[max(0, today_idx - _min_hist):today_idx + 1]
+                actual = series.notna().sum()
+                expected = min(_min_hist, today_idx + 1)
+                if expected > 0 and (1 - actual / expected) > _max_missing:
+                    _excluded_count += 1
+                    continue
+                _filtered_univ.append(tk)
+            if _filtered_univ:
+                univ = _filtered_univ
+            self._missing_data_ratio = round(
+                _excluded_count / (len(univ) + _excluded_count) * 100, 1
+            ) if (len(univ) + _excluded_count) > 0 else 0
 
             # Fundamental
             fund_df = load_fundamental(self.config.fundamental_dir, dates.iloc[today_idx])
@@ -397,11 +515,17 @@ class LabLiveSimulator:
             logger.info(f"[LAB_LIVE] Daily run complete: {today_date} "
                         f"({len(new_trades)} trades, {elapsed:.1f}s)")
 
+            # Compute data snapshot ID for reproducibility
+            data_snap_id = _compute_data_snapshot_id(close, dates)
+            self._data_snapshot_id = data_snap_id
+
             return {
                 "ok": True,
                 "date": today_date,
                 "trades": len(new_trades),
                 "elapsed": round(elapsed, 1),
+                "data_snapshot_id": data_snap_id,
+                "universe_count": len(close.columns),
             }
 
     # ── State Access ─────────────────────────────────────────
