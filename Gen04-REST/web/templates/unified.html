@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Q-TRON Unified</title>
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-card: #12121a;
+            --bg-panel: #1a1a28;
+            --border: #2a2a3a;
+            --text-primary: #e8e8f0;
+            --text-secondary: #8888a0;
+            --text-dim: #555570;
+            --accent-green: #00e676;
+            --accent-red: #ff1744;
+            --accent-blue: #448aff;
+            --accent-yellow: #ffd740;
+            --accent-cyan: #00e5ff;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        /* ── Header ─────────────────────────────── */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 24px;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .logo-accent { color: var(--accent-cyan); }
+
+        .badge-observe {
+            background: var(--accent-yellow);
+            color: #000;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .header-center {
+            display: flex;
+            gap: 16px;
+        }
+
+        .nav-page {
+            color: var(--text-secondary);
+            text-decoration: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .nav-page:hover { color: var(--text-primary); background: var(--bg-panel); }
+        .nav-page.active { color: var(--accent-cyan); background: var(--bg-panel); }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .clock {
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* ── Warning Banner ─────────────────────── */
+        .warn-banner {
+            background: rgba(255, 215, 64, 0.08);
+            border-bottom: 1px solid rgba(255, 215, 64, 0.2);
+            padding: 6px 24px;
+            font-size: 11px;
+            color: var(--accent-yellow);
+            text-align: center;
+        }
+
+        /* ── KPI Row ────────────────────────────── */
+        .kpi-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 12px;
+            padding: 16px 24px;
+        }
+
+        .kpi-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px 18px;
+            text-align: center;
+        }
+
+        .kpi-label {
+            font-size: 10px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+        }
+
+        .kpi-value {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .kpi-sub {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        /* ── Market Status Dots ─────────────────── */
+        .status-dots {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .market-dot {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-dim);
+        }
+
+        .dot.green { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
+        .dot.red { background: var(--accent-red); }
+        .dot.grey { background: var(--text-dim); }
+
+        /* ── Dual Panel ─────────────────────────── */
+        .dual-panel {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            padding: 0 24px 24px;
+        }
+
+        .market-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .panel-title {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .panel-ts {
+            font-size: 10px;
+            color: var(--text-dim);
+        }
+
+        .panel-ts.stale { color: var(--accent-yellow); }
+
+        .panel-body { padding: 16px; }
+
+        .panel-unavailable {
+            padding: 40px 16px;
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 14px;
+        }
+
+        /* ── Stats Grid ─────────────────────────── */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .stat-item {
+            background: var(--bg-panel);
+            border-radius: 6px;
+            padding: 10px 12px;
+        }
+
+        .stat-label {
+            font-size: 10px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }
+
+        .stat-value {
+            font-size: 16px;
+            font-weight: 600;
+            margin-top: 2px;
+        }
+
+        /* ── Holdings Table ──────────────────────── */
+        .holdings-title {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .holdings-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .holdings-table th {
+            font-size: 10px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            text-align: left;
+            padding: 6px 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .holdings-table td {
+            font-size: 12px;
+            padding: 6px 8px;
+            border-bottom: 1px solid rgba(42, 42, 58, 0.5);
+        }
+
+        .holdings-table tr:hover { background: var(--bg-panel); }
+
+        .pnl-pos { color: var(--accent-green); }
+        .pnl-neg { color: var(--accent-red); }
+
+        /* ── Trail Alert ─────────────────────────── */
+        .trail-alert {
+            margin-top: 12px;
+            padding: 8px 12px;
+            background: rgba(255, 23, 68, 0.08);
+            border: 1px solid rgba(255, 23, 68, 0.2);
+            border-radius: 6px;
+            font-size: 11px;
+            color: var(--accent-red);
+        }
+
+        .trail-safe {
+            margin-top: 12px;
+            padding: 8px 12px;
+            background: rgba(0, 230, 118, 0.05);
+            border: 1px solid rgba(0, 230, 118, 0.15);
+            border-radius: 6px;
+            font-size: 11px;
+            color: var(--accent-green);
+        }
+
+        /* ── Responsive ──────────────────────────── */
+        @media (max-width: 900px) {
+            .dual-panel { grid-template-columns: 1fr; }
+            .kpi-row { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <link rel="stylesheet" href="/static/nav.css">
+    <div id="qtron-nav"></div>
+    <script src="/static/nav.js"></script>
+    <script>window.__qtronNav.renderNav(document.getElementById('qtron-nav'));</script>
+
+    <!-- Sub-header: Unified-specific -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 24px;background:var(--bg-card);border-bottom:1px solid var(--border);">
+        <span class="badge-observe">OBSERVE ONLY</span>
+        <div class="status-dots">
+            <div class="market-dot"><span id="kr-dot" class="dot grey"></span> KR</div>
+            <div class="market-dot"><span id="us-dot" class="dot grey"></span> US</div>
+        </div>
+    </div>
+
+    <!-- Warning -->
+    <div class="warn-banner">
+        Cross-market snapshots are asynchronous. Do not use for execution decisions.
+    </div>
+
+    <!-- KPI Row -->
+    <div class="kpi-row">
+        <div class="kpi-card">
+            <div class="kpi-label">KR Equity</div>
+            <div class="kpi-value" id="kr-equity">--</div>
+            <div class="kpi-sub" id="kr-positions">-- positions</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">US Equity</div>
+            <div class="kpi-value" id="us-equity">--</div>
+            <div class="kpi-sub" id="us-positions">-- positions</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Status</div>
+            <div class="kpi-value" id="combined-status">--</div>
+            <div class="kpi-sub" id="last-update">--</div>
+        </div>
+    </div>
+
+    <!-- Dual Panel -->
+    <div class="dual-panel">
+        <!-- KR Panel -->
+        <div class="market-panel">
+            <div class="panel-header">
+                <span class="panel-title">KR Market</span>
+                <span class="panel-ts" id="kr-ts">--</span>
+            </div>
+            <div class="panel-body" id="kr-panel">
+                <div class="panel-unavailable">Loading...</div>
+            </div>
+        </div>
+
+        <!-- US Panel -->
+        <div class="market-panel">
+            <div class="panel-header">
+                <span class="panel-title">US Market</span>
+                <span class="panel-ts" id="us-ts">--</span>
+            </div>
+            <div class="panel-body" id="us-panel">
+                <div class="panel-unavailable">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+<script>
+(function() {
+    'use strict';
+
+    const POLL_INTERVAL = 10000; // 10 seconds
+    let lastGenerated = '';
+
+    // Clock handled by nav.js
+
+    // ── Formatters ─────────────────────────────────────
+    function fmtKRW(val) {
+        if (val == null || isNaN(val)) return '--';
+        return new Intl.NumberFormat('ko-KR').format(Math.round(val)) + '\u00A0\u20A9';
+    }
+
+    function fmtUSD(val) {
+        if (val == null || isNaN(val)) return '--';
+        return '$' + new Intl.NumberFormat('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}).format(val);
+    }
+
+    function fmtPct(val) {
+        if (val == null || isNaN(val)) return '--';
+        return (val >= 0 ? '+' : '') + val.toFixed(1) + '%';
+    }
+
+    function pnlClass(val) {
+        return val >= 0 ? 'pnl-pos' : 'pnl-neg';
+    }
+
+    // ── Render KR Panel ────────────────────────────────
+    function renderKR(kr) {
+        const panel = document.getElementById('kr-panel');
+        const dot = document.getElementById('kr-dot');
+        const tsEl = document.getElementById('kr-ts');
+
+        if (!kr || !kr.available || !kr.data) {
+            panel.innerHTML = '<div class="panel-unavailable">KR server not available</div>';
+            dot.className = 'dot grey';
+            tsEl.textContent = '--';
+            document.getElementById('kr-equity').textContent = '--';
+            document.getElementById('kr-positions').textContent = '--';
+            return;
+        }
+
+        dot.className = 'dot green';
+        tsEl.textContent = kr.snapshot_at || '--';
+
+        const data = kr.data;
+        const totalEval = data['\ucd1d\ud3c9\uac00\uae08\uc561'] || data['total_eval'] || 0;
+        const totalPnl = data['\ucd1d\ud3c9\uac00\uc190\uc775\uae08\uc561'] || data['total_pnl'] || 0;
+        const holdings = data.holdings || [];
+        const cash = data['\uc608\uc218\uae08'] || data['cash'] || 0;
+
+        document.getElementById('kr-equity').textContent = fmtKRW(totalEval);
+        document.getElementById('kr-positions').textContent = holdings.length + ' positions';
+
+        let html = '<div class="stats-grid">';
+        html += `<div class="stat-item"><div class="stat-label">Equity</div><div class="stat-value">${fmtKRW(totalEval)}</div></div>`;
+        html += `<div class="stat-item"><div class="stat-label">Cash</div><div class="stat-value">${fmtKRW(cash)}</div></div>`;
+        html += `<div class="stat-item"><div class="stat-label">P&L</div><div class="stat-value ${pnlClass(totalPnl)}">${fmtKRW(totalPnl)}</div></div>`;
+        html += `<div class="stat-item"><div class="stat-label">Positions</div><div class="stat-value">${holdings.length}</div></div>`;
+        html += '</div>';
+
+        // Holdings table (top 10)
+        if (holdings.length > 0) {
+            const sorted = [...holdings].sort((a,b) => parseFloat(b.pnl_rate||0) - parseFloat(a.pnl_rate||0));
+            html += '<div class="holdings-title">Holdings (Top 10)</div>';
+            html += '<table class="holdings-table"><thead><tr><th>Name</th><th>P&L%</th><th>Value</th></tr></thead><tbody>';
+            for (const h of sorted.slice(0, 10)) {
+                const name = h.name || h.code || '?';
+                const pnl = parseFloat(h.pnl_rate || 0);
+                const evalAmt = h.eval_amt || 0;
+                html += `<tr><td>${name}</td><td class="${pnlClass(pnl)}">${fmtPct(pnl)}</td><td>${fmtKRW(evalAmt)}</td></tr>`;
+            }
+            html += '</tbody></table>';
+
+            // Trail alerts
+            const nearTrail = sorted.filter(h => parseFloat(h.pnl_rate||0) < -8);
+            if (nearTrail.length > 0) {
+                html += '<div class="trail-alert">';
+                for (const h of nearTrail) {
+                    html += `${h.name||h.code}: ${fmtPct(parseFloat(h.pnl_rate))} (trail -12%)<br>`;
+                }
+                html += '</div>';
+            } else {
+                html += '<div class="trail-safe">All positions above -8% trail threshold</div>';
+            }
+        }
+
+        panel.innerHTML = html;
+    }
+
+    // ── Render US Panel ────────────────────────────────
+    function renderUS(us) {
+        const panel = document.getElementById('us-panel');
+        const dot = document.getElementById('us-dot');
+        const tsEl = document.getElementById('us-ts');
+
+        if (!us || !us.available || !us.data) {
+            panel.innerHTML = '<div class="panel-unavailable">US server not available</div>';
+            dot.className = 'dot grey';
+            tsEl.textContent = '--';
+            document.getElementById('us-equity').textContent = '--';
+            document.getElementById('us-positions').textContent = '--';
+            return;
+        }
+
+        const health = us.health || {};
+        const isOpen = health.is_market_open;
+        dot.className = isOpen ? 'dot green' : 'dot red';
+        tsEl.textContent = us.snapshot_at || '--';
+
+        const data = us.data;
+        const equity = data.equity || 0;
+        const cash = data.cash || 0;
+        const holdings = data.holdings || [];
+
+        document.getElementById('us-equity').textContent = fmtUSD(equity);
+        document.getElementById('us-positions').textContent = holdings.length + ' positions';
+
+        let html = '<div class="stats-grid">';
+        html += `<div class="stat-item"><div class="stat-label">Equity</div><div class="stat-value">${fmtUSD(equity)}</div></div>`;
+        html += `<div class="stat-item"><div class="stat-label">Cash</div><div class="stat-value">${fmtUSD(cash)}</div></div>`;
+        const totalPnl = holdings.reduce((s,h) => s + (h.pnl||0), 0);
+        html += `<div class="stat-item"><div class="stat-label">P&L</div><div class="stat-value ${pnlClass(totalPnl)}">${fmtUSD(totalPnl)}</div></div>`;
+        html += `<div class="stat-item"><div class="stat-label">Market</div><div class="stat-value">${isOpen ? 'Open' : 'Closed'}</div></div>`;
+        html += '</div>';
+
+        // Holdings table (top 10)
+        if (holdings.length > 0) {
+            const sorted = [...holdings].sort((a,b) => (b.pnl_pct||0) - (a.pnl_pct||0));
+            html += '<div class="holdings-title">Holdings (Top 10)</div>';
+            html += '<table class="holdings-table"><thead><tr><th>Symbol</th><th>P&L%</th><th>Value</th></tr></thead><tbody>';
+            for (const h of sorted.slice(0, 10)) {
+                const pnl = h.pnl_pct || 0;
+                html += `<tr><td>${h.code||'?'}</td><td class="${pnlClass(pnl)}">${fmtPct(pnl)}</td><td>${fmtUSD(h.market_value||0)}</td></tr>`;
+            }
+            html += '</tbody></table>';
+
+            // Trail alerts
+            const nearTrail = sorted.filter(h => (h.pnl_pct||0) < -8);
+            if (nearTrail.length > 0) {
+                html += '<div class="trail-alert">';
+                for (const h of nearTrail) {
+                    html += `${h.code}: ${fmtPct(h.pnl_pct)} (trail -12%)<br>`;
+                }
+                html += '</div>';
+            } else {
+                html += '<div class="trail-safe">All positions above -8% trail threshold</div>';
+            }
+        }
+
+        panel.innerHTML = html;
+    }
+
+    // ── Status ─────────────────────────────────────────
+    function updateStatus(state) {
+        const kr = state.kr && state.kr.available;
+        const us = state.us && state.us.available;
+        const statusEl = document.getElementById('combined-status');
+        const updateEl = document.getElementById('last-update');
+
+        if (kr && us) {
+            statusEl.textContent = 'Both Online';
+            statusEl.style.color = 'var(--accent-green)';
+        } else if (kr || us) {
+            statusEl.textContent = kr ? 'KR Only' : 'US Only';
+            statusEl.style.color = 'var(--accent-yellow)';
+        } else {
+            statusEl.textContent = 'Offline';
+            statusEl.style.color = 'var(--accent-red)';
+        }
+
+        if (state.generated_at) {
+            const dt = new Date(state.generated_at);
+            updateEl.textContent = 'Updated ' + dt.toLocaleTimeString('ko-KR', {hour12: false});
+        }
+    }
+
+    // ── Timestamp Staleness Check ──────────────────────
+    function checkTimestampStaleness(kr, us) {
+        const krTs = document.getElementById('kr-ts');
+        const usTs = document.getElementById('us-ts');
+
+        // If both have timestamps, check if they differ by >10s
+        // (visual indicator only — we use class 'stale')
+        if (kr && kr.available && us && us.available && kr.snapshot_at && us.snapshot_at) {
+            // Both present — no staleness concern between them
+            // Individual staleness would need server-side TTL
+            krTs.classList.remove('stale');
+            usTs.classList.remove('stale');
+        }
+    }
+
+    // ── Fetch & Render ─────────────────────────────────
+    async function fetchAndRender() {
+        try {
+            const resp = await fetch('/api/unified/state');
+            if (!resp.ok) return;
+            const state = await resp.json();
+
+            renderKR(state.kr);
+            renderUS(state.us);
+            updateStatus(state);
+            checkTimestampStaleness(state.kr, state.us);
+            lastGenerated = state.generated_at;
+        } catch (e) {
+            console.error('Unified fetch error:', e);
+        }
+    }
+
+    // Initial load + polling
+    fetchAndRender();
+    setInterval(fetchAndRender, POLL_INTERVAL);
+})();
+</script>
+
+</body>
+</html>

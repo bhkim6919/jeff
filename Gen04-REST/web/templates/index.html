@@ -4,15 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Q-TRON REST Monitor</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/style.css?v=10">
+    <link rel="stylesheet" href="/static/nav.css">
 </head>
 <body>
 
-    <!-- ── Header ─────────────────────────────────────────── -->
-    <header id="header">
+    <!-- ── Unified Nav ────────────────────────────────────── -->
+    <div id="qtron-nav"></div>
+    <script src="/static/nav.js"></script>
+    <script>window.__qtronNav.renderNav(document.getElementById('qtron-nav'));</script>
+
+    <!-- ── Sub-Header (KR-specific) ──────────────────────── -->
+    <header id="header" style="padding:6px 20px;">
         <div class="header-left">
-            <h1 class="logo">Q-TRON <span class="logo-accent">REST</span></h1>
             <span id="server-badge" class="badge badge-unknown">--</span>
+            <span id="status-led" class="status-led led-black" title="시스템 상태"></span>
         </div>
         <div class="header-right">
             <div class="mode-switch" id="mode-switch">
@@ -20,9 +27,6 @@
                 <button class="mode-btn" data-mode="operator">Operator</button>
                 <button class="mode-btn" data-mode="debug">Debug</button>
             </div>
-            <a href="/lab" class="nav-link" style="color:var(--text-secondary);text-decoration:none;font-size:13px;font-weight:600;padding:5px 14px;border-radius:6px;">Lab</a>
-            <a href="/surge" class="nav-link" style="color:var(--orange);text-decoration:none;font-size:13px;font-weight:600;padding:5px 14px;border-radius:6px;">Surge</a>
-            <span id="clock" class="clock">--:--:--</span>
         </div>
     </header>
 
@@ -59,6 +63,17 @@
                         <span class="meta-label">마지막 동기화</span>
                         <span id="hero-sync" class="meta-value">--</span>
                     </div>
+                    <div class="hero-meta-divider"></div>
+                    <div class="hero-meta-item">
+                        <span class="meta-label" id="hero-index-label">지수</span>
+                        <span id="hero-index" class="meta-value">--</span>
+                    </div>
+                </div>
+                <!-- BUY STATUS + SYSTEM RISK badges -->
+                <div class="hero-badges">
+                    <span id="buy-status-badge" class="status-badge badge-normal">BUY: --</span>
+                    <span id="system-risk-badge" class="status-badge badge-ok">RISK: OK</span>
+                    <span id="emergency-badge" class="emergency-badge" style="display:none;">SAFE MODE</span>
                 </div>
             </div>
         </section>
@@ -89,23 +104,204 @@
             </div>
         </section>
 
-        <!-- ====== Rebalance Schedule (Basic+) =============== -->
-        <section id="rebal-section" class="rebal-section">
+        <!-- ====== Rebalance Control Panel (Operator+) ======== -->
+        <section id="rebal-section" class="rebal-section mode-operator" hidden>
             <div class="rebal-card">
                 <div class="rebal-icon">&#128197;</div>
-                <div class="rebal-label">마지막 리밸런싱</div>
+                <div class="rebal-label">Last Rebalance</div>
                 <div id="rebal-last" class="rebal-value">--</div>
             </div>
             <div class="rebal-card rebal-highlight">
                 <div class="rebal-icon">&#9200;</div>
-                <div class="rebal-label">다음 리밸런싱</div>
+                <div class="rebal-label">Next</div>
                 <div id="rebal-next" class="rebal-value">--</div>
                 <div id="rebal-dday" class="rebal-dday">D-?</div>
             </div>
+            <div class="rebal-card">
+                <div class="rebal-label">Phase</div>
+                <div id="rebal-phase" class="rebal-value" style="font-size:0.95em">IDLE</div>
+            </div>
+            <div class="rebal-card">
+                <div class="rebal-label">Mode</div>
+                <button id="rebal-mode-btn" class="rebal-mode-btn" onclick="toggleRebalMode()">MANUAL</button>
+            </div>
         </section>
 
-        <!-- ====== Profit Analysis (Basic+, 토스 스타일) ===== -->
-        <section id="profit-section" class="profit-section">
+        <!-- Rebalance Action Panel (visible when in_window) -->
+        <section id="rebal-actions" class="rebal-actions" style="display:none">
+            <div class="rebal-actions-header">
+                <span id="rebal-actions-title">Rebalance</span>
+                <span id="rebal-blocked-badge" class="badge badge-red" style="display:none">BLOCKED</span>
+            </div>
+            <div class="rebal-btn-group">
+                <button id="btn-rebal-preview" class="rebal-btn rebal-btn-preview"
+                        onclick="rebalPreview()">Preview</button>
+                <button id="btn-rebal-sell" class="rebal-btn rebal-btn-sell" disabled
+                        onclick="rebalSell()">SELL</button>
+                <button id="btn-rebal-buy" class="rebal-btn rebal-btn-buy" disabled
+                        onclick="rebalBuy()">BUY</button>
+                <button id="btn-rebal-skip" class="rebal-btn rebal-btn-skip"
+                        onclick="rebalSkip()">Skip Cycle</button>
+            </div>
+            <!-- Preview results -->
+            <div id="rebal-preview-area" style="display:none">
+                <div class="rebal-preview-grid">
+                    <div class="rebal-preview-col">
+                        <h4>SELL <span id="rebal-sell-count">0</span></h4>
+                        <div id="rebal-sell-list" class="rebal-order-list"></div>
+                    </div>
+                    <div class="rebal-preview-col">
+                        <h4>BUY <span id="rebal-buy-count">0</span></h4>
+                        <div id="rebal-buy-list" class="rebal-order-list"></div>
+                    </div>
+                </div>
+                <div id="rebal-preview-errors" class="rebal-errors"></div>
+            </div>
+            <!-- Execution result -->
+            <div id="rebal-result" class="rebal-result" style="display:none"></div>
+        </section>
+
+        <!-- Confirm dialog -->
+        <div id="rebal-confirm-overlay" class="rebal-overlay" style="display:none">
+            <div class="rebal-confirm-dialog">
+                <h3 id="rebal-confirm-title">Confirm</h3>
+                <p id="rebal-confirm-msg"></p>
+                <div class="rebal-confirm-btns">
+                    <button class="rebal-btn rebal-btn-cancel" onclick="rebalConfirmCancel()">Cancel</button>
+                    <button id="rebal-confirm-ok" class="rebal-btn rebal-btn-sell" onclick="rebalConfirmOk()">Execute</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ====== DD Guard (Operator+) ======================== -->
+        <section id="dd-guard-section" class="dd-guard-section mode-operator" hidden>
+            <div class="dd-guard-grid">
+                <div class="dd-gauge" data-source="dd_guard">
+                    <div class="dd-gauge-header">
+                        <span class="dd-gauge-label">일간 DD</span>
+                        <span id="dd-daily-value" class="dd-gauge-value">--</span>
+                    </div>
+                    <div class="dd-gauge-bar">
+                        <div id="dd-daily-fill" class="dd-gauge-fill"></div>
+                        <div class="dd-threshold" style="left:16.7%"></div>
+                        <div class="dd-threshold" style="left:33.3%"></div>
+                        <div class="dd-threshold" style="left:50%"></div>
+                        <div class="dd-threshold" style="left:66.7%"></div>
+                        <div class="dd-threshold" style="left:83.3%"></div>
+                    </div>
+                </div>
+                <div class="dd-gauge" data-source="dd_guard">
+                    <div class="dd-gauge-header">
+                        <span class="dd-gauge-label">월간 DD</span>
+                        <span id="dd-monthly-value" class="dd-gauge-value">--</span>
+                    </div>
+                    <div class="dd-gauge-bar">
+                        <div id="dd-monthly-fill" class="dd-gauge-fill"></div>
+                        <div class="dd-threshold" style="left:16.7%"></div>
+                        <div class="dd-threshold" style="left:33.3%"></div>
+                        <div class="dd-threshold" style="left:50%"></div>
+                        <div class="dd-threshold" style="left:66.7%"></div>
+                        <div class="dd-threshold" style="left:83.3%"></div>
+                    </div>
+                </div>
+                <div class="dd-permission">
+                    <div class="dd-perm-label">BUY STATUS (추정)</div>
+                    <div id="dd-permission-badge" class="dd-perm-badge perm-unknown">--</div>
+                    <div id="dd-config-version" class="dd-config-ver"></div>
+                </div>
+            </div>
+            <div id="dd-badges" class="dd-source-badges"></div>
+        </section>
+
+        <!-- ====== Regime (Basic+) ============================== -->
+        <section id="regime-section" class="regime-section">
+            <!-- 오늘 레짐 + 내일 예측: 그라데이션 바 -->
+            <div class="regime-dual">
+                <!-- 오늘 실제 레짐 -->
+                <div class="regime-card">
+                    <div class="regime-card-header">
+                        <span class="regime-card-title">오늘 레짐</span>
+                        <span id="regime-today-date" class="regime-date"></span>
+                    </div>
+                    <div class="regime-gradient-wrap">
+                        <div class="regime-gradient-bar">
+                            <div id="regime-today-marker" class="regime-marker" style="left:50%"></div>
+                        </div>
+                        <div class="regime-gradient-labels">
+                            <span class="rg-label bear">BEAR</span>
+                            <span class="rg-label neutral">NEUTRAL</span>
+                            <span class="rg-label bull">BULL</span>
+                        </div>
+                    </div>
+                    <div id="regime-today-detail" class="regime-detail">
+                        <span class="regime-detail-label">--</span>
+                        <span class="regime-detail-score">--</span>
+                    </div>
+                    <div id="regime-today-breakdown" class="regime-breakdown"></div>
+                </div>
+                <!-- 내일 예측 레짐 -->
+                <div class="regime-card">
+                    <div class="regime-card-header">
+                        <span class="regime-card-title">내일 예측</span>
+                        <span id="regime-predict-flag" class="regime-flag"></span>
+                    </div>
+                    <div class="regime-gradient-wrap">
+                        <div class="regime-gradient-bar">
+                            <div id="regime-predict-marker" class="regime-marker" style="left:50%"></div>
+                        </div>
+                        <div class="regime-gradient-labels">
+                            <span class="rg-label bear">BEAR</span>
+                            <span class="rg-label neutral">NEUTRAL</span>
+                            <span class="rg-label bull">BULL</span>
+                        </div>
+                    </div>
+                    <div id="regime-predict-detail" class="regime-detail">
+                        <span class="regime-detail-label">--</span>
+                        <span class="regime-detail-score">--</span>
+                    </div>
+                    <div class="regime-axes">
+                        <div class="regime-axis"><span class="axis-name">글로벌</span><div class="axis-bar"><div id="axis-global" class="axis-fill"></div></div><span id="axis-global-val" class="axis-val">--</span></div>
+                        <div class="regime-axis"><span class="axis-name">변동성</span><div class="axis-bar"><div id="axis-vol" class="axis-fill"></div></div><span id="axis-vol-val" class="axis-val">--</span></div>
+                        <div class="regime-axis"><span class="axis-name">국내</span><div class="axis-bar"><div id="axis-domestic" class="axis-fill"></div></div><span id="axis-domestic-val" class="axis-val">--</span></div>
+                        <div class="regime-axis"><span class="axis-name">미시구조</span><div class="axis-bar"><div id="axis-micro" class="axis-fill"></div></div><span id="axis-micro-val" class="axis-val">--</span></div>
+                        <div class="regime-axis"><span class="axis-name">환율</span><div class="axis-bar"><div id="axis-fx" class="axis-fill"></div></div><span id="axis-fx-val" class="axis-val">--</span></div>
+                    </div>
+                    <div id="regime-confidence" class="regime-confidence"></div>
+                </div>
+            </div>
+            <!-- 검증 통계 -->
+            <div class="regime-stats-bar">
+                <div class="regime-stat"><span class="stat-label">5일 평균</span><span id="stat-5d" class="stat-value">--</span></div>
+                <div class="regime-stat"><span class="stat-label">20일 평균</span><span id="stat-20d" class="stat-value">--</span></div>
+                <div class="regime-stat"><span class="stat-label">적중률</span><span id="stat-exact" class="stat-value">--</span></div>
+                <div class="regime-stat"><span class="stat-label">1단계내</span><span id="stat-within1" class="stat-value">--</span></div>
+            </div>
+        </section>
+
+        <!-- ====== Sector Regime (오늘/내일 레짐 아래) ========= -->
+        <section id="sector-regime-section" class="sector-regime-section">
+            <div class="sector-regime-header">
+                <span class="sector-regime-title">Sector Regime</span>
+            </div>
+            <div id="sector-regime-grid" class="sector-regime-grid">
+                <div class="dim" style="text-align:center;padding:12px">loading...</div>
+            </div>
+        </section>
+
+        <!-- ====== Advisor (Basic) ============================== -->
+        <section id="advisor-section" class="section">
+            <h3 class="section-title">
+                <span>AI Advisor</span>
+                <span id="advisor-status" class="badge badge-unknown" style="font-size:11px">--</span>
+            </h3>
+            <div id="advisor-alerts" class="advisor-alerts">
+                <div class="dim">배치 실행 후 분석 결과가 표시됩니다</div>
+            </div>
+            <div id="advisor-recs" class="advisor-recs" style="display:none"></div>
+        </section>
+
+        <!-- ====== Profit Analysis (Operator+) ================ -->
+        <section id="profit-section" class="profit-section mode-operator" hidden>
             <h3 class="section-title">수익 분석</h3>
             <div class="profit-tabs">
                 <button class="profit-tab active" data-period="day">일</button>
@@ -117,6 +313,20 @@
                 <div class="profit-row">
                     <span class="profit-label">평가손익</span>
                     <span id="profit-unrealized" class="profit-value">--</span>
+                </div>
+                <div class="profit-sub-rows" id="profit-comparisons">
+                    <div class="profit-sub-row">
+                        <span class="profit-sub-label">전일대비</span>
+                        <span id="cmp-prev-close" class="profit-sub-value">--</span>
+                    </div>
+                    <div class="profit-sub-row">
+                        <span class="profit-sub-label">최고점대비</span>
+                        <span id="cmp-peak" class="profit-sub-value">--</span>
+                    </div>
+                    <div class="profit-sub-row">
+                        <span class="profit-sub-label">최저점대비</span>
+                        <span id="cmp-trough" class="profit-sub-value">--</span>
+                    </div>
                 </div>
                 <div class="profit-row">
                     <span class="profit-label">실현손익</span>
@@ -133,11 +343,72 @@
             </div>
         </section>
 
-        <!-- ====== Holdings List (Basic+, 토스 스타일) ======= -->
-        <section id="holdings-section" class="holdings-section">
-            <h3 class="section-title">보유종목</h3>
+        <!-- ====== Trades Timeline (Operator+) ================ -->
+        <section id="trades-section" class="trades-section mode-operator" hidden>
+            <h3 class="section-title">거래 기록 (참고)</h3>
+            <div id="trades-timeline" class="trades-timeline">
+                <div class="holdings-empty">거래 내역 없음</div>
+            </div>
+        </section>
+
+        <!-- ====== Holdings List (Operator+) ================== -->
+        <section id="holdings-section" class="holdings-section mode-operator" hidden>
+            <div class="holdings-header">
+                <h3 class="section-title">보유종목</h3>
+                <div class="holdings-view-switch">
+                    <button class="view-btn active" data-view="list" id="view-list-btn">종목</button>
+                    <button class="view-btn" data-view="sector" id="view-sector-btn">섹터</button>
+                </div>
+            </div>
+            <!-- Donut Chart -->
+            <div id="donut-container" class="donut-container">
+                <div id="donut-chart" class="donut-chart"></div>
+                <div id="donut-legend" class="donut-legend"></div>
+            </div>
+            <!-- KOSPI vs Portfolio comparison -->
+            <div id="compare-chart-wrap" class="compare-chart-wrap">
+                <div class="compare-header">
+                    <span class="compare-title">KOSPI vs 내 포트폴리오</span>
+                    <div class="compare-legend-inline">
+                        <span class="cl-item"><span class="cl-dot" style="background:#F04452"></span>포트폴리오</span>
+                        <span class="cl-item"><span class="cl-dot" style="background:#58a6ff"></span>KOSPI</span>
+                    </div>
+                </div>
+                <canvas id="compare-chart" width="600" height="160"></canvas>
+            </div>
+            <!-- Sector View -->
+            <div id="sector-view" class="sector-view" style="display:none">
+            </div>
             <div id="holdings-list" class="holdings-list">
                 <div class="holdings-empty">데이터 로딩 중...</div>
+            </div>
+        </section>
+
+        <!-- ====== Rebalance Preview (Operator+, 보유종목 아래) == -->
+        <section id="rebal-preview-section" class="section mode-operator" hidden>
+            <h3 class="section-title">리밸런스 프리뷰</h3>
+            <div id="rebal-preview-header" class="rebal-preview-header">
+                <span id="rp-target-date">Target: --</span>
+                <span id="rp-dday" class="rebal-dday">D-?</span>
+                <button id="btn-rp-refresh" class="btn-sm" onclick="loadRebalPreview()">새로고침</button>
+            </div>
+            <div id="rebal-preview-content">
+                <div class="rp-group">
+                    <h4 class="rp-group-title rp-new">&#9650; 신규 편입</h4>
+                    <div id="rp-new-entries" class="rp-list">--</div>
+                </div>
+                <div class="rp-group">
+                    <h4 class="rp-group-title rp-exit">&#9660; 제외 예정</h4>
+                    <div id="rp-exits" class="rp-list">--</div>
+                </div>
+                <div class="rp-group">
+                    <h4 class="rp-group-title rp-keep">&#9654; 유지</h4>
+                    <div id="rp-unchanged" class="rp-list">--</div>
+                </div>
+                <div class="rp-group">
+                    <h4 class="rp-group-title">&#128197; 최적 리밸런스일</h4>
+                    <div id="rp-optimal" class="rp-optimal">향후 구현 예정 (과거 패턴 분석 기반 추천)</div>
+                </div>
             </div>
         </section>
 
@@ -148,8 +419,20 @@
             <button id="alert-close" class="alert-close" title="닫기">&times;</button>
         </div>
 
-        <!-- ====== Control Cards (Basic+) =================== -->
-        <section id="sec-control" class="section">
+        <!-- ====== Control Cards (Debug only) ================ -->
+        <!-- ====== DB Health (Debug only) ==================== -->
+        <section id="sec-db-health" class="section mode-debug" hidden>
+            <h3 class="section-title">
+                <span>PostgreSQL DB</span>
+                <span id="db-size" class="badge badge-ok" style="font-size:11px">--</span>
+                <button class="btn-sm" onclick="loadDbHealth()">새로고침</button>
+            </h3>
+            <div id="db-health-grid" class="freshness-grid">
+                <div class="dim">loading...</div>
+            </div>
+        </section>
+
+        <section id="sec-control" class="section mode-debug" hidden>
             <h3 class="section-title">시스템 상태</h3>
             <div class="card-grid-3">
                 <!-- Token Card -->
@@ -191,19 +474,33 @@
                         <div class="kv"><span class="k">재시도</span><span id="cnt-retries" class="v mono">0</span></div>
                     </div>
                 </div>
+
+                <!-- RECON Card -->
+                <div class="card" id="recon-card">
+                    <div class="card-head">
+                        <span class="card-head-icon">&#128260;</span>
+                        RECON
+                        <span id="recon-badges" class="card-badges"></span>
+                    </div>
+                    <div class="card-body">
+                        <div class="kv"><span class="k">상태</span><span id="recon-status" class="v">--</span></div>
+                        <div class="kv"><span class="k">마지막 실행</span><span id="recon-last-run" class="v dim">--</span></div>
+                        <div class="kv"><span class="k">경과</span><span id="recon-age" class="v mono">--</span></div>
+                    </div>
+                </div>
             </div>
         </section>
 
-        <!-- ====== Data Freshness (Basic+) ================== -->
-        <section id="sec-freshness" class="section">
+        <!-- ====== Data Freshness (Debug only) =============== -->
+        <section id="sec-freshness" class="section mode-debug" hidden>
             <h3 class="section-title">데이터 신선도</h3>
             <div id="freshness-grid" class="freshness-grid">
                 <!-- JS populates -->
             </div>
         </section>
 
-        <!-- ====== Operator Mode: Request Traces ============ -->
-        <section id="sec-traces" class="section mode-operator mode-debug" hidden>
+        <!-- ====== Debug Mode: Request Traces ================ -->
+        <section id="sec-traces" class="section mode-debug" hidden>
             <h3 class="section-title">
                 <span>요청 추적 (최근 50건)</span>
                 <div class="trace-filters">
@@ -237,8 +534,24 @@
             </div>
         </section>
 
-        <!-- ====== Operator Mode: WebSocket + Sync ========== -->
-        <section id="sec-ws-sync" class="section mode-operator mode-debug" hidden>
+        <!-- ====== Debug Mode: Test Order Panel =============== -->
+        <section id="sec-test-order" class="section mode-debug" hidden>
+            <h3 class="section-title">테스트 주문 (REST+COM 교차검증)</h3>
+            <div class="test-order-panel">
+                <div class="test-order-form">
+                    <input id="test-code" type="text" placeholder="종목코드 (예: 005930)" maxlength="6" class="test-input" />
+                    <input id="test-qty" type="number" value="1" min="1" max="3" class="test-input test-qty" />
+                    <span class="test-label">주</span>
+                    <button id="btn-test-buy" class="test-btn test-btn-buy">매수</button>
+                    <button id="btn-test-sell" class="test-btn test-btn-sell">매도</button>
+                </div>
+                <div id="test-result" class="test-result"></div>
+                <div id="test-history" class="test-history"></div>
+            </div>
+        </section>
+
+        <!-- ====== Debug Mode: WebSocket + Timestamps ======== -->
+        <section id="sec-ws-sync" class="section mode-debug" hidden>
             <div class="card-grid-2">
                 <!-- WebSocket Card -->
                 <div class="card">
@@ -270,8 +583,8 @@
             </div>
         </section>
 
-        <!-- ====== Operator Mode: REST vs COM Sync ========== -->
-        <section id="sec-sync" class="section mode-operator mode-debug" hidden>
+        <!-- ====== Debug Mode: REST vs COM Sync ============== -->
+        <section id="sec-sync" class="section mode-debug" hidden>
             <h3 class="section-title">REST vs COM 동기화</h3>
             <div class="table-wrap">
                 <table class="data-table" id="sync-table">
@@ -339,6 +652,6 @@
         <span>READ-ONLY &mdash; 주문 실행 불가</span>
     </footer>
 
-    <script src="/static/dashboard.js"></script>
+    <script src="/static/dashboard.js?v=12"></script>
 </body>
 </html>

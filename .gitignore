@@ -7,6 +7,7 @@ __pycache__/
 
 # Virtual environment
 .venv/
+.venv64/
 
 # IDE
 .idea/
@@ -28,3 +29,15 @@ Gen03-02/data/ohlcv_kospi_daily/
 # Secrets / credentials
 *.env
 secrets.json
+kakao_tokens.json
+
+# Runtime databases
+*.db
+
+# Gen04-US runtime data
+Gen04-US/lab/jobs/
+Gen04-US/lab/state/
+Gen04-US/data/universes/*.csv
+Gen04-US/data/universes/universe_meta.json
+Gen04-US/state/
+Gen04-US/logs/

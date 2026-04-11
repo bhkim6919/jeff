@@ -1,0 +1,104 @@
+/* nav.css — Q-TRON Unified Navigation */
+.qnav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 20px;
+    background: #0d1117;
+    border-bottom: 1px solid #21262d;
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+}
+
+.qnav-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.qnav-logo {
+    font-size: 15px;
+    font-weight: 800;
+    color: #e6edf3;
+    letter-spacing: 1px;
+}
+
+.qnav-market-toggle {
+    display: flex;
+    background: #161b22;
+    border-radius: 6px;
+    border: 1px solid #30363d;
+    overflow: hidden;
+}
+
+.qnav-market {
+    padding: 4px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: inherit;
+    border: none;
+    background: transparent;
+    color: #8b949e;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.qnav-market:hover {
+    color: #c9d1d9;
+}
+
+.qnav-market.active {
+    background: #238636;
+    color: #fff;
+    box-shadow: 0 0 8px rgba(35, 134, 54, 0.4);
+}
+
+/* US active = blue accent */
+.qnav-market.active[onclick*="US"] {
+    background: #1f6feb;
+    box-shadow: 0 0 8px rgba(31, 111, 235, 0.4);
+}
+
+.qnav-menu {
+    display: flex;
+    gap: 4px;
+}
+
+.qnav-item {
+    padding: 5px 14px;
+    font-size: 12px;
+    font-family: inherit;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    background: transparent;
+    color: #8b949e;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.qnav-item:hover {
+    color: #c9d1d9;
+    background: #161b22;
+}
+
+.qnav-item.active {
+    color: #e6edf3;
+    background: #21262d;
+    border-color: #30363d;
+}
+
+.qnav-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.qnav-clock {
+    font-size: 13px;
+    color: #8b949e;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    line-height: 1.3;
+}

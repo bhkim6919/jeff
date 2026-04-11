@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Q-TRON US Lab</title>
+    <style>
+        :root {
+            --bg: #0a0e17; --card: #111827; --border: #1f2937;
+            --text: #e5e7eb; --muted: #6b7280; --accent: #3b82f6;
+            --green: #10b981; --red: #ef4444; --yellow: #f59e0b;
+            --cyan: #06b6d4; --purple: #8b5cf6;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: var(--bg); color: var(--text); font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 13px; }
+
+        header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 24px; background: var(--card); border-bottom: 1px solid var(--border);
+        }
+        .logo { font-size: 18px; font-weight: 700; }
+        .logo-lab { color: var(--cyan); }
+        .nav { display: flex; gap: 8px; }
+        .nav a, .nav button {
+            padding: 4px 12px; border: 1px solid var(--border); border-radius: 4px;
+            background: transparent; color: var(--muted); cursor: pointer; font-size: 12px;
+            text-decoration: none; font-family: inherit;
+        }
+        .nav a:hover, .nav button:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+        .nav .active { background: var(--cyan); color: white; border-color: var(--cyan); }
+
+        main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+        .section-title { font-size: 14px; font-weight: 600; color: var(--muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
+
+        /* Control Panel */
+        .control-panel {
+            background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+            padding: 16px; margin-bottom: 24px; display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;
+        }
+        .control-group { display: flex; flex-direction: column; gap: 4px; }
+        .control-label { font-size: 10px; color: var(--muted); text-transform: uppercase; }
+        .control-select, .control-input {
+            background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+            padding: 6px 10px; color: var(--text); font-size: 13px; font-family: inherit;
+        }
+        .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-sm { padding: 4px 10px; font-size: 11px; }
+
+        /* Strategy Cards */
+        .strat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-bottom: 24px; }
+        .strat-card {
+            background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+            padding: 14px; position: relative; overflow: hidden;
+        }
+        .strat-card.running { border-color: var(--yellow); }
+        .strat-card.done { border-color: var(--green); }
+        .strat-name { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+        .strat-group { font-size: 10px; padding: 2px 6px; border-radius: 3px; display: inline-block; margin-bottom: 8px; }
+        .group-rebal { background: rgba(59,130,246,0.2); color: var(--accent); }
+        .group-event { background: rgba(245,158,11,0.2); color: var(--yellow); }
+        .group-macro { background: rgba(139,92,246,0.2); color: var(--purple); }
+        .group-regime { background: rgba(6,182,212,0.2); color: var(--cyan); }
+        .group-experimental { background: rgba(239,68,68,0.2); color: var(--red); }
+        .strat-desc { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+        .strat-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+        .metric-item { font-size: 11px; }
+        .metric-label { color: var(--muted); }
+        .metric-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+        .metric-pos { color: var(--green); }
+        .metric-neg { color: var(--red); }
+
+        /* Results Table */
+        .results-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+        .results-table th {
+            text-align: left; padding: 8px; font-size: 10px; color: var(--muted);
+            text-transform: uppercase; border-bottom: 1px solid var(--border);
+        }
+        .results-table td {
+            padding: 8px; font-size: 12px; border-bottom: 1px solid rgba(31,41,55,0.5);
+            font-variant-numeric: tabular-nums;
+        }
+        .results-table tr:hover { background: rgba(59,130,246,0.05); }
+
+        /* Job List */
+        .job-list { margin-bottom: 24px; }
+        .job-item {
+            background: var(--card); border: 1px solid var(--border); border-radius: 6px;
+            padding: 10px 14px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;
+        }
+        .job-id { font-weight: 600; color: var(--cyan); }
+        .job-status { font-size: 11px; padding: 2px 8px; border-radius: 3px; }
+        .status-done { background: rgba(16,185,129,0.2); color: var(--green); }
+        .status-running { background: rgba(245,158,11,0.2); color: var(--yellow); }
+        .status-failed { background: rgba(239,68,68,0.2); color: var(--red); }
+        .status-pending { background: rgba(107,114,128,0.2); color: var(--muted); }
+
+        #status-msg { margin-top: 12px; font-size: 12px; color: var(--muted); }
+    </style>
+</head>
+<body>
+
+<link rel="stylesheet" href="/static/nav.css">
+<div id="qtron-nav"></div>
+<script src="/static/nav.js"></script>
+<script>window.__qtronNav.renderNav(document.getElementById('qtron-nav'));</script>
+
+<main>
+    <!-- Tab Switcher -->
+    <div style="display:flex;gap:4px;margin-bottom:16px;">
+        <button class="btn btn-primary" id="tab-backtest" onclick="switchTab('backtest')" style="font-size:14px;">Backtest</button>
+        <button class="btn" id="tab-forward" onclick="switchTab('forward')" style="font-size:14px;background:var(--card);color:var(--muted);border:1px solid var(--border);">Forward Trading</button>
+    </div>
+
+    <!-- ══════ BACKTEST TAB ══════ -->
+    <div id="backtest-tab">
+
+    <!-- Control Panel -->
+    <div class="control-panel">
+        <div class="control-group">
+            <span class="control-label">Group</span>
+            <select id="group" class="control-select">
+                <option value="all">ALL (10 strategies)</option>
+                <option value="rebal">REBAL (4 strategies)</option>
+                <option value="event">EVENT (3 strategies)</option>
+                <option value="macro">MACRO (1 strategy)</option>
+                <option value="regime">REGIME (1 strategy)</option>
+                <option value="experimental">EXPERIMENTAL (R3000)</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <span class="control-label">Start Date</span>
+            <input id="start-date" class="control-input" type="date" value="2024-01-01">
+        </div>
+        <div class="control-group">
+            <span class="control-label">End Date</span>
+            <input id="end-date" class="control-input" type="date" value="2026-04-11">
+        </div>
+        <button id="run-btn" class="btn btn-primary" onclick="runLab()">Run Simulation</button>
+    </div>
+    <div id="status-msg"></div>
+
+    <!-- Strategy Cards -->
+    <div class="section-title">Strategies</div>
+    <div id="strat-grid" class="strat-grid">Loading...</div>
+
+    <!-- Results Table -->
+    <div id="results-section" style="display:none;">
+        <div class="section-title">Results</div>
+        <table class="results-table">
+            <thead>
+                <tr>
+                    <th>Strategy</th><th>CAGR</th><th>MDD</th><th>Sharpe</th><th>Calmar</th>
+                    <th>Win%</th><th>Trades</th><th>Avg Hold</th><th>Turnover</th><th>Exposure</th>
+                </tr>
+            </thead>
+            <tbody id="results-body"></tbody>
+        </table>
+    </div>
+
+    <!-- Job History -->
+    <div class="section-title">Job History</div>
+    <div id="job-list" class="job-list">Loading...</div>
+
+    </div><!-- end backtest-tab -->
+
+    <!-- ══════ FORWARD TRADING TAB ══════ -->
+    <div id="forward-tab" style="display:none;">
+
+    <!-- Forward Status -->
+    <div class="control-panel" style="flex-direction:column;gap:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+            <div>
+                <span class="section-title" style="margin:0;">Forward Trading</span>
+                <span style="color:var(--muted);font-size:11px;margin-left:12px;">Virtual fills at close price</span>
+            </div>
+            <div style="display:flex;gap:8px;">
+                <button class="btn btn-primary" id="fwd-start-btn" onclick="fwdStart()">Initialize</button>
+                <button class="btn btn-primary" id="fwd-eod-btn" onclick="fwdRunEod()" style="background:var(--green);">Run EOD</button>
+                <button class="btn" id="fwd-reset-btn" onclick="fwdReset()" style="background:var(--card);color:var(--red);border:1px solid var(--red);">Reset</button>
+            </div>
+        </div>
+        <div id="fwd-meta" style="display:flex;gap:24px;font-size:12px;color:var(--muted);width:100%;">
+            <span>Status: <b id="fwd-status">--</b></span>
+            <span>Last EOD: <b id="fwd-last-eod">--</b></span>
+            <span>Days: <b id="fwd-days">--</b></span>
+            <span>Started: <b id="fwd-started">--</b></span>
+        </div>
+        <div id="fwd-msg" style="font-size:12px;color:var(--muted);"></div>
+    </div>
+
+    <!-- Forward Strategy Cards -->
+    <div class="section-title">Strategy Performance</div>
+    <div id="fwd-grid" class="strat-grid">No data. Click Initialize → Run EOD.</div>
+
+    <!-- Forward Run History -->
+    <div class="section-title">EOD Runs</div>
+    <div id="fwd-runs" class="job-list">--</div>
+
+    </div><!-- end forward-tab -->
+
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+
+function fmtPct(v, dec=1) {
+    if (v == null || isNaN(v)) return '--';
+    return (v >= 0 ? '+' : '') + v.toFixed(dec) + '%';
+}
+
+function metricColor(v) { return v >= 0 ? 'metric-pos' : 'metric-neg'; }
+
+const GROUP_CLASSES = {
+    rebal: 'group-rebal', event: 'group-event', macro: 'group-macro',
+    regime: 'group-regime', experimental: 'group-experimental',
+};
+
+// ── Load Strategies ──────────────────────────────────
+async function loadStrategies() {
+    try {
+        const resp = await fetch('/api/lab/strategies');
+        const data = await resp.json();
+        const strats = data.strategies || {};
+        const grid = $('strat-grid');
+
+        grid.innerHTML = Object.entries(strats).map(([name, cfg]) => {
+            const groupClass = GROUP_CLASSES[cfg.group] || '';
+            return `<div class="strat-card" id="card-${name}">
+                <div class="strat-name">${name}</div>
+                <span class="strat-group ${groupClass}">${cfg.group.toUpperCase()}</span>
+                <div class="strat-desc">${cfg.description || ''}</div>
+                <div class="strat-metrics" id="metrics-${name}">
+                    <div class="metric-item"><span class="metric-label">Positions:</span> <span class="metric-value">${cfg.max_positions}</span></div>
+                    <div class="metric-item"><span class="metric-label">Trail:</span> <span class="metric-value">-${(cfg.trail_pct*100).toFixed(0)}%</span></div>
+                    <div class="metric-item"><span class="metric-label">Rebal:</span> <span class="metric-value">${cfg.rebal_days || 'Event'}</span></div>
+                    <div class="metric-item"><span class="metric-label">Universe:</span> <span class="metric-value">${cfg.universe?.replace('RESEARCH_','') || 'R1000'}</span></div>
+                </div>
+            </div>`;
+        }).join('');
+    } catch(e) { console.error('Load strategies error:', e); }
+}
+
+// ── Run Lab ──────────────────────────────────────────
+let pollInterval = null;
+
+async function runLab() {
+    const group = $('group').value;
+    const start = $('start-date').value;
+    const end = $('end-date').value;
+    $('run-btn').disabled = true;
+    $('status-msg').textContent = 'Starting simulation...';
+
+    try {
+        const resp = await fetch('/api/lab/run', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({group, start_date: start, end_date: end}),
+        });
+        const data = await resp.json();
+        if (data.error) {
+            $('status-msg').textContent = 'Error: ' + data.error;
+            $('run-btn').disabled = false;
+            return;
+        }
+
+        // Handle "all" mode (multiple jobs)
+        if (data.status === 'ALL_STARTED') {
+            const allJobs = data.jobs || [];
+            $('status-msg').textContent = `Started ${allJobs.length} groups...`;
+
+            // Poll all jobs
+            const jobIds = allJobs.filter(j => j.job_id).map(j => j.job_id);
+            pollInterval = setInterval(async () => {
+                let allDone = true;
+                let doneCount = 0;
+                for (const jid of jobIds) {
+                    const r = await fetch(`/api/lab/jobs/${jid}`);
+                    const job = await r.json();
+                    if (job.status === 'DONE') {
+                        doneCount++;
+                        showJobResults(jid);
+                    } else if (job.status === 'FAILED') {
+                        doneCount++;
+                    } else {
+                        allDone = false;
+                    }
+                }
+                $('status-msg').textContent = `Progress: ${doneCount}/${jobIds.length} groups done`;
+                if (allDone) {
+                    clearInterval(pollInterval);
+                    $('run-btn').disabled = false;
+                    $('status-msg').textContent = `All ${jobIds.length} groups completed!`;
+                    loadJobs();
+                }
+            }, 3000);
+            return;
+        }
+
+        $('status-msg').textContent = `Job ${data.job_id} started (${data.status})...`;
+
+        if (data.status === 'DONE') {
+            showJobResults(data.job_id);
+            $('run-btn').disabled = false;
+            return;
+        }
+
+        // Poll for completion
+        pollInterval = setInterval(async () => {
+            const r = await fetch(`/api/lab/jobs/${data.job_id}`);
+            const job = await r.json();
+            $('status-msg').textContent = `Job ${job.job_id}: ${job.status}`;
+
+            if (job.status === 'DONE' || job.status === 'FAILED') {
+                clearInterval(pollInterval);
+                $('run-btn').disabled = false;
+                if (job.status === 'DONE') showJobResults(job.job_id);
+                else $('status-msg').textContent = `FAILED: ${job.error}`;
+                loadJobs();
+            }
+        }, 3000);
+    } catch(e) {
+        $('status-msg').textContent = 'Error: ' + e.message;
+        $('run-btn').disabled = false;
+    }
+}
+
+// ── Show Results ─────────────────────────────────────
+async function showJobResults(jobId) {
+    const resp = await fetch(`/api/lab/jobs/${jobId}`);
+    const job = await resp.json();
+    if (!job.results) return;
+
+    $('results-section').style.display = 'block';
+    const tbody = $('results-body');
+    tbody.innerHTML = '';
+
+    for (const [name, data] of Object.entries(job.results)) {
+        const m = data.metrics || {};
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><b>${name}</b></td>
+            <td class="${metricColor(m.cagr)}">${fmtPct(m.cagr)}</td>
+            <td class="metric-neg">${fmtPct(m.mdd)}</td>
+            <td class="${metricColor(m.sharpe)}">${m.sharpe?.toFixed(2) || '--'}</td>
+            <td>${m.calmar?.toFixed(2) || '--'}</td>
+            <td>${m.win_rate?.toFixed(0) || '--'}%</td>
+            <td>${m.trade_count || 0}</td>
+            <td>${m.avg_hold_days?.toFixed(0) || '--'}d</td>
+            <td>${m.turnover?.toFixed(0) || '--'}%</td>
+            <td>${m.exposure?.toFixed(0) || '--'}%</td>
+        `;
+        tbody.appendChild(tr);
+
+        // Update strategy card
+        const card = $(`card-${name}`);
+        if (card) {
+            card.classList.add('done');
+            const metricsDiv = $(`metrics-${name}`);
+            metricsDiv.innerHTML = `
+                <div class="metric-item"><span class="metric-label">CAGR:</span> <span class="metric-value ${metricColor(m.cagr)}">${fmtPct(m.cagr)}</span></div>
+                <div class="metric-item"><span class="metric-label">MDD:</span> <span class="metric-value metric-neg">${fmtPct(m.mdd)}</span></div>
+                <div class="metric-item"><span class="metric-label">Sharpe:</span> <span class="metric-value">${m.sharpe?.toFixed(2) || '--'}</span></div>
+                <div class="metric-item"><span class="metric-label">Win:</span> <span class="metric-value">${m.win_rate?.toFixed(0) || '--'}%</span></div>
+            `;
+        }
+    }
+
+    $('status-msg').textContent = `Job ${jobId} complete — ${Object.keys(job.results).length} strategies`;
+}
+
+// ── Job History ──────────────────────────────────────
+async function loadJobs() {
+    try {
+        const resp = await fetch('/api/lab/jobs');
+        const data = await resp.json();
+        const list = $('job-list');
+
+        if (!data.jobs || data.jobs.length === 0) {
+            list.innerHTML = '<div style="color:var(--muted);">No jobs yet. Run a simulation above.</div>';
+            return;
+        }
+
+        list.innerHTML = data.jobs.map(j => {
+            const statusClass = `status-${j.status.toLowerCase()}`;
+            return `<div class="job-item">
+                <div>
+                    <span class="job-id">${j.job_id}</span>
+                    <span style="color:var(--muted);margin-left:8px;">${j.group} | ${j.start_date}~${j.end_date}</span>
+                </div>
+                <div>
+                    <span class="job-status ${statusClass}">${j.status}</span>
+                    ${j.status === 'DONE' ? `<button class="btn btn-sm" onclick="showJobResults('${j.job_id}')" style="margin-left:8px;background:var(--accent);color:white;border:none;cursor:pointer;">View</button>` : ''}
+                </div>
+            </div>`;
+        }).join('');
+    } catch(e) { console.error('Load jobs error:', e); }
+}
+
+// ── Tab Switching ────────────────────────────────────
+function switchTab(tab) {
+    $('backtest-tab').style.display = tab === 'backtest' ? 'block' : 'none';
+    $('forward-tab').style.display = tab === 'forward' ? 'block' : 'none';
+    $('tab-backtest').className = tab === 'backtest' ? 'btn btn-primary' : 'btn';
+    $('tab-forward').className = tab === 'forward' ? 'btn btn-primary' : 'btn';
+    $('tab-backtest').style.background = tab === 'backtest' ? '' : 'var(--card)';
+    $('tab-backtest').style.color = tab === 'backtest' ? '' : 'var(--muted)';
+    $('tab-forward').style.background = tab === 'forward' ? '' : 'var(--card)';
+    $('tab-forward').style.color = tab === 'forward' ? '' : 'var(--muted)';
+    if (tab === 'forward') loadForwardState();
+}
+
+// ── Forward Trading ─────────────────────────────────
+async function fwdStart() {
+    $('fwd-msg').textContent = 'Initializing...';
+    const r = await fetch('/api/lab/forward/start', {method: 'POST'});
+    const data = await r.json();
+    $('fwd-msg').textContent = data.error || `Initialized (status: ${data.status})`;
+    loadForwardState();
+}
+
+async function fwdRunEod() {
+    $('fwd-eod-btn').disabled = true;
+    $('fwd-msg').textContent = 'Running EOD...';
+    const r = await fetch('/api/lab/forward/eod', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({})
+    });
+    const data = await r.json();
+    $('fwd-eod-btn').disabled = false;
+    if (data.error) {
+        $('fwd-msg').textContent = 'Error: ' + data.error;
+    } else {
+        $('fwd-msg').textContent = `EOD ${data.eod_date}: ${data.status} (${(data.strategies_processed||[]).length} strategies)`;
+        loadForwardState();
+    }
+}
+
+async function fwdReset() {
+    if (!confirm('Reset all forward trading state? (archived)')) return;
+    const r = await fetch('/api/lab/forward/reset', {method: 'POST'});
+    const data = await r.json();
+    $('fwd-msg').textContent = data.error || `Reset complete (${data.status})`;
+    loadForwardState();
+}
+
+async function loadForwardState() {
+    try {
+        const r = await fetch('/api/lab/forward/state');
+        const data = await r.json();
+        const meta = data.meta || {};
+        const strategies = data.strategies || {};
+
+        $('fwd-status').textContent = meta.status || '--';
+        $('fwd-status').style.color = meta.status === 'IDLE' ? 'var(--green)' : meta.status === 'RUNNING' ? 'var(--yellow)' : 'var(--muted)';
+        $('fwd-last-eod').textContent = meta.last_successful_eod_date || '--';
+        $('fwd-days').textContent = meta.day_count || '0';
+        $('fwd-started').textContent = meta.started_at ? meta.started_at.split('T')[0] : '--';
+
+        const grid = $('fwd-grid');
+        const names = Object.keys(strategies);
+        if (names.length === 0) {
+            grid.innerHTML = '<div style="color:var(--muted);">No data. Click Initialize → Run EOD.</div>';
+            return;
+        }
+
+        // Sort by P&L descending
+        names.sort((a,b) => (strategies[b].pnl_pct||0) - (strategies[a].pnl_pct||0));
+
+        grid.innerHTML = names.map(name => {
+            const s = strategies[name];
+            const pnlColor = (s.pnl_pct||0) >= 0 ? 'metric-pos' : 'metric-neg';
+            const mddColor = 'metric-neg';
+            return `<div class="strat-card done">
+                <div class="strat-name">${name}</div>
+                <div class="strat-metrics">
+                    <div class="metric-item"><span class="metric-label">Equity:</span> <span class="metric-value">$${(s.equity||100000).toLocaleString('en-US',{maximumFractionDigits:0})}</span></div>
+                    <div class="metric-item"><span class="metric-label">P&L:</span> <span class="metric-value ${pnlColor}">${fmtPct(s.pnl_pct)}</span></div>
+                    <div class="metric-item"><span class="metric-label">MDD:</span> <span class="metric-value ${mddColor}">${fmtPct(s.mdd)}</span></div>
+                    <div class="metric-item"><span class="metric-label">Positions:</span> <span class="metric-value">${s.positions||0}</span></div>
+                    <div class="metric-item"><span class="metric-label">Trades:</span> <span class="metric-value">${s.trades||0}</span></div>
+                    <div class="metric-item"><span class="metric-label">Days:</span> <span class="metric-value">${s.day_count||0}</span></div>
+                </div>
+            </div>`;
+        }).join('');
+
+        // Load runs
+        const rr = await fetch('/api/lab/forward/runs');
+        const runsData = await rr.json();
+        const runs = runsData.runs || [];
+        $('fwd-runs').innerHTML = runs.length === 0
+            ? '<div style="color:var(--muted);">No runs yet.</div>'
+            : runs.map(r => {
+                const sc = r.status === 'DONE' ? 'status-done' : r.status === 'FAILED' ? 'status-failed' : 'status-running';
+                return `<div class="job-item">
+                    <span><b>${r.eod_date}</b> (${r.run_id})</span>
+                    <span class="job-status ${sc}">${r.status}</span>
+                </div>`;
+            }).join('');
+
+    } catch(e) { console.error('Forward state error:', e); }
+}
+
+// Init
+loadStrategies();
+loadJobs();
+</script>
+
+</body>
+</html>

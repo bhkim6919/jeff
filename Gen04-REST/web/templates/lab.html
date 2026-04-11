@@ -4,25 +4,31 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Q-TRON LAB</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="/static/lab.css">
+    <link rel="stylesheet" href="/static/nav.css">
 </head>
 <body>
 
-    <!-- Header -->
-    <header id="header">
-        <div class="header-left">
-            <h1 class="logo">Q-TRON <span class="logo-accent">LAB</span></h1>
-            <span class="badge badge-mock">SIMULATION</span>
-        </div>
-        <div class="header-right">
-            <a href="/" class="nav-link">Dashboard</a>
-            <a href="/surge" class="nav-link" style="color:var(--orange);">Surge</a>
-            <span id="clock" class="clock">--:--:--</span>
-        </div>
-    </header>
+    <div id="qtron-nav"></div>
+    <script src="/static/nav.js"></script>
+    <script>window.__qtronNav.renderNav(document.getElementById('qtron-nav'));</script>
 
     <main id="main">
+
+        <!-- Tab Navigation -->
+        <div class="lab-tabs">
+            <button class="lab-tab active" data-tab="sim-tab">Surge Sim</button>
+            <button class="lab-tab" data-tab="strategy-tab">Strategy Lab</button>
+            <button class="lab-tab" data-tab="live-tab">Forward Trading</button>
+        </div>
+
+        <!-- ═══════ TAB 1: Surge Sim (기존) ═══════ -->
+        <div id="sim-tab" class="tab-content active">
+
+        <!-- Regime Banner -->
+        <div id="regime-banner" class="regime-banner" style="display:none"></div>
 
         <!-- Parameter Panel -->
         <section class="lab-section">
@@ -84,13 +90,164 @@
             </div>
         </section>
 
+        </div><!-- end sim-tab -->
+
+        <!-- ═══════ TAB 2: Strategy Lab (9전략 비교) ═══════ -->
+        <div id="strategy-tab" class="tab-content">
+
+        <div class="lab-sim-banner">[LAB SIMULATION] 시뮬레이션 결과/비교용 - 실전 주문/계좌와 직접 연결 안 됨</div>
+
+        <!-- Run Controls -->
+        <section class="lab-section">
+            <div class="section-title">
+                <span>Strategy Lab - 9전략 비교</span>
+                <span id="stlab-status-badge" class="badge badge-mock">IDLE</span>
+            </div>
+            <div class="stlab-controls">
+                <div class="stlab-row">
+                    <label>기간</label>
+                    <input type="date" id="stlab-start" value="2026-03-01">
+                    <span>~</span>
+                    <input type="date" id="stlab-end" value="2026-04-08">
+                </div>
+                <div class="stlab-row">
+                    <label>그룹</label>
+                    <select id="stlab-group">
+                        <option value="">전체 (9전략)</option>
+                        <option value="rebal">rebal (4전략)</option>
+                        <option value="event">event (3전략)</option>
+                        <option value="macro">macro (1전략)</option>
+                        <option value="regime">regime (1전략)</option>
+                    </select>
+                    <button class="btn-primary" id="btn-stlab-run">실행</button>
+                    <button class="btn-sm" id="btn-stlab-load">최근 결과 불러오기</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Summary Table -->
+        <section class="lab-section" id="stlab-results" style="display:none">
+            <div class="section-title">
+                <span>비교 결과</span>
+                <span class="result-timestamp" id="stlab-period"></span>
+            </div>
+            <div class="stlab-table-wrap">
+                <table class="stlab-table" id="stlab-table">
+                    <thead>
+                        <tr>
+                            <th>Strategy</th>
+                            <th>Group</th>
+                            <th>Return%</th>
+                            <th>MDD%</th>
+                            <th>Sharpe</th>
+                            <th>Calmar</th>
+                            <th>WinRate%</th>
+                            <th>Trades</th>
+                            <th>AvgHold</th>
+                            <th>Turnover</th>
+                        </tr>
+                    </thead>
+                    <tbody id="stlab-tbody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Equity Chart -->
+        <section class="lab-section" id="stlab-chart-section" style="display:none">
+            <div class="section-title"><span>Equity Curves (normalized to 100)</span></div>
+            <canvas id="stlab-canvas" width="900" height="350"></canvas>
+        </section>
+
+        <!-- Per-Strategy Detail Cards -->
+        <section class="lab-section" id="stlab-cards-section" style="display:none">
+            <div class="section-title"><span>전략별 상세</span></div>
+            <div class="stlab-cards" id="stlab-cards"></div>
+        </section>
+
+        </div><!-- end strategy-tab -->
+
+        <!-- ═══════ TAB 3: Forward Trading (실시간) ═══════ -->
+        <div id="live-tab" class="tab-content">
+
+        <div class="lab-sim-banner">[FORWARD PAPER TRADING] 실시간 가상 운용 - 9전략 Gen5+ 후보 검증</div>
+
+        <!-- Controls -->
+        <section class="lab-section">
+            <div class="section-title">
+                <span>Forward Trading - 9전략 실시간 운용</span>
+                <span id="live-status" class="badge badge-mock">IDLE</span>
+            </div>
+            <div class="stlab-controls">
+                <div class="stlab-row">
+                    <button class="btn-primary" id="btn-live-init">시작 / 복원</button>
+                    <button class="btn-sm" id="btn-live-run">수동 EOD 실행</button>
+                    <button class="btn-sm" style="color:#ef5350" id="btn-live-reset">초기화 (1억)</button>
+                    <span id="live-last-run" style="font-size:12px;color:var(--text-secondary)"></span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Strategy Summary Cards -->
+        <section class="lab-section" id="live-cards-section">
+            <div class="section-title"><span>전략별 현황</span></div>
+            <div class="stlab-cards" id="live-cards"></div>
+        </section>
+
+        <!-- Positions Table -->
+        <section class="lab-section" id="live-positions-section" style="display:none">
+            <div class="section-title"><span>현재 보유 종목</span></div>
+            <div class="stlab-table-wrap">
+                <table class="stlab-table" id="live-pos-table">
+                    <thead>
+                        <tr>
+                            <th>Strategy</th>
+                            <th>Code</th>
+                            <th>Name</th>
+                            <th>Qty</th>
+                            <th>Entry</th>
+                            <th>Current</th>
+                            <th>P&L%</th>
+                            <th>P&L</th>
+                            <th>Entry Date</th>
+                        </tr>
+                    </thead>
+                    <tbody id="live-pos-tbody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Recent Trades -->
+        <section class="lab-section" id="live-trades-section" style="display:none">
+            <div class="section-title"><span>최근 거래</span></div>
+            <div class="stlab-table-wrap">
+                <table class="stlab-table" id="live-trades-table">
+                    <thead>
+                        <tr>
+                            <th>Strategy</th>
+                            <th>Code</th>
+                            <th>Entry</th>
+                            <th>Exit</th>
+                            <th>P&L%</th>
+                            <th>Reason</th>
+                            <th>Date</th>
+                        </tr>
+                    </thead>
+                    <tbody id="live-trades-tbody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        </div><!-- end live-tab -->
+
     </main>
 
     <footer>
-        <span>Q-TRON Lab Simulator v1.0</span>
+        <span>Q-TRON Lab Simulator v2.0</span>
         <span>가상 시뮬레이션 전용 (실제 주문 없음)</span>
     </footer>
 
     <script src="/static/lab.js"></script>
+    <script src="/static/strategy_lab.js"></script>
+    <script src="/static/lab_live.js"></script>
 </body>
 </html>
