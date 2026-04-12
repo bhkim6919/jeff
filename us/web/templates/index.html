@@ -65,12 +65,13 @@
         td { padding: 8px 12px; font-size: 14px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
         tr:hover { background: rgba(59,130,246,0.05); }
 
-        /* Status Bar (KR-style) */
+        /* Status Bar — sticky below nav (nav ~41px) */
         .status-bar {
-            background: var(--card); border-radius: 12px; padding: 16px 24px;
-            margin-bottom: 16px; border: 1px solid var(--border);
+            background: var(--card); border-radius: 0; padding: 12px 24px;
+            margin-bottom: 0; border-bottom: 1px solid var(--border);
             display: flex; align-items: center; justify-content: space-between; gap: 16px;
             flex-wrap: wrap;
+            position: sticky; top: 0; z-index: 999;
         }
         .status-health {
             display: flex; align-items: center; gap: 14px; min-width: 200px;
@@ -195,66 +196,39 @@
 <body>
 
 <link rel="stylesheet" href="/static/nav.css">
-<div id="qtron-nav"></div>
+<div id="qtron-nav" style="position:sticky;top:0;z-index:1000;"></div>
 <script src="/static/nav.js"></script>
 <script>window.__qtronNav.renderNav(document.getElementById('qtron-nav'));</script>
 
 <!-- Badges moved to nav bar -->
 
 <main>
-    <!-- Status Bar (KR-style) -->
-    <div class="status-bar" id="status-bar">
-        <div class="status-health">
-            <div id="status-led" class="status-led"></div>
-            <div>
-                <div id="status-title" class="status-title">Initializing...</div>
-                <div id="status-reason" class="status-reason">Loading status...</div>
-            </div>
-        </div>
-        <div class="status-meta">
-            <div class="status-meta-item">
-                <span class="status-meta-label">Server</span>
-                <span id="st-server" class="status-meta-value">--</span>
-            </div>
-            <div class="status-meta-item">
-                <span class="status-meta-label">Market</span>
-                <span id="st-market" class="status-meta-value">--</span>
-                <span id="st-market-sub" class="status-meta-sub"></span>
-            </div>
-            <div class="status-meta-item">
-                <span class="status-meta-label">Last Sync</span>
-                <span id="st-sync" class="status-meta-value">--</span>
-            </div>
-            <div class="status-meta-item">
-                <span class="status-meta-label">SPY</span>
-                <span id="st-spy" class="status-meta-value">--</span>
-                <span id="st-spy-chg" class="status-meta-sub"></span>
-            </div>
-        </div>
-        <div class="status-badges">
-            <span id="st-buy-badge" class="sbadge sbadge-normal">BUY: --</span>
-            <span id="st-regime-badge" class="sbadge sbadge-regime-3">REGIME: --</span>
-        </div>
-    </div>
+    <!-- Status-bar removed: info moved to nav bar (PAPER/CLOSED/LED/SPY) + badges below -->
 
     <!-- Hero -->
     <div class="hero">
-        <div class="hero-meta">
-            <div class="meta-item">
-                <span class="meta-label">Equity</span>
-                <span id="hero-equity" class="meta-value">--</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="hero-meta" style="margin-top:0;">
+                <div class="meta-item">
+                    <span class="meta-label">Equity</span>
+                    <span id="hero-equity" class="meta-value">--</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Cash</span>
+                    <span id="hero-cash" class="meta-value">--</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">P&L</span>
+                    <span id="hero-pnl" class="meta-value">--</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Positions</span>
+                    <span id="hero-positions" class="meta-value">--</span>
+                </div>
             </div>
-            <div class="meta-item">
-                <span class="meta-label">Cash</span>
-                <span id="hero-cash" class="meta-value">--</span>
-            </div>
-            <div class="meta-item">
-                <span class="meta-label">P&L</span>
-                <span id="hero-pnl" class="meta-value">--</span>
-            </div>
-            <div class="meta-item">
-                <span class="meta-label">Positions</span>
-                <span id="hero-positions" class="meta-value">--</span>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <span id="st-buy-badge" class="sbadge sbadge-normal">BUY: --</span>
+                <span id="st-regime-badge" class="sbadge sbadge-regime-3">REGIME: --</span>
             </div>
         </div>
     </div>
@@ -440,11 +414,7 @@ async function apiFetch(path) {
 async function refresh() {
     // Health
     const h = await apiFetch('/api/health');
-    $('server-badge').textContent = h.server_type || '--';
-    $('server-badge').className = 'badge ' + (h.server_type === 'PAPER' ? 'badge-paper' : 'badge-live');
-    $('market-badge').textContent = h.is_market_open ? 'OPEN' : 'CLOSED';
-    $('market-badge').className = 'badge ' + (h.is_market_open ? 'badge-open' : 'badge-closed');
-    // Nav badges (moved from separate header)
+    // Nav badges: PAPER/LIVE + OPEN/CLOSED + LED dot
     const nb = document.getElementById('qnav-badges');
     if (nb) {
         const svr = h.server_type || 'PAPER';
@@ -852,51 +822,27 @@ async function refreshStatus() {
         if (s.error) return;
 
         // LED
-        const led = $('status-led');
-        led.className = 'status-led ' + ({OK:'led-green', WARN:'led-yellow', ERROR:'led-red'}[s.status] || '');
-
-        // Title + Reason
-        $('status-title').textContent = s.status_title || '--';
-        $('status-reason').textContent = s.status_reason || '';
-
-        // Meta: Server
-        $('st-server').textContent = s.server_type || '--';
-        $('st-server').style.color = s.server_type === 'LIVE' ? 'var(--red)' : 'var(--accent)';
-
-        // Meta: Market
-        $('st-market').textContent = s.is_market_open ? 'Open' : 'Closed';
-        $('st-market').style.color = s.is_market_open ? 'var(--green)' : 'var(--muted)';
-        // Next open/close
-        const nextTime = s.is_market_open ? s.next_close : s.next_open;
-        if (nextTime) {
-            const label = s.is_market_open ? 'Close' : 'Open';
-            $('st-market-sub').textContent = label + ' ' + nextTime.substring(11, 16);
-        }
-
-        // Meta: Last Sync
-        $('st-sync').textContent = s.last_refresh || '--';
-
-        // Meta: SPY
+        // Nav: SPY index
         if (s.spy && s.spy.price > 0) {
-            $('st-spy').textContent = s.spy.price.toFixed(2);
             const chg = s.spy.change_pct;
-            $('st-spy-chg').textContent = (chg >= 0 ? '+' : '') + chg.toFixed(1) + '%';
-            $('st-spy-chg').style.color = chg >= 0 ? 'var(--green)' : 'var(--red)';
-            // Nav bar index
             const ni = document.getElementById('qnav-index');
             if (ni) ni.innerHTML = `SPY ${s.spy.price.toFixed(2)} <span class="chg ${chg>=0?'up':'dn'}">${chg>=0?'+':''}${chg.toFixed(1)}%</span>`;
         }
 
-        // Badge: BUY gate
+        // Hero: BUY gate badge
         const buyBadge = $('st-buy-badge');
-        buyBadge.textContent = 'BUY: ' + s.buy_gate;
-        buyBadge.className = 'sbadge ' + (s.buy_gate === 'NORMAL' ? 'sbadge-normal' : s.buy_gate === 'BLOCKED' ? 'sbadge-blocked' : 'sbadge-warn');
-        if (s.buy_reason) buyBadge.title = s.buy_reason;
+        if (buyBadge) {
+            buyBadge.textContent = 'BUY: ' + s.buy_gate;
+            buyBadge.className = 'sbadge ' + (s.buy_gate === 'NORMAL' ? 'sbadge-normal' : s.buy_gate === 'BLOCKED' ? 'sbadge-blocked' : 'sbadge-warn');
+            if (s.buy_reason) buyBadge.title = s.buy_reason;
+        }
 
-        // Badge: Regime
+        // Hero: Regime badge
         const regBadge = $('st-regime-badge');
-        regBadge.textContent = 'REGIME: ' + (s.regime_label || 'N/A');
-        regBadge.className = 'sbadge ' + (REGIME_CLASS_MAP[s.regime_level] || 'sbadge-regime-3');
+        if (regBadge) {
+            regBadge.textContent = 'REGIME: ' + (s.regime_label || 'N/A');
+            regBadge.className = 'sbadge ' + (REGIME_CLASS_MAP[s.regime_level] || 'sbadge-regime-3');
+        }
 
     } catch(e) { console.error('Status bar error:', e); }
 }

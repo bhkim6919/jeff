@@ -202,3 +202,7 @@
 .qnav-index .chg { font-size: 10px; margin-left: 4px; }
 .qnav-index .chg.up { color: #10b981; }
 .qnav-index .chg.dn { color: #ef4444; }
+
+/* KR convention: 상승=빨강, 하락=파랑 */
+.qnav-index .chg.kr-up { color: #ef4444; }
+.qnav-index .chg.kr-dn { color: #3b82f6; }

@@ -223,26 +223,29 @@ function updateHero(data) {
 
     // Nav badges (REAL + dot + mode switch)
     const nb = document.getElementById('qnav-badges');
-    if (nb && !nb._initialized) {
-        const svr = data.server?.type || 'REAL';
+    if (nb) {
+        const svr = data.server?.type || '--';
         const dotCls = statusLower === 'green' ? 'ok' : statusLower === 'red' ? 'err' : '';
-        nb.innerHTML =
-            `<span class="qnav-badge qnav-badge-${svr.toLowerCase()}">${svr}</span>` +
-            `<span id="nav-dot" class="qnav-dot ${dotCls}"></span>` +
-            `<div class="qnav-mode-toggle" id="nav-mode-switch">` +
-                `<button class="qnav-mode" data-mode="basic" onclick="switchMode('basic')">Basic</button>` +
-                `<button class="qnav-mode" data-mode="operator" onclick="switchMode('operator')">Operator</button>` +
-                `<button class="qnav-mode" data-mode="debug" onclick="switchMode('debug')">Debug</button>` +
-            `</div>`;
-        nb._initialized = true;
-        // Sync active mode button
-        nb.querySelectorAll('.qnav-mode').forEach(b => {
-            b.classList.toggle('active', b.dataset.mode === currentMode);
-        });
-    } else if (nb) {
-        // Update dot color only
+        // Build once, then update
+        if (!nb._initialized) {
+            nb.innerHTML =
+                `<span id="nav-svr" class="qnav-badge qnav-badge-${svr.toLowerCase()}">${svr}</span>` +
+                `<span id="nav-dot" class="qnav-dot ${dotCls}"></span>` +
+                `<div class="qnav-mode-toggle">` +
+                    `<button class="qnav-mode" data-mode="basic" onclick="switchMode('basic')">Basic</button>` +
+                    `<button class="qnav-mode" data-mode="operator" onclick="switchMode('operator')">Operator</button>` +
+                    `<button class="qnav-mode" data-mode="debug" onclick="switchMode('debug')">Debug</button>` +
+                `</div>`;
+            nb._initialized = true;
+            nb.querySelectorAll('.qnav-mode').forEach(b => {
+                b.classList.toggle('active', b.dataset.mode === currentMode);
+            });
+        }
+        // Always update badge + dot
+        const navSvr = document.getElementById('nav-svr');
+        if (navSvr) { navSvr.textContent = svr; navSvr.className = 'qnav-badge qnav-badge-' + svr.toLowerCase(); }
         const navDot = document.getElementById('nav-dot');
-        if (navDot) navDot.className = 'qnav-dot ' + (statusLower === 'green' ? 'ok' : statusLower === 'red' ? 'err' : '');
+        if (navDot) navDot.className = 'qnav-dot ' + dotCls;
     }
 }
 
@@ -1675,10 +1678,10 @@ function updateIndexDisplay(data) {
     value.className = 'meta-value ' + (idx.change_pct >= 0 ? 'positive' : 'negative');
     if (idx.stale) value.className += ' stale-text';
 
-    // Nav bar index (코스피)
+    // Nav bar index (코스피: 상승=빨강, 하락=파랑 — 한국 관례)
     const ni = document.getElementById('qnav-index');
     if (ni && idx.price) {
-        const chgCls = idx.change_pct >= 0 ? 'up' : 'dn';
+        const chgCls = idx.change_pct >= 0 ? 'kr-up' : 'kr-dn';
         ni.innerHTML = `${idx.name || 'KOSPI'} ${idx.price.toLocaleString(undefined,{maximumFractionDigits:1})} <span class="chg ${chgCls}">${sign}${idx.change_pct.toFixed(1)}%</span>`;
     }
 }
