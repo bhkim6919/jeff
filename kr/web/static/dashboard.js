@@ -1674,6 +1674,13 @@ function updateIndexDisplay(data) {
     value.textContent = idx.price.toLocaleString(undefined, {maximumFractionDigits: 1}) + ' ' + sign + idx.change_pct.toFixed(1) + '%';
     value.className = 'meta-value ' + (idx.change_pct >= 0 ? 'positive' : 'negative');
     if (idx.stale) value.className += ' stale-text';
+
+    // Nav bar index (코스피)
+    const ni = document.getElementById('qnav-index');
+    if (ni && idx.price) {
+        const chgCls = idx.change_pct >= 0 ? 'up' : 'dn';
+        ni.innerHTML = `${idx.name || 'KOSPI'} ${idx.price.toLocaleString(undefined,{maximumFractionDigits:1})} <span class="chg ${chgCls}">${sign}${idx.change_pct.toFixed(1)}%</span>`;
+    }
 }
 
 // ── Donut Chart ─────────────────────────────────────────────

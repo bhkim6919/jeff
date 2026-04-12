@@ -196,3 +196,9 @@
 .qnav-mode-toggle { display: flex; background: #161b22; border-radius: 6px; overflow: hidden; }
 .qnav-mode { padding: 2px 8px; font-size: 10px; border: none; background: transparent; color: #8b949e; cursor: pointer; }
 .qnav-mode.active { background: #1f6feb; color: #fff; }
+
+/* Nav index display (KOSPI / SPY) */
+.qnav-index { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; margin-right: 8px; color: #e5e7eb; }
+.qnav-index .chg { font-size: 10px; margin-left: 4px; }
+.qnav-index .chg.up { color: #10b981; }
+.qnav-index .chg.dn { color: #ef4444; }

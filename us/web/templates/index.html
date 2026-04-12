@@ -882,6 +882,9 @@ async function refreshStatus() {
             const chg = s.spy.change_pct;
             $('st-spy-chg').textContent = (chg >= 0 ? '+' : '') + chg.toFixed(1) + '%';
             $('st-spy-chg').style.color = chg >= 0 ? 'var(--green)' : 'var(--red)';
+            // Nav bar index
+            const ni = document.getElementById('qnav-index');
+            if (ni) ni.innerHTML = `SPY ${s.spy.price.toFixed(2)} <span class="chg ${chg>=0?'up':'dn'}">${chg>=0?'+':''}${chg.toFixed(1)}%</span>`;
         }
 
         // Badge: BUY gate
