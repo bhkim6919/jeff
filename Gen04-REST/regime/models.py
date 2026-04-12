@@ -37,13 +37,19 @@ REGIME_COLORS = {
 
 # ── Feature Weights (sum = 1.0) ───────────────────────────────
 
+# v2: micro 제거 → breadth 독립 축
 FEATURE_WEIGHTS: Dict[str, float] = {
     "global": 0.30,
     "vol": 0.20,
     "domestic": 0.30,
-    "micro": 0.10,
+    "breadth": 0.10,    # v2: domestic에서 분리
     "fx": 0.10,
 }
+
+# ── EMA Smoothing (v2) ─────────────────────────────────
+EMA_ALPHA = 0.5
+PERSISTENCE_DEAD_ZONE = 0.05
+PERSISTENCE_FORCE_ZONE = 0.15
 
 # ── Composite → Regime Thresholds ─────────────────────────────
 # Walk in order; first match wins. Outside all → STRONG_BULL.

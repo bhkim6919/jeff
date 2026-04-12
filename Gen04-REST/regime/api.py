@@ -167,7 +167,15 @@ async def regime_predict():
     try:
         provider = _get_provider()
         from regime.predictor import predict_regime
-        result = await asyncio.to_thread(predict_regime, provider)
+        from regime.storage import load_latest_json
+        # v2: EMA + persistence from previous prediction (latest.json has ema_score)
+        prev = load_latest_json()
+        prev_ema = prev.get("ema_score") if prev else None
+        prev_reg = prev.get("predicted_regime") if prev else None
+        result = await asyncio.to_thread(
+            predict_regime, provider,
+            prev_ema_score=prev_ema, prev_regime=prev_reg,
+        )
         return result
     except Exception as e:
         logger.error(f"[API] Predict failed: {e}")

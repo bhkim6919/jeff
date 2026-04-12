@@ -36,10 +36,15 @@ REGIME_COLORS = {
 # US market: SPY/QQQ dominant, VIX important, DXY minor
 FEATURE_WEIGHTS = {
     "index":  0.40,   # SPY + QQQ
-    "vol":    0.25,   # VIX level + spike
-    "sector": 0.20,   # Sector breadth (advance/decline across 11 sectors)
-    "fx":     0.15,   # DXY (USD strength, inverse)
+    "vol":    0.25,   # VIX level only (v2: spike penalty 제거)
+    "sector": 0.20,   # Sector breadth (v2: ×2 완화)
+    "fx":     0.15,   # UUP (USD strength, inverse)
 }
+
+# ── EMA Smoothing (v2) ─────────────────────────────────
+EMA_ALPHA = 0.5           # span=3 equivalent
+PERSISTENCE_DEAD_ZONE = 0.05   # threshold 근처 흔들림 방지
+PERSISTENCE_FORCE_ZONE = 0.15  # 강제 전환 거리
 
 # ── Composite Score → Regime Thresholds ─────────────────
 # More conservative for US (lower vol than KR)

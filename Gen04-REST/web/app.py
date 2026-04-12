@@ -2306,7 +2306,15 @@ async def _regime_background_task() -> None:
                 if not existing:
                     provider = _get_global_provider()
                     from regime.predictor import predict_regime
-                    _result = await asyncio.to_thread(predict_regime, provider)
+                    # v2: EMA + persistence (latest.json has ema_score)
+                    from regime.storage import load_latest_json as _load_lj
+                    _prev = _load_lj()
+                    _prev_ema = _prev.get("ema_score") if _prev else None
+                    _prev_reg = _prev.get("predicted_regime") if _prev else None
+                    _result = await asyncio.to_thread(
+                        predict_regime, provider,
+                        prev_ema_score=_prev_ema, prev_regime=_prev_reg,
+                    )
                     if not _result.get("unavailable"):
                         _portfolio_cache["_regime_predict_date"] = _today_str
                         logging.getLogger("web").info(

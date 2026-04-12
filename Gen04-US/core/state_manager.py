@@ -298,10 +298,11 @@ class StateManagerUS:
 
     def update_rebal_state(self, updates: dict) -> bool:
         """Atomic merge rebal fields into runtime_state + save."""
+        _EXTRA_ALLOWED = {"prev_regime_ema", "prev_regime_level"}
         with self._lock:
             rt = self.load_runtime() or {}
             for k, v in updates.items():
-                if k in _REBAL_DEFAULTS or k in ("saved_at", "version_seq"):
+                if k in _REBAL_DEFAULTS or k in _EXTRA_ALLOWED or k in ("saved_at", "version_seq"):
                     rt[k] = v
             ts = _now_iso()
             seq = self._next_seq()

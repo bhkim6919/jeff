@@ -157,9 +157,22 @@ def create_app() -> FastAPI:
                 from regime.predictor import predict_regime
                 from regime.actual import calculate_actual
                 market_data = collect_market_data(provider=p)
+                # v2: EMA + persistence from runtime_state
+                _sm = _get_state_mgr()
+                _rt = _sm.load_runtime() or {}
+                _pred = predict_regime(
+                    market_data,
+                    prev_ema_score=_rt.get("prev_regime_ema"),
+                    prev_regime=_rt.get("prev_regime_level"),
+                )
+                # Save EMA state
+                _sm.update_rebal_state({
+                    "prev_regime_ema": _pred["ema_score"],
+                    "prev_regime_level": _pred["predicted_regime"],
+                })
                 rd = {
                     "today": calculate_actual(market_data),
-                    "prediction": predict_regime(market_data),
+                    "prediction": _pred,
                 }
             today = rd.get("today") or {}
             pred = rd.get("prediction") or {}
@@ -482,7 +495,18 @@ def create_app() -> FastAPI:
             market_data = collect_market_data(provider=p)
 
             today = calculate_actual(market_data)
-            prediction = predict_regime(market_data)
+            # v2: EMA + persistence
+            _sm2 = _get_state_mgr()
+            _rt2 = _sm2.load_runtime() or {}
+            prediction = predict_regime(
+                market_data,
+                prev_ema_score=_rt2.get("prev_regime_ema"),
+                prev_regime=_rt2.get("prev_regime_level"),
+            )
+            _sm2.update_rebal_state({
+                "prev_regime_ema": prediction["ema_score"],
+                "prev_regime_level": prediction["predicted_regime"],
+            })
 
             # Sector regime from collected data
             sectors = []

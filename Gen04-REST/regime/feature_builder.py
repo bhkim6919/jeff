@@ -72,12 +72,8 @@ def build_vol_score(vix: Dict) -> Tuple[float, bool]:
     else:
         level_score = -1.0
 
-    # VIX spike penalty
-    spike_penalty = 0.0
-    if change_pct is not None and change_pct > 0.20:
-        spike_penalty = -0.3
-
-    score = _clamp(level_score + spike_penalty)
+    # v2: spike penalty 제거 — Global 축에서 이미 반영
+    score = _clamp(level_score)
     return round(score, 4), True
 
 
@@ -100,16 +96,24 @@ def build_domestic_score(kospi: Dict, kosdaq: Dict) -> Tuple[float, bool]:
     elif kosdaq_ok and not kospi_ok:
         score = score / 0.3
 
-    # Breadth bonus (if available)
-    if kospi_ok and kospi.get("data"):
-        rising = kospi["data"].get("rising", 0)
-        falling = kospi["data"].get("falling", 0)
-        total = rising + falling
-        if total > 0:
-            breadth = (rising - falling) / total
-            score = _clamp(score + breadth * 0.2)
-
+    # v2: breadth bonus 제거 — breadth 독립 축으로 분리
     return round(_clamp(score), 4), True
+
+
+def build_breadth_score(kospi: Dict) -> Tuple[float, bool]:
+    """v2: Breadth 독립 축. (ratio - 0.5) × 2."""
+    if not kospi.get("ok") or not kospi.get("data"):
+        return 0.0, False
+
+    rising = kospi["data"].get("rising", 0)
+    falling = kospi["data"].get("falling", 0)
+    total = rising + falling
+    if total <= 0:
+        return 0.0, False
+
+    ratio = rising / total
+    score = _clamp((ratio - 0.5) * 2)
+    return round(score, 4), True
 
 
 def build_micro_score(strength: Dict) -> Tuple[float, bool]:
