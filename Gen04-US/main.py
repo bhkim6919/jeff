@@ -188,6 +188,51 @@ def run_batch():
 
     # Telegram
     notify_batch_complete(len(universe), len(top))
+
+    # ── snapshot_version 저장 (서버 API 경유 — 프로세스 간 충돌 방지) ──
+    try:
+        from core.state_manager import get_business_date_et, US_ET
+        from zoneinfo import ZoneInfo
+
+        # business_date
+        try:
+            from data.alpaca_provider import AlpacaProvider
+            prov = AlpacaProvider(config)
+            today_bd = get_business_date_et(prov)
+        except Exception:
+            today_bd = get_business_date_et()
+
+        et_now = datetime.now(ZoneInfo("US/Eastern"))
+        sv = f"{today_bd}_batch_{int(et_now.timestamp())}"
+
+        # 서버 API로 저장 (uvicorn 프로세스와 충돌 방지)
+        import requests as _req
+        try:
+            resp = _req.post("http://localhost:8081/api/rebalance/phase", json={
+                "phase": "BATCH_DONE",
+            }, timeout=5)
+        except Exception:
+            pass  # phase 전이 실패해도 직접 저장으로 fallback
+
+        # 직접 파일 저장 (서버가 안 떠있을 때 대비)
+        import json as _json
+        rt_path = config.STATE_DIR / f"runtime_state_us_{config.TRADING_MODE}.json"
+        rt = {}
+        if rt_path.exists():
+            with open(rt_path, "r", encoding="utf-8") as f:
+                rt = _json.load(f)
+        rt["snapshot_version"] = sv
+        rt["snapshot_created_at"] = et_now.isoformat()
+        rt["last_batch_business_date"] = today_bd
+        rt["batch_fresh"] = True
+        rt["rebal_phase"] = "BATCH_DONE"
+        with open(rt_path, "w", encoding="utf-8") as f:
+            _json.dump(rt, f, ensure_ascii=False, indent=2, default=str)
+
+        print(f"  [US_BATCH_OK] snapshot={sv}")
+    except Exception as e:
+        print(f"  [US_BATCH_SNAPSHOT_FAIL] {e}")
+
     print(f"\n{'='*50}")
     print(f"Batch complete!")
     print(f"{'='*50}\n")
@@ -246,6 +291,29 @@ def run_live():
     if open_orders:
         for o in open_orders:
             logger.warning(f"  [OPEN_ORDER] {o['side']} {o['code']} x{o['qty']} ({o['status']})")
+
+    # ── Phase 1.5: Cancel stale open orders ─────────────
+    _buy_blocked_startup = False
+    if open_orders:
+        logger.warning(f"[STARTUP_CANCEL] {len(open_orders)} open orders found — cancelling all...")
+        n = provider.cancel_all_open_orders()
+        if n is None:
+            logger.critical("[STARTUP_CANCEL_FAIL] cancel_all returned None")
+            _buy_blocked_startup = True
+        else:
+            logger.info(f"[STARTUP_CANCEL] Cancelled {n} orders — waiting 1s...")
+            time.sleep(1)
+            open_orders = provider.query_open_orders() or []
+            if open_orders:
+                logger.critical(f"[STARTUP_CANCEL_INCOMPLETE] {len(open_orders)} orders remain"
+                                " — BUY/rebalance blocked, SELL/trail allowed")
+                _buy_blocked_startup = True
+                for o in open_orders:
+                    logger.critical(f"  [REMAINING] {o['side']} {o['code']} x{o['qty']}")
+            else:
+                logger.info("[STARTUP_CANCEL_OK] All open orders cleared")
+    else:
+        logger.info("[STARTUP_CANCEL] No open orders — clean startup")
 
     # ── Phase 2: State Load + RECON ──────────────────────
     logger.info("[LIVE] Phase 2: State load + RECON...")
@@ -378,7 +446,55 @@ def run_live():
             portfolio.update_prices(prices, ts)
             runtime_data["last_price_update_at"] = ts
 
-            # 6. Trail stop evaluation
+            # 5.4 Startup block release check (2-pass to prevent late fill race)
+            if _buy_blocked_startup:
+                _still_open = provider.query_open_orders() or []
+                _fill_pending = len(_pending_fills) > 0
+                logger.info(f"[STARTUP_BLOCK_RELEASE_CHECK] "
+                            f"open_orders={len(_still_open)} fill_queue={len(_pending_fills)}")
+                if not _still_open and not _fill_pending:
+                    # 2nd check after brief settle (late fill race defense)
+                    time.sleep(0.5)
+                    provider.process_events()
+                    _fill_pending_2 = len(_pending_fills) > 0
+                    if not _fill_pending_2:
+                        _buy_blocked_startup = False
+                        runtime_data["buy_blocked"] = False
+                        logger.info("[STARTUP_BLOCK_RELEASED] open_orders=0, "
+                                    "fill_queue=0 (2-pass confirmed)")
+                        notify.send("Startup block released - BUY enabled", "INFO")
+                    else:
+                        logger.warning("[STARTUP_BLOCK_HELD] late fill detected in 2nd pass")
+
+            # 5.5 DD Guard — buy_blocked evaluation
+            _equity = portfolio.get_equity()
+            _daily_pnl = portfolio.get_daily_pnl_pct() if hasattr(portfolio, 'get_daily_pnl_pct') else 0
+            _monthly_dd = portfolio.get_monthly_dd_pct() if hasattr(portfolio, 'get_monthly_dd_pct') else 0
+            _buy_scale = 1.0
+            _dd_label = "NORMAL"
+
+            for _thresh, _scale, _trim, _label in config.DD_LEVELS:
+                if _monthly_dd <= _thresh:
+                    _buy_scale = _scale
+                    _dd_label = _label
+                    break
+
+            if _daily_pnl <= config.DAILY_DD_LIMIT and _buy_scale > 0:
+                _buy_scale = 0.0
+                _dd_label = "DAILY_BLOCKED"
+
+            _buy_blocked = _buy_blocked_startup or _buy_scale == 0.0
+
+            if _dd_label != "NORMAL":
+                logger.warning(f"[DD_GUARD] {_dd_label} daily={_daily_pnl:.2%} "
+                               f"monthly={_monthly_dd:.2%} buy_scale={_buy_scale:.0%}")
+
+            # Persist DD state for dashboard / future rebalance
+            runtime_data["dd_label"] = _dd_label
+            runtime_data["buy_scale"] = _buy_scale
+            runtime_data["buy_blocked"] = _buy_blocked
+
+            # 6. Trail stop evaluation (SELL always allowed)
             triggered, near = portfolio.check_trail_stops()
 
             for sym in triggered:

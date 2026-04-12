@@ -82,6 +82,37 @@ def send(text: str, severity: str = "INFO") -> bool:
         return False
 
 
+def send_photo(photo_bytes: bytes, caption: str = "", filename: str = "image.png") -> bool:
+    """
+    Send photo to Telegram. Non-blocking, never raises.
+    photo_bytes: raw image bytes (PNG/JPEG).
+    """
+    try:
+        if not _init():
+            return False
+
+        import requests
+        url = f"https://api.telegram.org/bot{_BOT_TOKEN}/sendPhoto"
+        files = {"photo": (filename, photo_bytes)}
+        data = {"chat_id": _CHAT_ID}
+        if caption:
+            data["caption"] = caption
+            data["parse_mode"] = "HTML"
+
+        resp = requests.post(url, data=data, files=files, timeout=15)
+
+        if resp.status_code == 200:
+            logger.info(f"[Telegram] Photo sent: {filename} ({len(photo_bytes)} bytes)")
+            return True
+        else:
+            logger.warning(f"[Telegram] Photo HTTP {resp.status_code}: {resp.text[:100]}")
+            return False
+
+    except Exception as e:
+        logger.warning(f"[Telegram] Photo send failed: {e}")
+        return False
+
+
 # ── Formatted Messages ────────────────────────────────────────
 
 def notify_regime_change(prev_label: str, new_label: str, score: float) -> bool:
@@ -198,10 +229,18 @@ def _default_commands():
             "/db         - DB Health Check\n"
             "/alert on/off - 알림 토글\n\n"
             "<b>US Market</b>\n"
-            "/us_status     - Alpaca 계정 ($)\n"
-            "/us_positions  - US 보유종목\n"
+            "/us_status     - Alpaca 계정 요약\n"
+            "/us_account    - Equity/Cash/BP\n"
+            "/us_portfolio  - US 보유종목 상세\n"
+            "/us_positions  - US 보유종목 (간략)\n"
+            "/us_regime     - SPY/VIX/섹터 레짐\n"
+            "/us_target     - 타겟 포트폴리오\n"
+            "/us_orders     - 미체결 주문\n"
+            "/us_rebal      - US 리밸 프리뷰\n"
             "/us_trail      - US trail stop 근접\n"
-            "/us_rebal      - US 리밸 프리뷰\n\n"
+            "/us_fx         - USD/KRW 환율\n"
+            "/us_tax        - 양도세 추정\n"
+            "/us_health     - US DB 상태\n\n"
             "<b>Cross-Market</b>\n"
             "/market     - KR + US 통합 요약\n"
             "/help       - 이 도움말"
@@ -507,22 +546,45 @@ def _default_commands():
 
     def cmd_us_rebal(chat_id, args):
         try:
-            target = _api_us("/api/target")
-            portfolio = _api_us("/api/portfolio")
-            if target.get("error"):
-                return "[US] No target portfolio"
-            target_syms = set(target.get("target_tickers", []))
-            current_syms = set(h["code"] for h in portfolio.get("holdings", []))
-            new_entries = sorted(target_syms - current_syms)
-            exits = sorted(current_syms - target_syms)
-            keeps = sorted(target_syms & current_syms)
-            return (
-                f"<b>[US] Rebalance Preview</b>\n"
-                f"Target: {len(target_syms)} | Current: {len(current_syms)}\n"
-                f"New: {len(new_entries)} | Exit: {len(exits)} | Keep: {len(keeps)}\n"
-                f"▲ {', '.join(new_entries[:5])}\n"
-                f"▼ {', '.join(exits[:5])}"
-            )
+            data = _api_us("/api/rebalance/preview", timeout=10)
+            if not data.get("ok"):
+                # Fallback: simple target vs current comparison
+                target = _api_us("/api/target")
+                portfolio = _api_us("/api/portfolio")
+                if target.get("error"):
+                    return "[US] No target portfolio"
+                target_syms = set(target.get("target_tickers", []))
+                current_syms = set(h["code"] for h in portfolio.get("holdings", []))
+                new_entries = sorted(target_syms - current_syms)
+                exits = sorted(current_syms - target_syms)
+                keeps = sorted(target_syms & current_syms)
+                return (
+                    f"<b>[US] Rebalance Preview</b>\n"
+                    f"Target: {len(target_syms)} | Current: {len(current_syms)}\n"
+                    f"New: {len(new_entries)} | Exit: {len(exits)} | Keep: {len(keeps)}\n"
+                    f"▲ {', '.join(new_entries[:5])}\n"
+                    f"▼ {', '.join(exits[:5])}"
+                )
+
+            sells = data.get("sells", [])
+            buys = data.get("buys", [])
+            eq = data.get("equity", 0)
+            cash = data.get("cash", 0)
+            buy_ok = "✅" if data.get("buy_allowed") else f"❌ {data.get('buy_reason', '')}"
+
+            lines = [
+                f"<b>[US] Rebalance Preview</b>",
+                f"Target: {data.get('target_date', '?')} ({data.get('target_count', 0)}종목)",
+                f"Equity: ${eq:,.2f} | Cash: ${cash:,.2f}",
+                f"BUY gate: {buy_ok}",
+                f"\nSELL ({len(sells)}):",
+            ]
+            for s in sells[:10]:
+                lines.append(f"  ▼ {s['symbol']} x{s['qty']} ({s.get('reason', '')})")
+            lines.append(f"\nBUY ({len(buys)}):")
+            for b in buys[:10]:
+                lines.append(f"  ▲ {b['symbol']} x{b['qty']} (${b.get('amount', 0):,.0f})")
+            return "\n".join(lines)
         except Exception as e:
             return f"[US] 서버 연결 실패: {e}"
 
@@ -569,10 +631,174 @@ def _default_commands():
             return "KR + US 모두 연결 실패"
         return _fmt_market(kr_data, us_data, kr_ts, us_ts)
 
+    def cmd_us_regime(chat_id, args):
+        try:
+            data = _api_us("/api/regime/current", timeout=5)
+            if data.get("error"):
+                return f"[US] Regime 조회 실패: {data['error']}"
+            today = data.get("today", {})
+            pred = data.get("prediction", {})
+            sectors = data.get("sectors", [])
+
+            today_label = today.get("actual_label", "?")
+            pred_label = pred.get("predicted_label", "?")
+            pred_score = pred.get("composite_score", 0)
+            pred_conf = pred.get("confidence_flag", "?")
+
+            breadth = data.get("breadth", {})
+            adv = breadth.get("advancers", 0)
+            dec = breadth.get("decliners", 0)
+
+            lines = [
+                f"<b>[US] Market Regime</b>",
+                f"Today: {today_label}",
+                f"Prediction: {pred_label} ({pred_score:.2f}, {pred_conf})",
+            ]
+            if adv or dec:
+                lines.append(f"Breadth: ▲{adv} ▼{dec}")
+            if sectors:
+                lines.append(f"\n<b>Sectors</b>")
+                for s in sectors[:11]:
+                    chg = s.get("change_pct", 0)
+                    icon = "🟢" if chg >= 0 else "🔴"
+                    n_hold = s.get("holdings_count", 0)
+                    hold_tag = f" [{n_hold}]" if n_hold else ""
+                    lines.append(f"{icon} {s['name']}: {chg:+.2f}%{hold_tag}")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"[US] 서버 연결 실패: {e}"
+
+    def cmd_us_account(chat_id, args):
+        try:
+            acct = _api_us("/api/account")
+            return (
+                f"<b>[US] Account</b>\n"
+                f"Equity: ${acct.get('equity', 0):,.2f}\n"
+                f"Cash: ${acct.get('cash', 0):,.2f}\n"
+                f"Buying Power: ${acct.get('buying_power', 0):,.2f}\n"
+                f"Portfolio Value: ${acct.get('portfolio_value', 0):,.2f}"
+            )
+        except Exception as e:
+            return f"[US] 서버 연결 실패: {e}"
+
+    def cmd_us_portfolio(chat_id, args):
+        """Alias for us_positions with more detail."""
+        try:
+            p = _api_us("/api/portfolio")
+            holdings = p.get("holdings", [])
+            eq = p.get("equity", 0)
+            cash = p.get("cash", 0)
+            if not holdings:
+                return f"<b>[US] Portfolio</b>\nEquity: ${eq:,.2f} | Cash: ${cash:,.2f}\nNo holdings"
+            lines = []
+            for h in sorted(holdings, key=lambda x: -float(x.get("pnl_pct", 0))):
+                sym = h.get("code", "?")
+                pnl = float(h.get("pnl_pct", 0))
+                mv = float(h.get("market_value", 0))
+                sign = "🔴" if pnl >= 0 else "🔵"
+                lines.append(f"{sign} {sym}: {pnl:+.1f}% (${mv:,.0f})")
+            total_pnl = sum(float(h.get("pnl", 0)) for h in holdings)
+            return (
+                f"<b>[US] Portfolio ({len(holdings)})</b>\n"
+                f"Equity: ${eq:,.2f} | Cash: ${cash:,.2f}\n"
+                f"P&L: ${total_pnl:+,.2f}\n\n"
+                + "\n".join(lines)
+            )
+        except Exception as e:
+            return f"[US] 서버 연결 실패: {e}"
+
+    def cmd_us_target(chat_id, args):
+        try:
+            data = _api_us("/api/target")
+            if data.get("error"):
+                return f"[US] {data['error']}"
+            tickers = data.get("target_tickers", [])
+            scores = data.get("scores", {})
+            date = data.get("date", "?")
+            lines = [f"<b>[US] Target Portfolio</b> ({date})", f"종목: {len(tickers)}개\n"]
+            for sym in tickers[:20]:
+                sc = scores.get(sym, {})
+                vol = sc.get("vol_12m", 0)
+                mom = sc.get("mom_12_1", 0)
+                lines.append(f"  {sym}: vol={vol:.3f} mom={mom:+.1f}%")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"[US] 서버 연결 실패: {e}"
+
+    def cmd_us_orders(chat_id, args):
+        try:
+            data = _api_us("/api/orders/open")
+            orders = data.get("orders", [])
+            if not orders:
+                return "✅ [US] 미체결 주문 없음"
+            lines = [f"<b>[US] Open Orders ({len(orders)})</b>"]
+            for o in orders:
+                side = o.get("side", "?").upper()
+                sym = o.get("symbol", "?")
+                qty = o.get("qty", 0)
+                status = o.get("status", "?")
+                lines.append(f"  {side} {sym} x{qty} ({status})")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"[US] 서버 연결 실패: {e}"
+
+    def cmd_us_fx(chat_id, args):
+        try:
+            data = _api_us("/api/fx/usdkrw")
+            if not data.get("available"):
+                return "[US] 환율 조회 불가"
+            rate = data.get("rate", 0)
+            chg = data.get("change_pct", 0)
+            icon = "🔴" if chg >= 0 else "🔵"
+            return (
+                f"<b>[US] USD/KRW</b>\n"
+                f"{icon} {rate:,.2f}원 ({chg:+.2f}%)"
+            )
+        except Exception as e:
+            return f"[US] 환율 조회 실패: {e}"
+
+    def cmd_us_tax(chat_id, args):
+        try:
+            data = _api_us("/api/tax/estimate")
+            return (
+                f"<b>[US] 양도세 추정</b>\n"
+                f"미실현 P&L: ${data.get('unrealized_pnl_usd', 0):+,.2f}\n"
+                f"원화 환산: {data.get('unrealized_pnl_krw', 0):+,.0f}원\n"
+                f"환율: {data.get('usdkrw_rate', 0):,.2f}\n"
+                f"기본공제: {data.get('exemption_krw', 0):,.0f}원\n"
+                f"과세표준: {data.get('taxable_krw', 0):,.0f}원\n"
+                f"예상세금: {data.get('estimated_tax_krw', 0):,.0f}원\n"
+                f"세율: {data.get('tax_rate', '22%')}\n"
+                f"<i>{data.get('note', '')}</i>"
+            )
+        except Exception as e:
+            return f"[US] 세금 조회 실패: {e}"
+
+    def cmd_us_health(chat_id, args):
+        try:
+            data = _api_us("/api/db/health")
+            if data.get("status") == "ERROR":
+                return f"❌ [US] DB 오프라인: {data.get('error', '')}"
+            lines = [f"<b>[US] DB Health ({data.get('db_size', '?')})</b>"]
+            for t in data.get("tables", []):
+                icon = "✅" if t["status"] == "OK" else "⚠️" if t["status"] == "EMPTY" else "❌"
+                lines.append(f"{icon} {t['table']}: {t['rows']:,} ({t['latest']})")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"[US] DB 조회 실패: {e}"
+
     register_command("us_status", cmd_us_status)
     register_command("us_positions", cmd_us_positions)
     register_command("us_trail", cmd_us_trail)
     register_command("us_rebal", cmd_us_rebal)
+    register_command("us_regime", cmd_us_regime)
+    register_command("us_account", cmd_us_account)
+    register_command("us_portfolio", cmd_us_portfolio)
+    register_command("us_target", cmd_us_target)
+    register_command("us_orders", cmd_us_orders)
+    register_command("us_fx", cmd_us_fx)
+    register_command("us_tax", cmd_us_tax)
+    register_command("us_health", cmd_us_health)
     register_command("market", cmd_market)
 
 

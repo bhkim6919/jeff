@@ -106,33 +106,61 @@
 
         <!-- ====== Rebalance Control Panel (Operator+) ======== -->
         <section id="rebal-section" class="rebal-section mode-operator" hidden>
-            <div class="rebal-card">
-                <div class="rebal-icon">&#128197;</div>
-                <div class="rebal-label">Last Rebalance</div>
-                <div id="rebal-last" class="rebal-value">--</div>
-            </div>
-            <div class="rebal-card rebal-highlight">
-                <div class="rebal-icon">&#9200;</div>
-                <div class="rebal-label">Next</div>
-                <div id="rebal-next" class="rebal-value">--</div>
-                <div id="rebal-dday" class="rebal-dday">D-?</div>
-            </div>
-            <div class="rebal-card">
-                <div class="rebal-label">Phase</div>
-                <div id="rebal-phase" class="rebal-value" style="font-size:0.95em">IDLE</div>
-            </div>
-            <div class="rebal-card">
-                <div class="rebal-label">Mode</div>
-                <button id="rebal-mode-btn" class="rebal-mode-btn" onclick="toggleRebalMode()">MANUAL</button>
+            <!-- Status Summary (US-style compact panel) -->
+            <div class="rebal-status-bar" style="grid-column:1/-1;background:var(--card-bg,#111827);border:1px solid var(--border-color,#1f2937);border-radius:10px;padding:14px 18px;margin-bottom:8px;">
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                    <span style="font-size:11px;color:#6b7280;">Mode:</span>
+                    <button id="rebal-mode-btn" class="rebal-mode-btn" onclick="toggleRebalMode()">MANUAL</button>
+                    <span style="font-size:11px;color:#6b7280;">Phase:</span>
+                    <span id="rebal-phase" style="font-size:12px;font-weight:600;color:#a0aec0;">IDLE</span>
+                    <span id="rebal-dday" class="rebal-dday">D-?</span>
+                    <span id="rebal-next" style="font-size:11px;color:#6b7280;"></span>
+                </div>
+                <div style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap;font-size:11px;">
+                    <span>Last: <span id="rebal-last" style="color:#a0aec0;">--</span></span>
+                    <span>Sell: <span id="rebal-sell-status" style="color:#a0aec0;">--</span></span>
+                    <span>Buy: <span id="rebal-buy-status" style="color:#a0aec0;">--</span></span>
+                    <span>Window: <span id="rebal-window-status" style="color:#a0aec0;">--</span></span>
+                </div>
+                <div id="rebal-block-reasons" style="margin-top:6px;font-size:10px;color:#e53e3e;display:none;"></div>
             </div>
         </section>
 
-        <!-- Rebalance Action Panel (visible when in_window) -->
-        <section id="rebal-actions" class="rebal-actions" style="display:none">
+        <!-- Rebalance Action + Preview (통합, Operator+) -->
+        <section id="rebal-actions" class="rebal-actions mode-operator" hidden
             <div class="rebal-actions-header">
                 <span id="rebal-actions-title">Rebalance</span>
                 <span id="rebal-blocked-badge" class="badge badge-red" style="display:none">BLOCKED</span>
             </div>
+
+            <!-- 리밸런스 프리뷰 (신규/제외/유지) — 여기로 통합 -->
+            <div id="rebal-preview-compare" style="margin-bottom:12px;">
+                <div id="rebal-preview-header" class="rebal-preview-header" style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+                    <span id="rp-target-date" style="font-size:12px;color:#a0aec0;">Target: --</span>
+                    <span id="rp-dday" class="rebal-dday" style="font-size:14px;">D-?</span>
+                    <button id="btn-rp-refresh" class="btn-sm" onclick="loadRebalPreview()">새로고침</button>
+                </div>
+                <div id="rebal-preview-content">
+                    <div class="rp-group">
+                        <h4 class="rp-group-title rp-new">&#9650; 신규 편입</h4>
+                        <div id="rp-new-entries" class="rp-list">--</div>
+                    </div>
+                    <div class="rp-group">
+                        <h4 class="rp-group-title rp-exit">&#9660; 제외 예정</h4>
+                        <div id="rp-exits" class="rp-list">--</div>
+                    </div>
+                    <div class="rp-group">
+                        <h4 class="rp-group-title rp-keep">&#9654; 유지</h4>
+                        <div id="rp-unchanged" class="rp-list">--</div>
+                    </div>
+                    <div class="rp-group">
+                        <h4 class="rp-group-title">&#128197; 최적 리밸런스일</h4>
+                        <div id="rp-optimal" class="rp-optimal">향후 구현 예정 (과거 패턴 분석 기반 추천)</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 실행 버튼 -->
             <div class="rebal-btn-group">
                 <button id="btn-rebal-preview" class="rebal-btn rebal-btn-preview"
                         onclick="rebalPreview()">Preview</button>
@@ -143,7 +171,7 @@
                 <button id="btn-rebal-skip" class="rebal-btn rebal-btn-skip"
                         onclick="rebalSkip()">Skip Cycle</button>
             </div>
-            <!-- Preview results -->
+            <!-- Preview results (주문 상세) -->
             <div id="rebal-preview-area" style="display:none">
                 <div class="rebal-preview-grid">
                     <div class="rebal-preview-col">
@@ -384,33 +412,7 @@
             </div>
         </section>
 
-        <!-- ====== Rebalance Preview (Operator+, 보유종목 아래) == -->
-        <section id="rebal-preview-section" class="section mode-operator" hidden>
-            <h3 class="section-title">리밸런스 프리뷰</h3>
-            <div id="rebal-preview-header" class="rebal-preview-header">
-                <span id="rp-target-date">Target: --</span>
-                <span id="rp-dday" class="rebal-dday">D-?</span>
-                <button id="btn-rp-refresh" class="btn-sm" onclick="loadRebalPreview()">새로고침</button>
-            </div>
-            <div id="rebal-preview-content">
-                <div class="rp-group">
-                    <h4 class="rp-group-title rp-new">&#9650; 신규 편입</h4>
-                    <div id="rp-new-entries" class="rp-list">--</div>
-                </div>
-                <div class="rp-group">
-                    <h4 class="rp-group-title rp-exit">&#9660; 제외 예정</h4>
-                    <div id="rp-exits" class="rp-list">--</div>
-                </div>
-                <div class="rp-group">
-                    <h4 class="rp-group-title rp-keep">&#9654; 유지</h4>
-                    <div id="rp-unchanged" class="rp-list">--</div>
-                </div>
-                <div class="rp-group">
-                    <h4 class="rp-group-title">&#128197; 최적 리밸런스일</h4>
-                    <div id="rp-optimal" class="rp-optimal">향후 구현 예정 (과거 패턴 분석 기반 추천)</div>
-                </div>
-            </div>
-        </section>
+        <!-- 리밸런스 프리뷰: 위 rebal-actions에 통합됨 -->
 
         <!-- ====== Alert Banner (Basic+) ==================== -->
         <div id="alert-banner" class="alert-banner" style="display:none;">
