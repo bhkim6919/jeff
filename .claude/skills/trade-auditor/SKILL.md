@@ -28,45 +28,45 @@ Audit live and paper trading execution quality across the Q-TRON system. Verifie
 
 ## Key File Paths
 
-### KR Market (Gen04-REST)
-- **Main orchestrator**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/main.py`
-- **REST provider**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/data/rest_provider.py`
-- **Portfolio manager**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/core/portfolio_manager.py`
-- **State manager**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/core/state_manager.py`
-- **Rebalancer**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/strategy/rebalancer.py`
-- **Trail stop**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/strategy/trail_stop.py`
-- **Exposure guard**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/risk/exposure_guard.py`
-- **Safety checks**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/risk/safety_checks.py`
-- **Risk management**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/risk/risk_management.py`
-- **Reporter**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/report/reporter.py`
-- **Trade quality analyzer**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/report/trade_quality_analyzer.py`
-- **Daily report**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/report/daily_report.py`
-- **Config**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/config.py`
+### KR Market (kr)
+- **Main orchestrator**: `C:/Q-TRON-32_ARCHIVE/kr/main.py`
+- **REST provider**: `C:/Q-TRON-32_ARCHIVE/kr/data/rest_provider.py`
+- **Portfolio manager**: `C:/Q-TRON-32_ARCHIVE/kr/core/portfolio_manager.py`
+- **State manager**: `C:/Q-TRON-32_ARCHIVE/kr/core/state_manager.py`
+- **Rebalancer**: `C:/Q-TRON-32_ARCHIVE/kr/strategy/rebalancer.py`
+- **Trail stop**: `C:/Q-TRON-32_ARCHIVE/kr/strategy/trail_stop.py`
+- **Exposure guard**: `C:/Q-TRON-32_ARCHIVE/kr/risk/exposure_guard.py`
+- **Safety checks**: `C:/Q-TRON-32_ARCHIVE/kr/risk/safety_checks.py`
+- **Risk management**: `C:/Q-TRON-32_ARCHIVE/kr/risk/risk_management.py`
+- **Reporter**: `C:/Q-TRON-32_ARCHIVE/kr/report/reporter.py`
+- **Trade quality analyzer**: `C:/Q-TRON-32_ARCHIVE/kr/report/trade_quality_analyzer.py`
+- **Daily report**: `C:/Q-TRON-32_ARCHIVE/kr/report/daily_report.py`
+- **Config**: `C:/Q-TRON-32_ARCHIVE/kr/config.py`
 
 ### KR State Files
-- **Live portfolio**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/state/portfolio_state_live.json`
-- **Live runtime**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/state/runtime_state_live.json`
-- **Paper portfolio**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/state/portfolio_state_paper.json`
-- **Paper runtime**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/state/runtime_state_paper.json`
+- **Live portfolio**: `C:/Q-TRON-32_ARCHIVE/kr/state/portfolio_state_live.json`
+- **Live runtime**: `C:/Q-TRON-32_ARCHIVE/kr/state/runtime_state_live.json`
+- **Paper portfolio**: `C:/Q-TRON-32_ARCHIVE/kr/state/portfolio_state_paper.json`
+- **Paper runtime**: `C:/Q-TRON-32_ARCHIVE/kr/state/runtime_state_paper.json`
 
-### US Market (Gen04-US)
-- **Main orchestrator**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/main.py`
-- **Alpaca provider**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/data/alpaca_provider.py`
-- **Portfolio manager**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/core/portfolio_manager.py`
-- **State manager**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/core/state_manager.py`
-- **Rebalancer**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/strategy/rebalancer.py`
-- **Trail stop**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/strategy/trail_stop.py`
-- **Execution gate**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/strategy/execution_gate.py`
-- **Snapshot guard**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/strategy/snapshot_guard.py`
+### US Market (us)
+- **Main orchestrator**: `C:/Q-TRON-32_ARCHIVE/us/main.py`
+- **Alpaca provider**: `C:/Q-TRON-32_ARCHIVE/us/data/alpaca_provider.py`
+- **Portfolio manager**: `C:/Q-TRON-32_ARCHIVE/us/core/portfolio_manager.py`
+- **State manager**: `C:/Q-TRON-32_ARCHIVE/us/core/state_manager.py`
+- **Rebalancer**: `C:/Q-TRON-32_ARCHIVE/us/strategy/rebalancer.py`
+- **Trail stop**: `C:/Q-TRON-32_ARCHIVE/us/strategy/trail_stop.py`
+- **Execution gate**: `C:/Q-TRON-32_ARCHIVE/us/strategy/execution_gate.py`
+- **Snapshot guard**: `C:/Q-TRON-32_ARCHIVE/us/strategy/snapshot_guard.py`
 
 ### US State Files
-- **Paper portfolio**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/state/portfolio_state_us_paper.json`
-- **Paper runtime**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/state/runtime_state_us_paper.json`
+- **Paper portfolio**: `C:/Q-TRON-32_ARCHIVE/us/state/portfolio_state_us_paper.json`
+- **Paper runtime**: `C:/Q-TRON-32_ARCHIVE/us/state/runtime_state_us_paper.json`
 
 ### Report / Log Outputs
-- **KR trades CSV**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/report/output/trades.csv`
-- **KR close log**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/report/output/close_log.csv`
-- **KR daily reports**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/report/output/daily_*.html`
+- **KR trades CSV**: `C:/Q-TRON-32_ARCHIVE/kr/report/output/trades.csv`
+- **KR close log**: `C:/Q-TRON-32_ARCHIVE/kr/report/output/close_log.csv`
+- **KR daily reports**: `C:/Q-TRON-32_ARCHIVE/kr/report/output/daily_*.html`
 
 ---
 

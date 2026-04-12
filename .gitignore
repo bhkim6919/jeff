@@ -41,3 +41,5 @@ Gen04-US/data/universes/*.csv
 Gen04-US/data/universes/universe_meta.json
 Gen04-US/state/
 Gen04-US/logs/
+backup/db/*.dump
+*.dump

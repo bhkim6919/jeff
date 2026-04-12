@@ -1,0 +1,72 @@
+{
+  "eod_date": "2026-04-12",
+  "run_id": "c64c43e9",
+  "status": "DONE",
+  "started_at": "2026-04-11T15:12:27+00:00",
+  "finished_at": "2026-04-11T15:12:50+00:00",
+  "strategies_processed": [
+    "momentum_base",
+    "lowvol_momentum",
+    "quality_factor",
+    "hybrid_qscore",
+    "breakout_trend",
+    "mean_reversion",
+    "liquidity_signal",
+    "sector_rotation",
+    "vol_regime",
+    "russell3000_lowvol"
+  ],
+  "snapshots": {
+    "momentum_base": {
+      "universe": "RESEARCH_R1000_snapshot_20260411.csv:c282f552",
+      "positions": 20,
+      "equity": 99950.19
+    },
+    "lowvol_momentum": {
+      "universe": "RESEARCH_R1000_snapshot_20260411.csv:c282f552",
+      "positions": 20,
+      "equity": 99950.19
+    },
+    "quality_factor": {
+      "universe": "RESEARCH_R1000_snapshot_20260411.csv:c282f552",
+      "positions": 20,
+      "equity": 99950.29
+    },
+    "hybrid_qscore": {
+      "universe": "RESEARCH_R1000_snapshot_20260411.csv:c282f552",
+      "positions": 20,
+      "equity": 99950.19
+    },
+    "breakout_trend": {
+      "universe": "RESEARCH_R1000_snapshot_20260411.csv:c282f552",
+      "positions": 15,
+      "equity": 99950.24
+    },
+    "mean_reversion": {
+      "universe": "RESEARCH_R1000_snapshot_20260411.csv:c282f552",
+      "positions": 4,
+      "equity": 99960.48
+    },
+    "liquidity_signal": {
+      "universe": "RESEARCH_R1000_snapshot_20260411.csv:c282f552",
+      "positions": 0,
+      "equity": 100000
+    },
+    "sector_rotation": {
+      "universe": "RESEARCH_R1000_snapshot_20260411.csv:c282f552",
+      "positions": 20,
+      "equity": 99950.37
+    },
+    "vol_regime": {
+      "universe": "RESEARCH_R1000_snapshot_20260411.csv:c282f552",
+      "positions": 20,
+      "equity": 99950.19
+    },
+    "russell3000_lowvol": {
+      "universe": "?:?",
+      "positions": 0,
+      "equity": 100000
+    }
+  },
+  "error": ""
+}

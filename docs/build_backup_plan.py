@@ -194,7 +194,7 @@ def build():
     s.append(h2("3.2 Tier 2: Daily EOD (17:00 KST)"))
     s.append(p("장 마감 후 전체 PostgreSQL 덤프 + 상태 파일 아카이브:"))
     s.append(sp(2))
-    s.append(cd("# PostgreSQL full dump\npg_dump -U postgres -d qtron -F c -f backup/qtron_$(date +%Y%m%d).dump\n\n# State files archive\ntar czf backup/state_$(date +%Y%m%d).tar.gz \\\n  Gen04-REST/state/*.json \\\n  Gen04-US/state/*.json\n\n# SQLite copy\ncp Gen04-REST/data/rest_state/rest_state.db backup/\ncp Gen04-REST/data/regime/regime.db backup/\n\n# Report CSV archive\ntar czf backup/reports_$(date +%Y%m%d).tar.gz \\\n  Gen04-REST/report/output/*.csv"))
+    s.append(cd("# PostgreSQL full dump\npg_dump -U postgres -d qtron -F c -f backup/qtron_$(date +%Y%m%d).dump\n\n# State files archive\ntar czf backup/state_$(date +%Y%m%d).tar.gz \\\n  kr/state/*.json \\\n  us/state/*.json\n\n# SQLite copy\ncp kr/data/rest_state/rest_state.db backup/\ncp kr/data/regime/regime.db backup/\n\n# Report CSV archive\ntar czf backup/reports_$(date +%Y%m%d).tar.gz \\\n  kr/report/output/*.csv"))
     s.append(sp(6))
 
     s.append(h2("3.3 Tier 3: Monthly Archive (1st)"))
@@ -252,11 +252,11 @@ def build():
     s.append(sp(4))
 
     s.append(h2("5.1 KR OHLCV (pykrx)"))
-    s.append(cd("cd Gen04-REST\npython main.py --batch\n# pykrx에서 전 종목 OHLCV 재수집 (30분~1시간)"))
+    s.append(cd("cd kr\npython main.py --batch\n# pykrx에서 전 종목 OHLCV 재수집 (30분~1시간)"))
     s.append(sp(4))
 
     s.append(h2("5.2 US OHLCV (yfinance)"))
-    s.append(cd("cd Gen04-US\npython main.py --batch\n# yfinance에서 S&P 500 OHLCV 재수집 (10~20분)"))
+    s.append(cd("cd us\npython main.py --batch\n# yfinance에서 S&P 500 OHLCV 재수집 (10~20분)"))
     s.append(sp(4))
 
     s.append(h2("5.3 Sector Map"))
@@ -322,7 +322,7 @@ def build():
     s.append(h1("7. Backup Automation (구현 예정)"))
 
     s.append(h2("7.1 Daily Backup Script"))
-    s.append(cd("#!/bin/bash\n# qtron_daily_backup.sh\nBACKUP_DIR=C:/Q-TRON-32_ARCHIVE/backup\nDATE=$(date +%Y%m%d)\n\n# PostgreSQL dump\npg_dump -U postgres -d qtron -F c -f $BACKUP_DIR/qtron_$DATE.dump\n\n# State files\ncp Gen04-REST/state/*.json $BACKUP_DIR/state_kr/\ncp Gen04-US/state/*.json $BACKUP_DIR/state_us/\n\n# SQLite\ncp Gen04-REST/data/rest_state/rest_state.db $BACKUP_DIR/sqlite/\ncp Gen04-REST/data/regime/*.db $BACKUP_DIR/sqlite/\n\n# Cleanup old backups (90 days)\nfind $BACKUP_DIR -name '*.dump' -mtime +90 -delete\n\necho \"[BACKUP] $DATE completed\""))
+    s.append(cd("#!/bin/bash\n# qtron_daily_backup.sh\nBACKUP_DIR=C:/Q-TRON-32_ARCHIVE/backup\nDATE=$(date +%Y%m%d)\n\n# PostgreSQL dump\npg_dump -U postgres -d qtron -F c -f $BACKUP_DIR/qtron_$DATE.dump\n\n# State files\ncp kr/state/*.json $BACKUP_DIR/state_kr/\ncp us/state/*.json $BACKUP_DIR/state_us/\n\n# SQLite\ncp kr/data/rest_state/rest_state.db $BACKUP_DIR/sqlite/\ncp kr/data/regime/*.db $BACKUP_DIR/sqlite/\n\n# Cleanup old backups (90 days)\nfind $BACKUP_DIR -name '*.dump' -mtime +90 -delete\n\necho \"[BACKUP] $DATE completed\""))
     s.append(sp(6))
 
     s.append(h2("7.2 Tray Integration"))

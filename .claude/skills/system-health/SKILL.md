@@ -28,57 +28,57 @@ Comprehensive health check across the Q-TRON KR and US trading systems. Validate
 
 ## Key File Paths
 
-### KR Market (Gen04-REST)
-- **Main entry**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/main.py`
-- **Config**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/config.py`
-- **REST provider**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/data/rest_provider.py`
-- **REST token manager**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/data/rest_token_manager.py`
-- **REST websocket**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/data/rest_websocket.py`
-- **REST logger**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/data/rest_logger.py`
-- **IP monitor**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/data/ip_monitor.py`
-- **pykrx provider**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/data/pykrx_provider.py`
-- **DB provider**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/data/db_provider.py`
-- **Universe builder**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/data/universe_builder.py`
-- **Portfolio manager**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/core/portfolio_manager.py`
-- **State manager**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/core/state_manager.py`
-- **Kakao notify**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/notify/kakao_notify.py`
-- **Telegram bot**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/notify/telegram_bot.py`
-- **Alert engine**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/notify/alert_engine.py`
-- **Alert state**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/notify/alert_state.py`
-- **Exposure guard**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/risk/exposure_guard.py`
-- **Safety checks**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/risk/safety_checks.py`
-- **Regime API**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/regime/api.py`
+### KR Market (kr)
+- **Main entry**: `C:/Q-TRON-32_ARCHIVE/kr/main.py`
+- **Config**: `C:/Q-TRON-32_ARCHIVE/kr/config.py`
+- **REST provider**: `C:/Q-TRON-32_ARCHIVE/kr/data/rest_provider.py`
+- **REST token manager**: `C:/Q-TRON-32_ARCHIVE/kr/data/rest_token_manager.py`
+- **REST websocket**: `C:/Q-TRON-32_ARCHIVE/kr/data/rest_websocket.py`
+- **REST logger**: `C:/Q-TRON-32_ARCHIVE/kr/data/rest_logger.py`
+- **IP monitor**: `C:/Q-TRON-32_ARCHIVE/kr/data/ip_monitor.py`
+- **pykrx provider**: `C:/Q-TRON-32_ARCHIVE/kr/data/pykrx_provider.py`
+- **DB provider**: `C:/Q-TRON-32_ARCHIVE/kr/data/db_provider.py`
+- **Universe builder**: `C:/Q-TRON-32_ARCHIVE/kr/data/universe_builder.py`
+- **Portfolio manager**: `C:/Q-TRON-32_ARCHIVE/kr/core/portfolio_manager.py`
+- **State manager**: `C:/Q-TRON-32_ARCHIVE/kr/core/state_manager.py`
+- **Kakao notify**: `C:/Q-TRON-32_ARCHIVE/kr/notify/kakao_notify.py`
+- **Telegram bot**: `C:/Q-TRON-32_ARCHIVE/kr/notify/telegram_bot.py`
+- **Alert engine**: `C:/Q-TRON-32_ARCHIVE/kr/notify/alert_engine.py`
+- **Alert state**: `C:/Q-TRON-32_ARCHIVE/kr/notify/alert_state.py`
+- **Exposure guard**: `C:/Q-TRON-32_ARCHIVE/kr/risk/exposure_guard.py`
+- **Safety checks**: `C:/Q-TRON-32_ARCHIVE/kr/risk/safety_checks.py`
+- **Regime API**: `C:/Q-TRON-32_ARCHIVE/kr/regime/api.py`
 
 ### KR State & Data
-- **State dir**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/state/`
-- **Live portfolio**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/state/portfolio_state_live.json`
-- **Live runtime**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/state/runtime_state_live.json`
-- **Paper portfolio**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/state/portfolio_state_paper.json`
-- **Paper runtime**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/state/runtime_state_paper.json`
+- **State dir**: `C:/Q-TRON-32_ARCHIVE/kr/state/`
+- **Live portfolio**: `C:/Q-TRON-32_ARCHIVE/kr/state/portfolio_state_live.json`
+- **Live runtime**: `C:/Q-TRON-32_ARCHIVE/kr/state/runtime_state_live.json`
+- **Paper portfolio**: `C:/Q-TRON-32_ARCHIVE/kr/state/portfolio_state_paper.json`
+- **Paper runtime**: `C:/Q-TRON-32_ARCHIVE/kr/state/runtime_state_paper.json`
 - **Backtest data**: `C:/Q-TRON-32_ARCHIVE/backtest/data_full/`
 
-### US Market (Gen04-US)
-- **Main entry**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/main.py`
-- **Config**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/config.py`
-- **Alpaca provider**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/data/alpaca_provider.py`
-- **Alpaca data**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/data/alpaca_data.py`
-- **DB provider**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/data/db_provider.py`
-- **Universe builder**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/data/universe_builder.py`
-- **Portfolio manager**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/core/portfolio_manager.py`
-- **State manager**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/core/state_manager.py`
-- **Telegram bot**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/notify/telegram_bot.py`
+### US Market (us)
+- **Main entry**: `C:/Q-TRON-32_ARCHIVE/us/main.py`
+- **Config**: `C:/Q-TRON-32_ARCHIVE/us/config.py`
+- **Alpaca provider**: `C:/Q-TRON-32_ARCHIVE/us/data/alpaca_provider.py`
+- **Alpaca data**: `C:/Q-TRON-32_ARCHIVE/us/data/alpaca_data.py`
+- **DB provider**: `C:/Q-TRON-32_ARCHIVE/us/data/db_provider.py`
+- **Universe builder**: `C:/Q-TRON-32_ARCHIVE/us/data/universe_builder.py`
+- **Portfolio manager**: `C:/Q-TRON-32_ARCHIVE/us/core/portfolio_manager.py`
+- **State manager**: `C:/Q-TRON-32_ARCHIVE/us/core/state_manager.py`
+- **Telegram bot**: `C:/Q-TRON-32_ARCHIVE/us/notify/telegram_bot.py`
 
 ### US State
-- **Paper portfolio**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/state/portfolio_state_us_paper.json`
-- **Paper runtime**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/state/runtime_state_us_paper.json`
+- **Paper portfolio**: `C:/Q-TRON-32_ARCHIVE/us/state/portfolio_state_us_paper.json`
+- **Paper runtime**: `C:/Q-TRON-32_ARCHIVE/us/state/runtime_state_us_paper.json`
 
 ### Strategy Lab
-- **KR Lab**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/lab/`
-- **US Lab**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/lab/`
+- **KR Lab**: `C:/Q-TRON-32_ARCHIVE/kr/lab/`
+- **US Lab**: `C:/Q-TRON-32_ARCHIVE/us/lab/`
 
 ### Python Environments
 - **KR Python**: `C:/Q-TRON-32_ARCHIVE/.venv/Scripts/python.exe` (3.9, 32-bit)
-- **US Python**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/.venv/Scripts/python.exe` (3.12, 64-bit)
+- **US Python**: `C:/Q-TRON-32_ARCHIVE/us/.venv/Scripts/python.exe` (3.12, 64-bit)
 
 ---
 
@@ -284,17 +284,17 @@ netstat -an | findstr "8080\|8081"
 C:/Q-TRON-32_ARCHIVE/.venv/Scripts/python.exe --version
 
 # US Python environment check
-C:/Q-TRON-32_ARCHIVE/Gen04-US/.venv/Scripts/python.exe --version
+C:/Q-TRON-32_ARCHIVE/us/.venv/Scripts/python.exe --version
 
 # State file sizes (detect corruption — 0 bytes = problem)
-ls -la C:/Q-TRON-32_ARCHIVE/Gen04-REST/state/*.json
-ls -la C:/Q-TRON-32_ARCHIVE/Gen04-US/state/*.json
+ls -la C:/Q-TRON-32_ARCHIVE/kr/state/*.json
+ls -la C:/Q-TRON-32_ARCHIVE/us/state/*.json
 
 # Recent log errors (KR)
-# Check Gen04-REST/logs/ directory for recent error entries
+# Check kr/logs/ directory for recent error entries
 
 # Recent log errors (US)
-# Check Gen04-US/logs/ directory for recent error entries
+# Check us/logs/ directory for recent error entries
 ```
 
 ---

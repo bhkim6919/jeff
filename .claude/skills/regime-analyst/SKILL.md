@@ -27,31 +27,31 @@ Analyze and validate the regime prediction system across KR (domestic) and US ma
 
 ## Key File Paths
 
-### KR Market (Gen04-REST)
-- **Predictor**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/regime/predictor.py`
-- **Scorer**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/regime/scorer.py`
-- **Actual regime**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/regime/actual.py`
-- **Models**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/regime/models.py`
-- **Feature builder**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/regime/feature_builder.py`
-- **Storage**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/regime/storage.py`
-- **Calendar**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/regime/calendar.py`
-- **Domestic collector**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/regime/collector_domestic.py`
-- **Global collector**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/regime/collector_global.py`
-- **Theme regime**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/regime/theme_regime.py`
-- **Regime detector (strategy)**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/strategy/regime_detector.py`
-- **Regime backtester**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/backtest/backtester_regime.py`
-- **Regime backtester v3**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/backtest/backtester_regime_v3.py`
-- **API endpoint**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/regime/api.py`
+### KR Market (kr)
+- **Predictor**: `C:/Q-TRON-32_ARCHIVE/kr/regime/predictor.py`
+- **Scorer**: `C:/Q-TRON-32_ARCHIVE/kr/regime/scorer.py`
+- **Actual regime**: `C:/Q-TRON-32_ARCHIVE/kr/regime/actual.py`
+- **Models**: `C:/Q-TRON-32_ARCHIVE/kr/regime/models.py`
+- **Feature builder**: `C:/Q-TRON-32_ARCHIVE/kr/regime/feature_builder.py`
+- **Storage**: `C:/Q-TRON-32_ARCHIVE/kr/regime/storage.py`
+- **Calendar**: `C:/Q-TRON-32_ARCHIVE/kr/regime/calendar.py`
+- **Domestic collector**: `C:/Q-TRON-32_ARCHIVE/kr/regime/collector_domestic.py`
+- **Global collector**: `C:/Q-TRON-32_ARCHIVE/kr/regime/collector_global.py`
+- **Theme regime**: `C:/Q-TRON-32_ARCHIVE/kr/regime/theme_regime.py`
+- **Regime detector (strategy)**: `C:/Q-TRON-32_ARCHIVE/kr/strategy/regime_detector.py`
+- **Regime backtester**: `C:/Q-TRON-32_ARCHIVE/kr/backtest/backtester_regime.py`
+- **Regime backtester v3**: `C:/Q-TRON-32_ARCHIVE/kr/backtest/backtester_regime_v3.py`
+- **API endpoint**: `C:/Q-TRON-32_ARCHIVE/kr/regime/api.py`
 
-### US Market (Gen04-US)
-- **Predictor**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/regime/predictor.py`
-- **Actual regime**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/regime/actual.py`
-- **Models**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/regime/models.py`
-- **Collector**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/regime/collector.py`
+### US Market (us)
+- **Predictor**: `C:/Q-TRON-32_ARCHIVE/us/regime/predictor.py`
+- **Actual regime**: `C:/Q-TRON-32_ARCHIVE/us/regime/actual.py`
+- **Models**: `C:/Q-TRON-32_ARCHIVE/us/regime/models.py`
+- **Collector**: `C:/Q-TRON-32_ARCHIVE/us/regime/collector.py`
 
 ### Config
-- **KR config**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/config.py` (regime parameters)
-- **US config**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/config.py` (regime parameters)
+- **KR config**: `C:/Q-TRON-32_ARCHIVE/kr/config.py` (regime parameters)
+- **US config**: `C:/Q-TRON-32_ARCHIVE/us/config.py` (regime parameters)
 
 ---
 

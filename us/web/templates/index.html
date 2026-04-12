@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Q-TRON US 1.0</title>
+    <style>
+        :root {
+            --bg: #0a0e17; --card: #111827; --border: #1f2937;
+            --text: #e5e7eb; --muted: #6b7280; --accent: #3b82f6;
+            --green: #10b981; --red: #ef4444; --yellow: #f59e0b;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+        header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 24px; background: var(--card); border-bottom: 1px solid var(--border);
+        }
+        .logo { font-size: 20px; font-weight: 700; }
+        .logo-us { color: var(--accent); }
+        .market-toggle { display: flex; gap: 4px; }
+        .market-btn {
+            padding: 4px 12px; border: 1px solid var(--border); border-radius: 4px;
+            background: transparent; color: var(--muted); cursor: pointer; font-size: 13px;
+        }
+        .market-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+        .clock { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+
+        main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+        .hero {
+            background: var(--card); border-radius: 12px; padding: 24px;
+            margin-bottom: 24px; border: 1px solid var(--border);
+        }
+        .hero-row { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
+        .hero-dot {
+            width: 12px; height: 12px; border-radius: 50%;
+            background: var(--muted); flex-shrink: 0;
+        }
+        .hero-dot.ok { background: var(--green); }
+        .hero-dot.warn { background: var(--yellow); }
+        .hero-dot.err { background: var(--red); }
+        .hero-title { font-size: 18px; font-weight: 600; }
+        .hero-meta { display: flex; gap: 32px; margin-top: 12px; }
+        .meta-item { display: flex; flex-direction: column; }
+        .meta-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        .meta-value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+        .meta-value.green { color: var(--green); }
+        .meta-value.red { color: var(--red); }
+
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .card {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 8px; padding: 16px;
+        }
+        .card-label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+        .card-value { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+        .section { margin-bottom: 24px; }
+        .section-title { font-size: 14px; font-weight: 600; color: var(--muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
+
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 8px 12px; font-size: 11px; color: var(--muted); text-transform: uppercase; border-bottom: 1px solid var(--border); }
+        td { padding: 8px 12px; font-size: 14px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+        tr:hover { background: rgba(59,130,246,0.05); }
+
+        /* Status Bar (KR-style) */
+        .status-bar {
+            background: var(--card); border-radius: 12px; padding: 16px 24px;
+            margin-bottom: 16px; border: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between; gap: 16px;
+            flex-wrap: wrap;
+        }
+        .status-health {
+            display: flex; align-items: center; gap: 14px; min-width: 200px;
+        }
+        .status-led {
+            width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0;
+            background: var(--muted);
+        }
+        .status-led.led-green {
+            background: var(--green);
+            box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
+            animation: pulse-led 2s infinite;
+        }
+        .status-led.led-yellow {
+            background: var(--yellow);
+            box-shadow: 0 0 12px rgba(245, 158, 11, 0.5);
+            animation: pulse-led 1.5s infinite;
+        }
+        .status-led.led-red {
+            background: var(--red);
+            box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+            animation: pulse-led 1s infinite;
+        }
+        @keyframes pulse-led {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+        .status-title { font-size: 18px; font-weight: 700; }
+        .status-reason { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+        .status-meta {
+            display: flex; gap: 0; align-items: center; flex: 1; justify-content: center;
+        }
+        .status-meta-item {
+            display: flex; flex-direction: column; align-items: center;
+            padding: 0 20px;
+        }
+        .status-meta-item + .status-meta-item {
+            border-left: 1px solid var(--border);
+        }
+        .status-meta-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        .status-meta-value { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+        .status-meta-sub { font-size: 10px; color: var(--muted); }
+
+        .status-badges {
+            display: flex; gap: 8px; align-items: center;
+        }
+        .sbadge {
+            display: inline-block; padding: 4px 12px; border-radius: 6px;
+            font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
+            white-space: nowrap;
+        }
+        .sbadge-normal { background: rgba(16,185,129,0.15); color: var(--green); border: 1px solid rgba(16,185,129,0.3); }
+        .sbadge-blocked { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
+        .sbadge-warn { background: rgba(245,158,11,0.15); color: var(--yellow); border: 1px solid rgba(245,158,11,0.3); }
+        .sbadge-regime-1 { background: rgba(240,68,82,0.15); color: #F04452; border: 1px solid rgba(240,68,82,0.3); }
+        .sbadge-regime-2 { background: rgba(255,153,31,0.15); color: #FF991F; border: 1px solid rgba(255,153,31,0.3); }
+        .sbadge-regime-3 { background: rgba(255,214,0,0.15); color: #FFD600; border: 1px solid rgba(255,214,0,0.3); }
+        .sbadge-regime-4 { background: rgba(54,179,126,0.15); color: #36B37E; border: 1px solid rgba(54,179,126,0.3); }
+        .sbadge-regime-5 { background: rgba(0,200,83,0.15); color: #00C853; border: 1px solid rgba(0,200,83,0.3); }
+
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .badge-paper { background: #1e3a5f; color: #60a5fa; }
+        .badge-live { background: #3b1e1e; color: #f87171; }
+        .badge-closed { background: #1f2937; color: #9ca3af; }
+        .badge-open { background: #064e3b; color: #34d399; }
+
+        .btn {
+            padding: 8px 16px; border: none; border-radius: 6px;
+            cursor: pointer; font-size: 13px; font-weight: 500;
+        }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-danger { background: var(--red); color: white; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .test-panel {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 8px; padding: 16px; margin-bottom: 24px;
+        }
+        .test-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+        .test-input {
+            background: var(--bg); border: 1px solid var(--border);
+            border-radius: 4px; padding: 6px 12px; color: var(--text); font-size: 14px; width: 120px;
+        }
+        #test-result { margin-top: 8px; font-size: 13px; color: var(--muted); }
+
+        /* Regime */
+        .regime-bar { position: relative; height: 20px; border-radius: 10px; overflow: hidden; margin-top: 8px; }
+        .regime-gradient { width: 100%; height: 100%; background: linear-gradient(to right, #F04452, #FF991F, #FFD600, #36B37E, #00C853); }
+        .regime-marker { position: absolute; top: -2px; width: 4px; height: 24px; background: white; border-radius: 2px; transform: translateX(-50%); box-shadow: 0 0 6px rgba(255,255,255,0.8); }
+
+        .axis-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .axis-name { width: 130px; font-size: 12px; color: var(--muted); flex-shrink: 0; }
+        .axis-bar-wrap { flex: 1; height: 12px; background: var(--bg); border-radius: 6px; position: relative; overflow: hidden; }
+        .axis-fill { position: absolute; top: 0; height: 100%; border-radius: 6px; transition: all 0.3s; }
+        .axis-val { width: 50px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+        .sector-chip {
+            background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+            padding: 10px 12px; text-align: center; position: relative; cursor: default;
+        }
+        .sector-chip:hover { border-color: var(--text); }
+        .sector-name { font-size: 11px; color: var(--muted); }
+        .sector-change { font-size: 16px; font-weight: 600; margin-top: 2px; }
+        .sector-regime { font-size: 10px; margin-top: 2px; font-weight: 600; }
+        .sector-chip .sr-tooltip {
+            display: none; position: absolute; z-index: 100;
+            left: 50%; transform: translateX(-50%); top: calc(100% + 6px);
+            background: #1a1e2e; border: 1px solid var(--border); border-radius: 8px;
+            padding: 10px 14px; min-width: 200px; max-height: 320px; overflow-y: auto;
+            text-align: left; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        }
+        .sr-tip-header { font-size: 11px; font-weight: 700; margin-bottom: 6px; color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+        .sr-tip-row { display: flex; justify-content: space-between; font-size: 11px; padding: 2px 0; }
+        .sr-tip-name { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+        .sr-tip-chg { font-weight: 600; margin-left: 8px; white-space: nowrap; }
+        .sr-tip-chg.positive { color: var(--green); }
+        .sr-tip-chg.negative { color: var(--red); }
+        .sr-tip-chg.neutral { color: var(--muted); }
+    </style>
+</head>
+<body>
+
+<link rel="stylesheet" href="/static/nav.css">
+<div id="qtron-nav"></div>
+<script src="/static/nav.js"></script>
+<script>window.__qtronNav.renderNav(document.getElementById('qtron-nav'));</script>
+
+<header style="padding:6px 24px;background:var(--card);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+    <div style="display:flex;align-items:center;gap:12px;">
+        <span id="server-badge" class="badge badge-paper">--</span>
+        <span id="market-badge" class="badge badge-closed">--</span>
+        <span id="header-dot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;"></span>
+    </div>
+</header>
+
+<main>
+    <!-- Status Bar (KR-style) -->
+    <div class="status-bar" id="status-bar">
+        <div class="status-health">
+            <div id="status-led" class="status-led"></div>
+            <div>
+                <div id="status-title" class="status-title">Initializing...</div>
+                <div id="status-reason" class="status-reason">Loading status...</div>
+            </div>
+        </div>
+        <div class="status-meta">
+            <div class="status-meta-item">
+                <span class="status-meta-label">Server</span>
+                <span id="st-server" class="status-meta-value">--</span>
+            </div>
+            <div class="status-meta-item">
+                <span class="status-meta-label">Market</span>
+                <span id="st-market" class="status-meta-value">--</span>
+                <span id="st-market-sub" class="status-meta-sub"></span>
+            </div>
+            <div class="status-meta-item">
+                <span class="status-meta-label">Last Sync</span>
+                <span id="st-sync" class="status-meta-value">--</span>
+            </div>
+            <div class="status-meta-item">
+                <span class="status-meta-label">SPY</span>
+                <span id="st-spy" class="status-meta-value">--</span>
+                <span id="st-spy-chg" class="status-meta-sub"></span>
+            </div>
+        </div>
+        <div class="status-badges">
+            <span id="st-buy-badge" class="sbadge sbadge-normal">BUY: --</span>
+            <span id="st-regime-badge" class="sbadge sbadge-regime-3">REGIME: --</span>
+        </div>
+    </div>
+
+    <!-- Hero -->
+    <div class="hero">
+        <div class="hero-meta">
+            <div class="meta-item">
+                <span class="meta-label">Equity</span>
+                <span id="hero-equity" class="meta-value">--</span>
+            </div>
+            <div class="meta-item">
+                <span class="meta-label">Cash</span>
+                <span id="hero-cash" class="meta-value">--</span>
+            </div>
+            <div class="meta-item">
+                <span class="meta-label">P&L</span>
+                <span id="hero-pnl" class="meta-value">--</span>
+            </div>
+            <div class="meta-item">
+                <span class="meta-label">Positions</span>
+                <span id="hero-positions" class="meta-value">--</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="cards">
+        <div class="card">
+            <div class="card-label">Buying Power</div>
+            <div id="card-bp" class="card-value">--</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Target Stocks</div>
+            <div id="card-target" class="card-value">--</div>
+        </div>
+        <div class="card">
+            <div class="card-label">DB Status</div>
+            <div id="card-db" class="card-value">--</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Market</div>
+            <div id="card-market" class="card-value">--</div>
+        </div>
+    </div>
+
+    <!-- Holdings -->
+    <div class="section">
+        <div class="section-title">Holdings</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Symbol</th>
+                    <th>Qty</th>
+                    <th>Avg Price</th>
+                    <th>Current</th>
+                    <th>P&L</th>
+                    <th>P&L %</th>
+                </tr>
+            </thead>
+            <tbody id="holdings-body">
+                <tr><td colspan="6" style="color:var(--muted);text-align:center;">No positions</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Target Portfolio -->
+    <div class="section">
+        <div class="section-title">Target Portfolio (Latest Batch)</div>
+        <div id="target-list" style="color:var(--muted);">Loading...</div>
+    </div>
+
+    <!-- Regime Section -->
+    <div class="section" id="regime-section">
+        <div class="section-title">Market Regime</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <!-- Today's Actual -->
+            <div class="card">
+                <div class="card-label">Today's Regime (SPY-based)</div>
+                <div class="regime-bar">
+                    <div class="regime-gradient"></div>
+                    <div id="regime-today-marker" class="regime-marker" style="left:50%"></div>
+                </div>
+                <div id="regime-today-label" class="card-value" style="font-size:20px;margin-top:8px;">--</div>
+                <div id="regime-today-detail" style="color:var(--muted);font-size:12px;margin-top:4px;">SPY --</div>
+            </div>
+            <!-- Tomorrow's Prediction -->
+            <div class="card">
+                <div class="card-label">Tomorrow's Prediction</div>
+                <div class="regime-bar">
+                    <div class="regime-gradient"></div>
+                    <div id="regime-pred-marker" class="regime-marker" style="left:50%"></div>
+                </div>
+                <div id="regime-pred-label" class="card-value" style="font-size:20px;margin-top:8px;">--</div>
+                <div id="regime-pred-conf" style="font-size:11px;margin-top:4px;" class="badge badge-closed">--</div>
+            </div>
+        </div>
+        <!-- 4-Axis Scores -->
+        <div class="card" style="margin-top:12px;">
+            <div class="card-label">Prediction Axes</div>
+            <div id="regime-axes" style="margin-top:8px;">
+                <div class="axis-row"><span class="axis-name">Index (SPY+QQQ)</span><div class="axis-bar-wrap"><div id="ax-index" class="axis-fill"></div></div><span id="ax-index-val" class="axis-val">--</span></div>
+                <div class="axis-row"><span class="axis-name">Volatility (VIX)</span><div class="axis-bar-wrap"><div id="ax-vol" class="axis-fill"></div></div><span id="ax-vol-val" class="axis-val">--</span></div>
+                <div class="axis-row"><span class="axis-name">Sector Breadth</span><div class="axis-bar-wrap"><div id="ax-sector" class="axis-fill"></div></div><span id="ax-sector-val" class="axis-val">--</span></div>
+                <div class="axis-row"><span class="axis-name">FX (USD)</span><div class="axis-bar-wrap"><div id="ax-fx" class="axis-fill"></div></div><span id="ax-fx-val" class="axis-val">--</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sector Regime -->
+    <div class="section">
+        <div class="section-title">Sector Regime</div>
+        <div id="sector-grid" class="cards" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));">
+            <div style="color:var(--muted);">Loading...</div>
+        </div>
+    </div>
+
+    <!-- Rebalance -->
+    <div class="section">
+        <div class="section-title">Rebalance</div>
+        <!-- Rebal Status Panel -->
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <span style="font-size:11px;color:var(--muted);">Mode:</span>
+                <button id="rebal-mode-btn" onclick="_toggleRebalMode()" style="padding:3px 14px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;">MANUAL</button>
+                <span style="font-size:11px;color:var(--muted);">Phase:</span>
+                <span id="rebal-phase" class="badge badge-closed" style="font-size:11px;">IDLE</span>
+                <span id="rebal-dday" style="font-size:16px;font-weight:700;color:var(--yellow);">D-?</span>
+                <span id="rebal-next" style="font-size:11px;color:var(--muted);"></span>
+            </div>
+            <div style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap;font-size:11px;">
+                <span>Batch: <span id="rebal-batch-status" style="color:var(--muted);">--</span></span>
+                <span>Execute: <span id="rebal-exec-status" style="color:var(--muted);">--</span></span>
+                <span>Last: <span id="rebal-last-exec" style="color:var(--muted);">--</span></span>
+            </div>
+            <div id="rebal-block-reasons" style="margin-top:6px;font-size:10px;color:var(--red);display:none;"></div>
+        </div>
+        <!-- Rebal Orders Panel -->
+        <div id="rebal-panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;">
+            <div id="rebal-preview" style="color:var(--muted);font-size:12px;">Click Preview to check rebalance orders</div>
+            <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+                <button onclick="_rebalPreview()" style="padding:6px 16px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-size:12px;cursor:pointer;">Preview</button>
+                <button onclick="_rebalExecute('sell_only')" id="btn-rebal-sell" style="padding:6px 16px;background:#c62828;border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;display:none;">Sell Only</button>
+                <button onclick="_rebalExecute('buy_only')" id="btn-rebal-buy" style="padding:6px 16px;background:#2e7d32;border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;display:none;">Buy Only</button>
+                <button onclick="_rebalExecute('sell_and_buy')" id="btn-rebal-all" style="padding:6px 16px;background:#1565c0;border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;display:none;">Sell + Buy</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Exchange Rate & Tax -->
+    <div class="section">
+        <div class="section-title">Exchange Rate & Tax</div>
+        <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));">
+            <div class="card">
+                <div class="card-label">USD/KRW</div>
+                <div id="fx-rate" class="card-value" style="font-size:20px;">--</div>
+                <div id="fx-change" style="color:var(--muted);font-size:12px;">--</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Unrealized P&L (KRW)</div>
+                <div id="tax-pnl-krw" class="card-value" style="font-size:20px;">--</div>
+            </div>
+            <div class="card">
+                <div class="card-label">Estimated Tax (22%)</div>
+                <div id="tax-amount" class="card-value" style="font-size:20px;">--</div>
+                <div id="tax-note" style="color:var(--muted);font-size:11px;">250만원 공제 후</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Test Orders -->
+    <div class="test-panel">
+        <div class="section-title">Test Order (Paper)</div>
+        <div class="test-row">
+            <input id="test-symbol" class="test-input" placeholder="AAPL" value="AAPL">
+            <input id="test-qty" class="test-input" placeholder="1" value="1" style="width:60px;">
+            <button class="btn btn-primary" onclick="testBuy()">BUY</button>
+            <button class="btn btn-danger" onclick="testSell()">SELL</button>
+        </div>
+        <div id="test-result"></div>
+    </div>
+</main>
+
+<script>
+const BASE = '';
+
+function $(id) { return document.getElementById(id); }
+
+function fmt(n, dec=2) {
+    if (n === null || n === undefined || isNaN(n)) return '--';
+    return '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits: dec, maximumFractionDigits: dec});
+}
+
+function pctClass(v) { return v >= 0 ? 'green' : 'red'; }
+
+async function apiFetch(path) {
+    try {
+        const resp = await fetch(`${BASE}${path}`);
+        return await resp.json();
+    } catch(e) {
+        return {error: e.message};
+    }
+}
+
+async function refresh() {
+    // Health
+    const h = await apiFetch('/api/health');
+    $('server-badge').textContent = h.server_type || '--';
+    $('server-badge').className = 'badge ' + (h.server_type === 'PAPER' ? 'badge-paper' : 'badge-live');
+    $('market-badge').textContent = h.is_market_open ? 'OPEN' : 'CLOSED';
+    $('market-badge').className = 'badge ' + (h.is_market_open ? 'badge-open' : 'badge-closed');
+    // Header dot (small indicator next to badges)
+    const hdot = $('header-dot');
+    if (hdot) hdot.style.background = h.status === 'OK' ? 'var(--green)' : 'var(--red)';
+
+    // Portfolio
+    const p = await apiFetch('/api/portfolio');
+    $('hero-equity').textContent = fmt(p.equity);
+    $('hero-cash').textContent = fmt(p.cash);
+    const pnl = (p.equity || 0) - 100000;
+    $('hero-pnl').textContent = fmt(pnl);
+    $('hero-pnl').className = 'meta-value ' + pctClass(pnl);
+    $('hero-positions').textContent = p.n_holdings || 0;
+    $('card-bp').textContent = fmt(p.buying_power);
+    $('card-market').textContent = h.is_market_open ? 'Open' : 'Closed';
+
+    // Holdings
+    const tbody = $('holdings-body');
+    if (p.holdings && p.holdings.length > 0) {
+        tbody.innerHTML = p.holdings.map(h => `
+            <tr>
+                <td><b>${h.code}</b></td>
+                <td>${h.qty}</td>
+                <td>${fmt(h.avg_price)}</td>
+                <td>${fmt(h.cur_price)}</td>
+                <td class="${pctClass(h.pnl)}">${fmt(h.pnl)}</td>
+                <td class="${pctClass(h.pnl_pct)}">${h.pnl_pct?.toFixed(1) || '--'}%</td>
+            </tr>
+        `).join('');
+    } else {
+        tbody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;">No positions</td></tr>';
+    }
+
+    // Target
+    const t = await apiFetch('/api/target');
+    if (t.target_tickers) {
+        $('card-target').textContent = t.target_tickers.length;
+        $('target-list').innerHTML = t.target_tickers.map((sym, i) => {
+            const s = t.scores?.[sym] || {};
+            return `<span style="display:inline-block;margin:2px 4px;padding:2px 8px;background:var(--card);border:1px solid var(--border);border-radius:4px;font-size:13px;">${i+1}. ${sym}</span>`;
+        }).join('');
+    } else {
+        $('card-target').textContent = '--';
+        $('target-list').textContent = 'No target portfolio';
+    }
+
+    // DB
+    const db = await apiFetch('/api/db/health');
+    $('card-db').textContent = db.status || '--';
+    $('card-db').style.color = db.status === 'OK' ? 'var(--green)' : 'var(--red)';
+}
+
+async function testBuy() {
+    const sym = $('test-symbol').value.trim().toUpperCase();
+    const qty = parseInt($('test-qty').value) || 1;
+    $('test-result').textContent = 'Submitting...';
+    const r = await apiFetch('/api/test/buy');
+    // POST
+    const resp = await fetch('/api/test/buy', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({symbol: sym, qty: qty})
+    });
+    const data = await resp.json();
+    $('test-result').textContent = JSON.stringify(data);
+    setTimeout(refresh, 2000);
+}
+
+async function testSell() {
+    const sym = $('test-symbol').value.trim().toUpperCase();
+    const qty = parseInt($('test-qty').value) || 1;
+    $('test-result').textContent = 'Submitting...';
+    const resp = await fetch('/api/test/sell', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({symbol: sym, qty: qty})
+    });
+    const data = await resp.json();
+    $('test-result').textContent = JSON.stringify(data);
+    setTimeout(refresh, 2000);
+}
+
+// Clock handled by nav.js
+
+// ── Regime ──────────────────────────────────────
+const REGIME_COLORS = {1:'#F04452',2:'#FF991F',3:'#FFD600',4:'#36B37E',5:'#00C853'};
+
+function regimeToBarPct(level, score) {
+    const base = ((level - 1) / 4) * 100;
+    const adjust = (score || 0) * 10;
+    return Math.max(2, Math.min(98, base + adjust));
+}
+
+function renderAxis(id, score, avail) {
+    const el = document.getElementById(id);
+    const valEl = document.getElementById(id + '-val');
+    if (!el) return;
+    if (!avail) {
+        el.style.width = '0%';
+        el.style.left = '50%';
+        valEl.textContent = 'N/A';
+        valEl.style.color = 'var(--muted)';
+        return;
+    }
+    // score: -1 to +1 → bar from center
+    const pct = Math.abs(score) * 50;
+    if (score >= 0) {
+        el.style.left = '50%';
+        el.style.width = pct + '%';
+        el.style.background = 'var(--green)';
+    } else {
+        el.style.left = (50 - pct) + '%';
+        el.style.width = pct + '%';
+        el.style.background = 'var(--red)';
+    }
+    valEl.textContent = (score >= 0 ? '+' : '') + score.toFixed(2);
+    valEl.style.color = score >= 0 ? 'var(--green)' : 'var(--red)';
+}
+
+async function refreshRegime() {
+    try {
+        const r = await apiFetch('/api/regime/current');
+        if (r.error) return;
+
+        // Today
+        const today = r.today || {};
+        if (today.available) {
+            const pct = regimeToBarPct(today.actual_regime, today.spy_change_pct / 3);
+            $('regime-today-marker').style.left = pct + '%';
+            $('regime-today-label').textContent = today.actual_label;
+            $('regime-today-label').style.color = REGIME_COLORS[today.actual_regime] || 'var(--text)';
+            $('regime-today-detail').textContent = `SPY ${today.spy_price} (${today.spy_change_pct >= 0 ? '+' : ''}${today.spy_change_pct}%) | Breadth ${(today.breadth_ratio*100).toFixed(0)}%`;
+        }
+
+        // Prediction
+        const pred = r.prediction || {};
+        const ppct = regimeToBarPct(pred.predicted_regime || 3, pred.composite_score);
+        $('regime-pred-marker').style.left = ppct + '%';
+        $('regime-pred-label').textContent = pred.predicted_label || '--';
+        $('regime-pred-label').style.color = REGIME_COLORS[pred.predicted_regime] || 'var(--text)';
+        const confEl = $('regime-pred-conf');
+        confEl.textContent = `${pred.confidence_flag || '--'} (${((pred.available_weight||0)*100).toFixed(0)}%)`;
+        confEl.className = 'badge ' + (pred.confidence_flag === 'FULL' ? 'badge-open' : pred.confidence_flag === 'PARTIAL' ? 'badge-paper' : 'badge-closed');
+
+        // Axes
+        renderAxis('ax-index', pred.index_score, pred.index_avail);
+        renderAxis('ax-vol', pred.vol_score, pred.vol_avail);
+        renderAxis('ax-sector', pred.sector_score, pred.sector_avail);
+        renderAxis('ax-fx', pred.fx_score, pred.fx_avail);
+
+        // Sectors with on-demand tooltip (like KR theme_regime)
+        const sectors = r.sectors || [];
+        if (sectors.length > 0) {
+            $('sector-grid').innerHTML = sectors.map(s => {
+                const color = s.change_pct >= 1 ? 'var(--green)' : s.change_pct >= 0 ? '#36B37E' : s.change_pct >= -1 ? '#FF991F' : 'var(--red)';
+                return `<div class="sector-chip" onmouseenter="_sectorHover(this,'${s.name}')" onmouseleave="_sectorOut(this)">
+                    <div class="sector-name">${s.name}</div>
+                    <div class="sector-change" style="color:${color}">${s.change_pct >= 0 ? '+' : ''}${s.change_pct.toFixed(2)}%</div>
+                    <div class="sector-regime" style="color:${color}">${s.regime}</div>
+                    <div class="sr-tooltip" style="display:none"></div>
+                </div>`;
+            }).join('');
+        }
+    } catch(e) { console.error('Regime error:', e); }
+}
+
+async function refreshFxTax() {
+    try {
+        const fx = await apiFetch('/api/fx/usdkrw');
+        if (fx.available) {
+            $('fx-rate').textContent = fx.rate.toLocaleString('ko-KR', {maximumFractionDigits:2}) + ' \u20A9';
+            const chgColor = fx.change_pct >= 0 ? 'var(--red)' : 'var(--green)'; // USD up = KRW 약세 = red
+            $('fx-change').innerHTML = `<span style="color:${chgColor}">${fx.change_pct >= 0 ? '+' : ''}${fx.change_pct.toFixed(2)}%</span> vs yesterday`;
+        }
+
+        const tax = await apiFetch('/api/tax/estimate');
+        if (tax.unrealized_pnl_krw !== undefined) {
+            const pnlColor = tax.unrealized_pnl_krw >= 0 ? 'var(--green)' : 'var(--red)';
+            $('tax-pnl-krw').textContent = Math.round(tax.unrealized_pnl_krw).toLocaleString('ko-KR') + '\u20A9';
+            $('tax-pnl-krw').style.color = pnlColor;
+            if (tax.estimated_tax_krw > 0) {
+                $('tax-amount').textContent = Math.round(tax.estimated_tax_krw).toLocaleString('ko-KR') + '\u20A9';
+                $('tax-amount').style.color = 'var(--yellow)';
+            } else {
+                $('tax-amount').textContent = '0\u20A9';
+                $('tax-amount').style.color = 'var(--green)';
+            }
+        }
+    } catch(e) { console.error('FX/Tax error:', e); }
+}
+
+// ── Sector Hover (on-demand detail, like KR theme_regime) ──
+const _sectorCache = {};  // {name: {html, ts}}
+let _sectorOutTimer = null;
+
+function _sectorHover(el, name) {
+    if (!name) return;
+    const tip = el.querySelector('.sr-tooltip');
+    if (!tip) return;
+
+    const cached = _sectorCache[name];
+    if (cached && (Date.now() - cached.ts) < 300000) {
+        tip.innerHTML = cached.html;
+        tip.style.display = 'block';
+        return;
+    }
+
+    tip.innerHTML = '<span style="color:var(--muted)">loading...</span>';
+    tip.style.display = 'block';
+
+    fetch(`/api/sector/${encodeURIComponent(name)}`)
+        .then(r => r.json())
+        .then(d => {
+            const stocks = d.stocks || [];
+            if (stocks.length === 0) {
+                tip.innerHTML = '<span style="color:var(--muted)">No data</span>';
+                return;
+            }
+            let html = `<div class="sr-tip-header">${stocks.length} stocks</div>`;
+            stocks.slice(0, 15).forEach(s => {
+                const chg = s.change_pct || 0;
+                const cls = chg > 0 ? 'positive' : chg < 0 ? 'negative' : 'neutral';
+                html += `<div class="sr-tip-row"><span class="sr-tip-name">${s.name}</span>` +
+                    `<span class="sr-tip-chg ${cls}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%</span></div>`;
+            });
+            if (stocks.length > 15) html += `<div style="color:var(--muted);font-size:10px;margin-top:4px">...and ${stocks.length - 15} more</div>`;
+            tip.innerHTML = html;
+            _sectorCache[name] = {html, ts: Date.now()};
+        })
+        .catch(() => { tip.innerHTML = '<span style="color:var(--muted)">Failed</span>'; });
+}
+
+function _sectorOut(el) {
+    _sectorOutTimer = setTimeout(() => {
+        const tip = el.querySelector('.sr-tooltip');
+        if (tip) tip.style.display = 'none';
+    }, 200);
+}
+
+document.addEventListener('mouseover', (e) => {
+    if (e.target.closest && e.target.closest('.sr-tooltip')) {
+        clearTimeout(_sectorOutTimer);
+    }
+});
+
+// ── Rebalance ──
+async function _rebalPreview() {
+    const panel = $('rebal-preview');
+    panel.innerHTML = '<span style="color:var(--muted)">Loading preview...</span>';
+    try {
+        const resp = await fetch('/api/rebalance/preview');
+        const d = await resp.json();
+        if (!d.ok) { panel.innerHTML = `<span style="color:var(--red)">${d.error}</span>`; return; }
+
+        let html = `<div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Target: ${d.target_date} | Equity: $${d.equity.toLocaleString()} | Cash: $${d.cash.toLocaleString()}</div>`;
+
+        if (d.sells.length > 0) {
+            html += `<div style="font-size:12px;font-weight:700;color:var(--red);margin-bottom:4px;">SELL (${d.sells.length})</div>`;
+            d.sells.forEach(s => { html += `<div style="font-size:11px;padding:2px 0;">${s.symbol} x${s.qty}</div>`; });
+        }
+        if (d.buys.length > 0) {
+            html += `<div style="font-size:12px;font-weight:700;color:var(--green);margin-top:8px;margin-bottom:4px;">BUY (${d.buys.length}) ${d.buy_allowed ? '' : '⛔ ' + d.buy_reason}</div>`;
+            d.buys.forEach(b => { html += `<div style="font-size:11px;padding:2px 0;">${b.symbol} x${b.qty} ($${b.amount.toLocaleString()})</div>`; });
+        }
+        if (d.sells.length === 0 && d.buys.length === 0) {
+            html += '<div style="color:var(--green);font-size:12px;">Portfolio matches target — no rebalance needed</div>';
+        }
+        html += `<div style="font-size:11px;color:var(--muted);margin-top:6px;">Keep: ${d.keep} | Buy scale: ${(d.buy_scale*100).toFixed(0)}%</div>`;
+
+        panel.innerHTML = html;
+        // Show execute buttons
+        const hasSells = d.sells.length > 0;
+        const hasBuys = d.buys.length > 0 && d.buy_allowed;
+        $('btn-rebal-sell').style.display = hasSells ? 'inline-block' : 'none';
+        $('btn-rebal-buy').style.display = hasBuys ? 'inline-block' : 'none';
+        $('btn-rebal-all').style.display = (hasSells || hasBuys) ? 'inline-block' : 'none';
+    } catch(e) { panel.innerHTML = `<span style="color:var(--red)">Error: ${e}</span>`; }
+}
+
+async function _rebalExecute(mode) {
+    if (!confirm(`Execute rebalance (${mode})? This will send real orders.`)) return;
+    const panel = $('rebal-preview');
+    panel.innerHTML = '<span style="color:var(--yellow)">Executing...</span>';
+    try {
+        const resp = await fetch('/api/rebalance/execute', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({mode}),
+        });
+        const d = await resp.json();
+        if (!d.ok) { panel.innerHTML = `<span style="color:var(--red)">Failed: ${d.error}</span>`; return; }
+
+        let html = `<div style="color:var(--green);font-weight:700;">Rebalance executed</div>`;
+        html += `<div style="font-size:11px;margin-top:4px;">Sells: ${d.sell_count} | Buys: ${d.buy_count}</div>`;
+        if (d.buy_blocked) html += `<div style="color:var(--red);font-size:11px;">BUY blocked: ${d.buy_blocked}</div>`;
+
+        d.sells.forEach(s => { html += `<div style="font-size:11px;color:${s.ok?'var(--green)':'var(--red)'};">SELL ${s.symbol} x${s.qty} ${s.ok?'OK':'FAIL'}</div>`; });
+        d.buys.forEach(b => { html += `<div style="font-size:11px;color:${b.ok?'var(--green)':'var(--red)'};">BUY ${b.symbol} x${b.qty} ${b.ok?'OK':b.reason||'FAIL'}</div>`; });
+
+        panel.innerHTML = html;
+        $('btn-rebal-sell').style.display = 'none';
+        $('btn-rebal-buy').style.display = 'none';
+        $('btn-rebal-all').style.display = 'none';
+    } catch(e) { panel.innerHTML = `<span style="color:var(--red)">Error: ${e}</span>`; }
+}
+
+// ── Rebalance Status ──
+const PHASE_COLORS = {
+    IDLE:'badge-closed', BATCH_RUNNING:'badge-paper', BATCH_DONE:'badge-open',
+    DUE:'badge-paper', EXECUTING:'badge-paper', EXECUTED:'badge-open',
+    PARTIAL_EXECUTED:'badge-paper', FAILED:'badge-closed', BLOCKED:'badge-closed',
+};
+const PHASE_STYLE = {
+    IDLE:'color:var(--muted)', BATCH_RUNNING:'color:var(--accent)',
+    BATCH_DONE:'color:#2dd4bf', DUE:'color:var(--yellow)',
+    EXECUTING:'color:var(--accent)', EXECUTED:'color:var(--green)',
+    PARTIAL_EXECUTED:'color:var(--yellow)', FAILED:'color:var(--red)',
+    BLOCKED:'color:var(--red)',
+};
+
+async function refreshRebalStatus() {
+    try {
+        const s = await apiFetch('/api/rebalance/status');
+        if (s.error) return;
+
+        // Mode button
+        const btn = $('rebal-mode-btn');
+        btn.textContent = (s.mode || 'manual').toUpperCase();
+        if (s.mode === 'auto') {
+            btn.style.borderColor = 'var(--green)'; btn.style.color = 'var(--green)';
+        } else {
+            btn.style.borderColor = 'var(--accent)'; btn.style.color = 'var(--accent)';
+        }
+
+        // Phase badge
+        const ph = $('rebal-phase');
+        ph.textContent = s.phase || 'IDLE';
+        ph.style.cssText = PHASE_STYLE[s.phase] || 'color:var(--muted)';
+
+        // D-day
+        $('rebal-dday').textContent = s.rebal_due ? 'D-DAY' : `D-${s.d_day}`;
+        $('rebal-dday').style.color = s.rebal_due ? 'var(--red)' : 'var(--yellow)';
+        $('rebal-next').textContent = s.next_rebalance_date ? `Next: ${s.next_rebalance_date}` : '';
+
+        // Batch freshness
+        const bs = $('rebal-batch-status');
+        if (s.batch_fresh) {
+            bs.innerHTML = '✅ Fresh';
+            bs.style.color = 'var(--green)';
+        } else {
+            bs.innerHTML = '❌ Stale';
+            bs.style.color = 'var(--red)';
+        }
+
+        // Execute allowed
+        const es = $('rebal-exec-status');
+        if (s.execute_allowed) {
+            es.innerHTML = '✅ Ready';
+            es.style.color = 'var(--green)';
+        } else {
+            es.innerHTML = '❌ Blocked';
+            es.style.color = 'var(--red)';
+        }
+
+        // Last execute
+        if (s.last_execute_business_date) {
+            const lr = s.last_execute_result || '';
+            const rc = lr === 'SUCCESS' ? 'var(--green)' : lr === 'PARTIAL' ? 'var(--yellow)' : 'var(--red)';
+            $('rebal-last-exec').innerHTML = `${s.last_execute_business_date} <span style="color:${rc}">${lr}</span>`;
+        }
+
+        // Block reasons
+        const br = $('rebal-block-reasons');
+        if (s.block_reasons && s.block_reasons.length > 0 && !s.execute_allowed) {
+            br.textContent = s.block_reasons.join(' | ');
+            br.style.display = 'block';
+        } else {
+            br.style.display = 'none';
+        }
+    } catch(e) { console.error('Rebal status error:', e); }
+}
+
+async function _toggleRebalMode() {
+    const btn = $('rebal-mode-btn');
+    const current = (btn.textContent || '').toLowerCase();
+    const next = current === 'manual' ? 'auto' : 'manual';
+    await fetch('/api/rebalance/mode', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({mode: next}),
+    });
+    refreshRebalStatus();
+}
+
+// ── Status Bar (KR-style) ──
+const REGIME_CLASS_MAP = {1:'sbadge-regime-1',2:'sbadge-regime-2',3:'sbadge-regime-3',4:'sbadge-regime-4',5:'sbadge-regime-5'};
+
+async function refreshStatus() {
+    try {
+        const s = await apiFetch('/api/status/summary');
+        if (s.error) return;
+
+        // LED
+        const led = $('status-led');
+        led.className = 'status-led ' + ({OK:'led-green', WARN:'led-yellow', ERROR:'led-red'}[s.status] || '');
+
+        // Title + Reason
+        $('status-title').textContent = s.status_title || '--';
+        $('status-reason').textContent = s.status_reason || '';
+
+        // Meta: Server
+        $('st-server').textContent = s.server_type || '--';
+        $('st-server').style.color = s.server_type === 'LIVE' ? 'var(--red)' : 'var(--accent)';
+
+        // Meta: Market
+        $('st-market').textContent = s.is_market_open ? 'Open' : 'Closed';
+        $('st-market').style.color = s.is_market_open ? 'var(--green)' : 'var(--muted)';
+        // Next open/close
+        const nextTime = s.is_market_open ? s.next_close : s.next_open;
+        if (nextTime) {
+            const label = s.is_market_open ? 'Close' : 'Open';
+            $('st-market-sub').textContent = label + ' ' + nextTime.substring(11, 16);
+        }
+
+        // Meta: Last Sync
+        $('st-sync').textContent = s.last_refresh || '--';
+
+        // Meta: SPY
+        if (s.spy && s.spy.price > 0) {
+            $('st-spy').textContent = s.spy.price.toFixed(2);
+            const chg = s.spy.change_pct;
+            $('st-spy-chg').textContent = (chg >= 0 ? '+' : '') + chg.toFixed(1) + '%';
+            $('st-spy-chg').style.color = chg >= 0 ? 'var(--green)' : 'var(--red)';
+        }
+
+        // Badge: BUY gate
+        const buyBadge = $('st-buy-badge');
+        buyBadge.textContent = 'BUY: ' + s.buy_gate;
+        buyBadge.className = 'sbadge ' + (s.buy_gate === 'NORMAL' ? 'sbadge-normal' : s.buy_gate === 'BLOCKED' ? 'sbadge-blocked' : 'sbadge-warn');
+        if (s.buy_reason) buyBadge.title = s.buy_reason;
+
+        // Badge: Regime
+        const regBadge = $('st-regime-badge');
+        regBadge.textContent = 'REGIME: ' + (s.regime_label || 'N/A');
+        regBadge.className = 'sbadge ' + (REGIME_CLASS_MAP[s.regime_level] || 'sbadge-regime-3');
+
+    } catch(e) { console.error('Status bar error:', e); }
+}
+
+// Auto-refresh
+refresh();
+refreshStatus();
+refreshRebalStatus();
+refreshRegime();
+refreshFxTax();
+setInterval(refresh, 10000);
+setInterval(refreshStatus, 10000);    // Status bar: 10초
+setInterval(refreshRebalStatus, 30000); // Rebal status: 30초
+setInterval(refreshRegime, 60000);    // Regime: 1분
+setInterval(refreshFxTax, 300000);    // FX/Tax: 5분
+</script>
+
+<!-- Footer: Version + Copyright + History -->
+<footer style="max-width:1200px;margin:40px auto 0;padding:16px 24px 32px;border-top:1px solid var(--border);color:var(--muted);font-size:11px;line-height:1.6;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;">
+        <div>
+            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;">Q-TRON US 1.1</div>
+            <div>&copy; 2024-2026 Jeff Kim. All rights reserved.</div>
+            <div style="margin-top:2px;">Powered by Alpaca Markets + Claude Code</div>
+        </div>
+        <div style="text-align:right;max-width:400px;">
+            <div style="font-weight:600;color:var(--text);margin-bottom:4px;">Development History</div>
+            <div>2024.03 — Gen1 (기초 구조, 키움 Open API)</div>
+            <div>2024.09 — Gen2 (Stage 1~7 파이프라인)</div>
+            <div>2025.03 — Gen3 v7 (RS Composite + 돌파, 폐기)</div>
+            <div>2025.03 — Gen4 (LowVol+Mom, CAGR 17.5%)</div>
+            <div>2026.03 — Gen4 REST (KR REST API 전환)</div>
+            <div>2026.04 — US 1.0 (Alpaca, Regime v2, Auto Rebal)</div>
+        </div>
+    </div>
+</footer>
+
+</body>
+</html>

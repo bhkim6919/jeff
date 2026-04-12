@@ -1,0 +1,139 @@
+{
+  "job_id": "289cc9fd",
+  "config_hash": "f7dc9b7e3669c4f1",
+  "group": "event",
+  "strategies": [
+    "breakout_trend",
+    "mean_reversion",
+    "liquidity_signal"
+  ],
+  "universe_snapshot_id": "RESEARCH_R1000_snapshot_20260411.csv:c282f552",
+  "data_snapshot_id": "15ee24741b64e1cd",
+  "start_date": "2024-01-01",
+  "end_date": "2026-04-11",
+  "status": "DONE",
+  "started_at": "2026-04-11T14:35:28+00:00",
+  "finished_at": "2026-04-11T14:36:49+00:00",
+  "error": "",
+  "results": {
+    "breakout_trend": {
+      "metrics": {
+        "cagr": 8.0,
+        "mdd": -30.89,
+        "sharpe": 0.45,
+        "calmar": 0.26,
+        "turnover": 1445.1,
+        "avg_hold_days": 25.7,
+        "trade_count": 485,
+        "win_rate": 39.6,
+        "exposure": 62.5,
+        "avg_positions": 12.5,
+        "exit_reason_distribution": {
+          "trail_stop": 235
+        },
+        "missing_data_ratio": 0.1
+      },
+      "trade_count": 485,
+      "final_equity": 116539.24,
+      "excluded_top10": [
+        [
+          "VGNT",
+          1.0
+        ]
+      ]
+    },
+    "mean_reversion": {
+      "metrics": {
+        "cagr": 7.28,
+        "mdd": -11.67,
+        "sharpe": 0.52,
+        "calmar": 0.62,
+        "turnover": 4894.5,
+        "avg_hold_days": 4.3,
+        "trade_count": 518,
+        "win_rate": 50.2,
+        "exposure": 11.1,
+        "avg_positions": 2.2,
+        "exit_reason_distribution": {
+          "trail_stop": 67,
+          "timeout": 150,
+          "rsi_exit": 40
+        },
+        "missing_data_ratio": 0.9
+      },
+      "trade_count": 518,
+      "final_equity": 114983.57,
+      "excluded_top10": [
+        [
+          "BLSH",
+          0.17000000000000004
+        ],
+        [
+          "CBC",
+          0.525
+        ],
+        [
+          "FIGR",
+          0.27
+        ],
+        [
+          "FRMI",
+          0.33999999999999997
+        ],
+        [
+          "MDLN",
+          0.61
+        ],
+        [
+          "Q",
+          0.43000000000000005
+        ],
+        [
+          "SOLS",
+          0.405
+        ],
+        [
+          "VGNT",
+          1.0
+        ],
+        [
+          "VSNT",
+          0.6
+        ]
+      ]
+    },
+    "liquidity_signal": {
+      "metrics": {
+        "cagr": 4.59,
+        "mdd": -24.97,
+        "sharpe": 0.32,
+        "calmar": 0.18,
+        "turnover": 1425.0,
+        "avg_hold_days": 32.6,
+        "trade_count": 282,
+        "win_rate": 38.2,
+        "exposure": 46.0,
+        "avg_positions": 9.2,
+        "exit_reason_distribution": {
+          "trail_stop": 104,
+          "vol_decay": 32
+        },
+        "missing_data_ratio": 0.1
+      },
+      "trade_count": 282,
+      "final_equity": 109340.22,
+      "excluded_top10": [
+        [
+          "VGNT",
+          1.0
+        ]
+      ]
+    }
+  },
+  "result_meta": {
+    "universe_snapshot_id": "RESEARCH_R1000_snapshot_20260411.csv:c282f552",
+    "data_snapshot_id": "15ee24741b64e1cd",
+    "universe_count": 999,
+    "data_count": 998
+  }
+}

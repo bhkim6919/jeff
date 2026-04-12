@@ -75,15 +75,15 @@ Collect ALL sources (단일 소스 의존 금지):
 
 | Source | Path | Purpose |
 |--------|------|---------|
-| TR Error | `Gen04/data/logs/tr_error_*.log` | API 실패 |
-| Equity | `Gen04/report/output/equity_log.csv` | 자산 추이 |
-| Reconcile | `Gen04/report/output/reconcile_log.csv` | engine↔broker 차이 |
-| Trades | `Gen04/report/output/trades.csv` | 체결 기록 |
-| Close | `Gen04/report/output/close_log.csv` | 청산 기록 |
-| Decision | `Gen04/report/output/decision_log.csv` | 판단 근거 |
-| Positions | `Gen04/report/output/daily_positions.csv` | EOD 포지션 |
-| Intraday | `Gen04/report/output/intraday_summary_*.csv` | 장중 모니터링 |
-| State | `Gen04/data/state/*.json` | 엔진 상태 |
+| TR Error | `kr-legacy/data/logs/tr_error_*.log` | API 실패 |
+| Equity | `kr-legacy/report/output/equity_log.csv` | 자산 추이 |
+| Reconcile | `kr-legacy/report/output/reconcile_log.csv` | engine↔broker 차이 |
+| Trades | `kr-legacy/report/output/trades.csv` | 체결 기록 |
+| Close | `kr-legacy/report/output/close_log.csv` | 청산 기록 |
+| Decision | `kr-legacy/report/output/decision_log.csv` | 판단 근거 |
+| Positions | `kr-legacy/report/output/daily_positions.csv` | EOD 포지션 |
+| Intraday | `kr-legacy/report/output/intraday_summary_*.csv` | 장중 모니터링 |
+| State | `kr-legacy/data/state/*.json` | 엔진 상태 |
 
 ### 2. Log Validation
 

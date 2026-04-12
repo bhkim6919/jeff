@@ -25,35 +25,35 @@ Systematically validate backtesting results for the Q-TRON trading system. Check
 
 ## Key File Paths
 
-### KR Market (Gen04-REST)
-- **Backtester engine**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/backtest/backtester.py`
-- **Regime backtester**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/backtest/backtester_regime.py`
-- **Regime v3**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/backtest/backtester_regime_v3.py`
-- **Theme proxy**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/backtest/theme_proxy_backtest.py`
-- **Theme compare**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/backtest/theme_proxy_compare.py`
-- **OHLCV collector**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/backtest/ohlcv_collector.py`
-- **Scoring (SHARED)**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/strategy/scoring.py`
-- **Factor ranker**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/strategy/factor_ranker.py`
-- **Config (LOCKED params)**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/config.py`
+### KR Market (kr)
+- **Backtester engine**: `C:/Q-TRON-32_ARCHIVE/kr/backtest/backtester.py`
+- **Regime backtester**: `C:/Q-TRON-32_ARCHIVE/kr/backtest/backtester_regime.py`
+- **Regime v3**: `C:/Q-TRON-32_ARCHIVE/kr/backtest/backtester_regime_v3.py`
+- **Theme proxy**: `C:/Q-TRON-32_ARCHIVE/kr/backtest/theme_proxy_backtest.py`
+- **Theme compare**: `C:/Q-TRON-32_ARCHIVE/kr/backtest/theme_proxy_compare.py`
+- **OHLCV collector**: `C:/Q-TRON-32_ARCHIVE/kr/backtest/ohlcv_collector.py`
+- **Scoring (SHARED)**: `C:/Q-TRON-32_ARCHIVE/kr/strategy/scoring.py`
+- **Factor ranker**: `C:/Q-TRON-32_ARCHIVE/kr/strategy/factor_ranker.py`
+- **Config (LOCKED params)**: `C:/Q-TRON-32_ARCHIVE/kr/config.py`
 
-### US Market (Gen04-US)
-- **Strategy Lab engine**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/lab/engine.py`
-- **Lab runner**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/lab/runner.py`
-- **Lab metrics**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/lab/metrics.py`
-- **Lab forward test**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/lab/forward.py`
-- **Lab config**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/lab/lab_config.py`
-- **Scoring**: `C:/Q-TRON-32_ARCHIVE/Gen04-US/strategy/scoring.py`
+### US Market (us)
+- **Strategy Lab engine**: `C:/Q-TRON-32_ARCHIVE/us/lab/engine.py`
+- **Lab runner**: `C:/Q-TRON-32_ARCHIVE/us/lab/runner.py`
+- **Lab metrics**: `C:/Q-TRON-32_ARCHIVE/us/lab/metrics.py`
+- **Lab forward test**: `C:/Q-TRON-32_ARCHIVE/us/lab/forward.py`
+- **Lab config**: `C:/Q-TRON-32_ARCHIVE/us/lab/lab_config.py`
+- **Scoring**: `C:/Q-TRON-32_ARCHIVE/us/strategy/scoring.py`
 
 ### Legacy / Reference
-- **Gen04 backtester**: `C:/Q-TRON-32_ARCHIVE/Gen04/backtest/backtester.py`
+- **Gen04 backtester**: `C:/Q-TRON-32_ARCHIVE/kr-legacy/backtest/backtester.py`
 - **Gen3 v7 repro**: `C:/Q-TRON-32_ARCHIVE/backtest/gen3v7/backtester.py`
 - **Cross-strategy compare**: `C:/Q-TRON-32_ARCHIVE/backtest/compare_strategies.py`
 - **Full backtest data**: `C:/Q-TRON-32_ARCHIVE/backtest/data_full/` (2561 symbols, 2019-2026)
 
 ### KR Strategy Lab
-- **Lab engine**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/lab/engine.py`
-- **Lab runner**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/lab/runner.py`
-- **9 strategies**: `C:/Q-TRON-32_ARCHIVE/Gen04-REST/lab/strategies/`
+- **Lab engine**: `C:/Q-TRON-32_ARCHIVE/kr/lab/engine.py`
+- **Lab runner**: `C:/Q-TRON-32_ARCHIVE/kr/lab/runner.py`
+- **9 strategies**: `C:/Q-TRON-32_ARCHIVE/kr/lab/strategies/`
 
 ---
 
@@ -107,8 +107,8 @@ Systematically validate backtesting results for the Q-TRON trading system. Check
 ### Phase 3: Cost Model Comparison
 
 1. **Extract cost parameters** from config files:
-   - KR: `Gen04-REST/config.py` -- BUY_FEE, SELL_FEE (tax + commission)
-   - US: `Gen04-US/config.py` -- commission model
+   - KR: `kr/config.py` -- BUY_FEE, SELL_FEE (tax + commission)
+   - US: `us/config.py` -- commission model
    - Compare with known reference:
      - KR realistic: BUY 0.015% (commission) + SELL 0.23% (tax) + 0.015% (commission) = ~0.26% round-trip
      - US realistic: $0 commission (Alpaca) + SEC fee + TAF fee
@@ -116,7 +116,7 @@ Systematically validate backtesting results for the Q-TRON trading system. Check
 2. **Known discrepancy** (from MEMORY.md):
    - validate_gen4.py used BUY 0.115%, SELL 0.295% => +472.5% (7yr)
    - backtest_gen4_core.py used BUY 0.65%, SELL 0.83% => +28.9% (3yr)
-   - Current Gen04/backtester.py uses validate-style costs => +208.6% (7yr)
+   - Current kr-legacy/backtester.py uses validate-style costs => +208.6% (7yr)
    - **Flag any cost model that deviates from realistic estimates**
 
 3. **Slippage model**:
@@ -127,8 +127,8 @@ Systematically validate backtesting results for the Q-TRON trading system. Check
    ```
    COST MODEL COMPARISON
    Source              BUY_FEE    SELL_FEE    Round-trip    Realistic?
-   Gen04-REST config   X.XXX%     X.XXX%      X.XXX%        [YES/NO]
-   Gen04-US config     $X.XX      $X.XX       X.XXX%        [YES/NO]
+   kr config   X.XXX%     X.XXX%      X.XXX%        [YES/NO]
+   us config     $X.XX      $X.XX       X.XXX%        [YES/NO]
    Slippage applied:   [YES/NO]   Model: <description>
    Slippage x2 test:   Sharpe=X.XX [PASS/FAIL]
    ```
@@ -193,7 +193,7 @@ OVERALL VERDICT: [VALIDATED / CONCERNS / REJECTED]
 
 ## Safety Rules
 
-- **NEVER modify** `Gen04-REST/strategy/scoring.py` or `Gen04-REST/config.py` (LOCKED per Engine Protection Rules)
+- **NEVER modify** `kr/strategy/scoring.py` or `kr/config.py` (LOCKED per Engine Protection Rules)
 - **Read-only analysis** -- this skill produces reports, never changes backtest code
 - If cost model discrepancies are found, report them but do not auto-fix
 - All findings must cite specific file paths and line numbers as evidence

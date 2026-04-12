@@ -1,0 +1,135 @@
+{
+  "job_id": "1d339c43",
+  "config_hash": "8fec9d5a1a003c89",
+  "group": "rebal",
+  "strategies": [
+    "momentum_base",
+    "lowvol_momentum",
+    "quality_factor",
+    "hybrid_qscore"
+  ],
+  "universe_snapshot_id": "RESEARCH_SP500_snapshot_20260412.csv:6830fc34",
+  "data_snapshot_id": "f56bf63c6759dbb3",
+  "start_date": "2019-06-01",
+  "end_date": "2026-04-01",
+  "status": "DONE",
+  "started_at": "2026-04-12T04:50:29+00:00",
+  "finished_at": "2026-04-12T04:51:15+00:00",
+  "error": "",
+  "results": {
+    "momentum_base": {
+      "metrics": {
+        "cagr": 22.0,
+        "mdd": -16.41,
+        "sharpe": 1.19,
+        "calmar": 1.34,
+        "turnover": 910.0,
+        "avg_hold_days": 27.4,
+        "trade_count": 1628,
+        "win_rate": 47.9,
+        "exposure": 65.3,
+        "avg_positions": 13.1,
+        "exit_reason_distribution": {
+          "trail_stop": 568,
+          "rebal_exit": 244
+        },
+        "missing_data_ratio": 0.2
+      },
+      "trade_count": 1628,
+      "final_equity": 388002.5,
+      "excluded_top10": [
+        [
+          "Q",
+          0.5476190476190477
+        ]
+      ]
+    },
+    "lowvol_momentum": {
+      "metrics": {
+        "cagr": 5.71,
+        "mdd": -17.46,
+        "sharpe": 0.6,
+        "calmar": 0.33,
+        "turnover": 602.0,
+        "avg_hold_days": 50.7,
+        "trade_count": 1051,
+        "win_rate": 56.6,
+        "exposure": 78.4,
+        "avg_positions": 15.7,
+        "exit_reason_distribution": {
+          "rebal_exit": 363,
+          "trail_stop": 153
+        },
+        "missing_data_ratio": 0.2
+      },
+      "trade_count": 1051,
+      "final_equity": 146028.88,
+      "excluded_top10": [
+        [
+          "Q",
+          0.5476190476190477
+        ]
+      ]
+    },
+    "quality_factor": {
+      "metrics": {
+        "cagr": 4.63,
+        "mdd": -24.17,
+        "sharpe": 0.51,
+        "calmar": 0.19,
+        "turnover": 414.3,
+        "avg_hold_days": 72.9,
+        "trade_count": 680,
+        "win_rate": 50.9,
+        "exposure": 80.3,
+        "avg_positions": 16.1,
+        "exit_reason_distribution": {
+          "rebal_exit": 217,
+          "trail_stop": 113
+        },
+        "missing_data_ratio": 0.2
+      },
+      "trade_count": 680,
+      "final_equity": 136167.32,
+      "excluded_top10": [
+        [
+          "Q",
+          0.5476190476190477
+        ]
+      ]
+    },
+    "hybrid_qscore": {
+      "metrics": {
+        "cagr": 4.4,
+        "mdd": -21.81,
+        "sharpe": 0.51,
+        "calmar": 0.2,
+        "turnover": 588.2,
+        "avg_hold_days": 51.8,
+        "trade_count": 1060,
+        "win_rate": 50.8,
+        "exposure": 80.7,
+        "avg_positions": 16.1,
+        "exit_reason_distribution": {
+          "rebal_exit": 442,
+          "trail_stop": 78
+        },
+        "missing_data_ratio": 0.2
+      },
+      "trade_count": 1060,
+      "final_equity": 134100.62,
+      "excluded_top10": [
+        [
+          "Q",
+          0.5476190476190477
+        ]
+      ]
+    }
+  },
+  "result_meta": {
+    "universe_snapshot_id": "RESEARCH_SP500_snapshot_20260412.csv:6830fc34",
+    "data_snapshot_id": "f56bf63c6759dbb3",
+    "universe_count": 503,
+    "data_count": 503
+  }
+}

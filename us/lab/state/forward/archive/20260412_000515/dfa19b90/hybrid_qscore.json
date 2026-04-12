@@ -1,0 +1,38 @@
+{
+  "strategy_name": "hybrid_qscore",
+  "cash": 100000,
+  "positions": {},
+  "trades": [],
+  "equity_history": [
+    [
+      "2026-04-12",
+      100000
+    ]
+  ],
+  "universe_snapshot_id": "RESEARCH_R1000_snapshot_20260411.csv:c282f552",
+  "data_snapshot_id": "",
+  "last_eod_date": "2026-04-12",
+  "last_signal_date": "",
+  "day_count": 1,
+  "cost_model_version": "US-1.0",
+  "excluded_tickers": [
+    "BLSH",
+    "CAI",
+    "CBC",
+    "CRCL",
+    "FIGR",
+    "FRMI",
+    "GLIBA",
+    "GLIBK",
+    "MDLN",
+    "NIQ",
+    "Q",
+    "RAL",
+    "SOLS",
+    "VGNT",
+    "VSNT"
+  ],
+  "missing_data_ratio": 1.5,
+  "last_run_id": "dfa19b90",
+  "last_run_status": "DONE"
+}

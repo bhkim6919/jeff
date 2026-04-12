@@ -25,16 +25,16 @@ Agent specs: `.claude/skills/q-debug/agents/`
 
 | File | Protected Content |
 |------|-------------------|
-| `Gen04/strategy/scoring.py` | 팩터 계산 로직 전체 |
-| `Gen04/config.py` | 전략 파라미터: trail -12%, rebal 21일, position 20, LowVol/Mom window |
+| `kr-legacy/strategy/scoring.py` | 팩터 계산 로직 전체 |
+| `kr-legacy/config.py` | 전략 파라미터: trail -12%, rebal 21일, position 20, LowVol/Mom window |
 
 ### PROTECTED (CONFIRMED + 회귀 테스트 통과 시 수정 가능)
 
 | File | Condition |
 |------|-----------|
-| `Gen04/core/portfolio_manager.py` | 하위 호환 + 테스트 |
-| `Gen04/core/state_manager.py` | 하위 호환 + 백업 필수 |
-| `Gen04/risk/exposure_guard.py` | DD guard 임계값 변경 금지 |
+| `kr-legacy/core/portfolio_manager.py` | 하위 호환 + 테스트 |
+| `kr-legacy/core/state_manager.py` | 하위 호환 + 백업 필수 |
+| `kr-legacy/risk/exposure_guard.py` | DD guard 임계값 변경 금지 |
 
 ### Order Flow Protection
 
@@ -60,23 +60,29 @@ Agent specs: `.claude/skills/q-debug/agents/`
 
 ## Project Structure
 
-- **Gen04/**: Active trading system (Gen4)
-- **Gen03-02/**: Archived (Gen3, deprecated)
-- **backtest/**: Backtest data and scripts
-- **.venv/**: Python 3.9 (32-bit) virtual environment
-- `.claude/skills/q-debug/`: Multi-agent debugging system
+```
+Q-TRON/
+├── kr/              # KR market (REST API, Kiwoom, :8080)
+├── us/              # US market (Alpaca, :8081)
+├── kr-legacy/       # Gen4 Open API (삭제 예정)
+├── backtest/        # 공용 백테스트 데이터
+└── .claude/         # skills, settings, memory
+```
 
 ## Python Environment
 
 ```
-C:\Q-TRON-32_ARCHIVE\.venv\Scripts\python.exe
+KR: C:\Q-TRON-32_ARCHIVE\.venv\Scripts\python.exe (3.9 32-bit)
+US: C:\Q-TRON-32_ARCHIVE\us\.venv\Scripts\python.exe (3.12 64-bit)
 ```
 
 ## Key Commands
 
 ```bash
-cd Gen04
-../.venv/Scripts/python.exe main.py --mock      # Test
-../.venv/Scripts/python.exe main.py --batch     # Batch
-../.venv/Scripts/python.exe main.py --backtest  # Backtest
+# KR
+cd kr && ../.venv/Scripts/python.exe main.py --batch
+
+# US
+cd us && .venv/Scripts/python.exe main.py --batch
+cd us && .venv/Scripts/python.exe main.py --live
 ```

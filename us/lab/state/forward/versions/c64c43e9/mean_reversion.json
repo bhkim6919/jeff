@@ -1,0 +1,98 @@
+{
+  "strategy_name": "mean_reversion",
+  "cash": 20924.812165000007,
+  "positions": {
+    "VZ": {
+      "symbol": "VZ",
+      "quantity": 515,
+      "avg_price": 46.05,
+      "entry_date": "2026-04-12",
+      "high_watermark": 46.05,
+      "entry_day_idx": 501
+    },
+    "TPL": {
+      "symbol": "TPL",
+      "quantity": 44,
+      "avg_price": 409.99,
+      "entry_date": "2026-04-12",
+      "high_watermark": 409.99,
+      "entry_day_idx": 501
+    },
+    "AR": {
+      "symbol": "AR",
+      "quantity": 486,
+      "avg_price": 37.88,
+      "entry_date": "2026-04-12",
+      "high_watermark": 37.88,
+      "entry_day_idx": 501
+    },
+    "T": {
+      "symbol": "T",
+      "quantity": 713,
+      "avg_price": 26.47,
+      "entry_date": "2026-04-12",
+      "high_watermark": 26.47,
+      "entry_day_idx": 501
+    }
+  },
+  "trades": [
+    {
+      "symbol": "VZ",
+      "side": "BUY",
+      "qty": 515,
+      "price": 46.05,
+      "date": "2026-04-12",
+      "reason": "rsi_oversold"
+    },
+    {
+      "symbol": "TPL",
+      "side": "BUY",
+      "qty": 44,
+      "price": 409.99,
+      "date": "2026-04-12",
+      "reason": "rsi_oversold"
+    },
+    {
+      "symbol": "AR",
+      "side": "BUY",
+      "qty": 486,
+      "price": 37.88,
+      "date": "2026-04-12",
+      "reason": "rsi_oversold"
+    },
+    {
+      "symbol": "T",
+      "side": "BUY",
+      "qty": 713,
+      "price": 26.47,
+      "date": "2026-04-12",
+      "reason": "rsi_oversold"
+    }
+  ],
+  "equity_history": [
+    [
+      "2026-04-12",
+      99960.48
+    ]
+  ],
+  "universe_snapshot_id": "RESEARCH_R1000_snapshot_20260411.csv:c282f552",
+  "data_snapshot_id": "",
+  "last_eod_date": "2026-04-12",
+  "last_signal_date": "",
+  "day_count": 1,
+  "cost_model_version": "US-1.0",
+  "excluded_tickers": [
+    "BLSH",
+    "CBC",
+    "FIGR",
+    "FRMI",
+    "MDLN",
+    "Q",
+    "SOLS",
+    "VGNT",
+    "VSNT"
+  ],
+  "missing_data_ratio": 0.9,
+  "last_run_id": "c64c43e9",
+  "last_run_status": "DONE"
+}

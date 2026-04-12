@@ -1,0 +1,279 @@
+{
+  "job_id": "a8ebb23a",
+  "config_hash": "637ef53369e35963",
+  "group": "rebal",
+  "strategies": [
+    "momentum_base",
+    "lowvol_momentum",
+    "quality_factor",
+    "hybrid_qscore"
+  ],
+  "universe_snapshot_id": "RESEARCH_R1000_snapshot_20260411.csv:c282f552",
+  "data_snapshot_id": "440f9147250948db",
+  "start_date": "2019-06-01",
+  "end_date": "2026-04-01",
+  "status": "DONE",
+  "started_at": "2026-04-12T04:35:29+00:00",
+  "finished_at": "2026-04-12T04:36:41+00:00",
+  "error": "",
+  "results": {
+    "momentum_base": {
+      "metrics": {
+        "cagr": 19.44,
+        "mdd": -16.71,
+        "sharpe": 1.07,
+        "calmar": 1.16,
+        "turnover": 956.2,
+        "avg_hold_days": 25.8,
+        "trade_count": 1693,
+        "win_rate": 45.9,
+        "exposure": 63.9,
+        "avg_positions": 12.8,
+        "exit_reason_distribution": {
+          "trail_stop": 609,
+          "rebal_exit": 236
+        },
+        "missing_data_ratio": 1.5
+      },
+      "trade_count": 1693,
+      "final_equity": 335779.75,
+      "excluded_top10": [
+        [
+          "BLSH",
+          0.3412698412698413
+        ],
+        [
+          "CAI",
+          0.19047619047619047
+        ],
+        [
+          "CBC",
+          0.623015873015873
+        ],
+        [
+          "CRCL",
+          0.15476190476190477
+        ],
+        [
+          "FIGR",
+          0.4206349206349206
+        ],
+        [
+          "FRMI",
+          0.47619047619047616
+        ],
+        [
+          "GLIBA",
+          0.25
+        ],
+        [
+          "GLIBK",
+          0.25
+        ],
+        [
+          "MDLN",
+          0.6904761904761905
+        ],
+        [
+          "NIQ",
+          0.28174603174603174
+        ]
+      ]
+    },
+    "lowvol_momentum": {
+      "metrics": {
+        "cagr": 5.78,
+        "mdd": -17.15,
+        "sharpe": 0.6,
+        "calmar": 0.34,
+        "turnover": 609.6,
+        "avg_hold_days": 49.3,
+        "trade_count": 1077,
+        "win_rate": 55.6,
+        "exposure": 78.0,
+        "avg_positions": 15.6,
+        "exit_reason_distribution": {
+          "rebal_exit": 364,
+          "trail_stop": 165
+        },
+        "missing_data_ratio": 1.5
+      },
+      "trade_count": 1077,
+      "final_equity": 146652.97,
+      "excluded_top10": [
+        [
+          "BLSH",
+          0.3412698412698413
+        ],
+        [
+          "CAI",
+          0.19047619047619047
+        ],
+        [
+          "CBC",
+          0.623015873015873
+        ],
+        [
+          "CRCL",
+          0.15476190476190477
+        ],
+        [
+          "FIGR",
+          0.4206349206349206
+        ],
+        [
+          "FRMI",
+          0.47619047619047616
+        ],
+        [
+          "GLIBA",
+          0.25
+        ],
+        [
+          "GLIBK",
+          0.25
+        ],
+        [
+          "MDLN",
+          0.6904761904761905
+        ],
+        [
+          "NIQ",
+          0.28174603174603174
+        ]
+      ]
+    },
+    "quality_factor": {
+      "metrics": {
+        "cagr": 4.87,
+        "mdd": -23.49,
+        "sharpe": 0.53,
+        "calmar": 0.21,
+        "turnover": 396.3,
+        "avg_hold_days": 73.6,
+        "trade_count": 672,
+        "win_rate": 50.9,
+        "exposure": 80.3,
+        "avg_positions": 16.1,
+        "exit_reason_distribution": {
+          "rebal_exit": 214,
+          "trail_stop": 112
+        },
+        "missing_data_ratio": 1.5
+      },
+      "trade_count": 672,
+      "final_equity": 138278.1,
+      "excluded_top10": [
+        [
+          "BLSH",
+          0.3412698412698413
+        ],
+        [
+          "CAI",
+          0.19047619047619047
+        ],
+        [
+          "CBC",
+          0.623015873015873
+        ],
+        [
+          "CRCL",
+          0.15476190476190477
+        ],
+        [
+          "FIGR",
+          0.4206349206349206
+        ],
+        [
+          "FRMI",
+          0.47619047619047616
+        ],
+        [
+          "GLIBA",
+          0.25
+        ],
+        [
+          "GLIBK",
+          0.25
+        ],
+        [
+          "MDLN",
+          0.6904761904761905
+        ],
+        [
+          "NIQ",
+          0.28174603174603174
+        ]
+      ]
+    },
+    "hybrid_qscore": {
+      "metrics": {
+        "cagr": 3.7,
+        "mdd": -21.75,
+        "sharpe": 0.44,
+        "calmar": 0.17,
+        "turnover": 592.8,
+        "avg_hold_days": 51.2,
+        "trade_count": 1076,
+        "win_rate": 50.6,
+        "exposure": 80.8,
+        "avg_positions": 16.2,
+        "exit_reason_distribution": {
+          "rebal_exit": 449,
+          "trail_stop": 79
+        },
+        "missing_data_ratio": 1.5
+      },
+      "trade_count": 1076,
+      "final_equity": 128089.79,
+      "excluded_top10": [
+        [
+          "BLSH",
+          0.3412698412698413
+        ],
+        [
+          "CAI",
+          0.19047619047619047
+        ],
+        [
+          "CBC",
+          0.623015873015873
+        ],
+        [
+          "CRCL",
+          0.15476190476190477
+        ],
+        [
+          "FIGR",
+          0.4206349206349206
+        ],
+        [
+          "FRMI",
+          0.47619047619047616
+        ],
+        [
+          "GLIBA",
+          0.25
+        ],
+        [
+          "GLIBK",
+          0.25
+        ],
+        [
+          "MDLN",
+          0.6904761904761905
+        ],
+        [
+          "NIQ",
+          0.28174603174603174
+        ]
+      ]
+    }
+  },
+  "result_meta": {
+    "universe_snapshot_id": "RESEARCH_R1000_snapshot_20260411.csv:c282f552",
+    "data_snapshot_id": "440f9147250948db",
+    "universe_count": 999,
+    "data_count": 998
+  }
+}

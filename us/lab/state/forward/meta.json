@@ -1,0 +1,10 @@
+{
+  "status": "IDLE",
+  "last_committed_run_id": "c64c43e9",
+  "current_run_id": "",
+  "current_eod_date": "",
+  "last_successful_eod_date": "2026-04-12",
+  "started_at": "2026-04-11T15:12:27+00:00",
+  "day_count": 1,
+  "schema_version": "1.0"
+}

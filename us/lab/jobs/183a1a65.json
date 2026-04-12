@@ -1,0 +1,84 @@
+{
+  "job_id": "183a1a65",
+  "config_hash": "ee00067ebc0dd3fc",
+  "group": "regime",
+  "strategies": [
+    "vol_regime"
+  ],
+  "universe_snapshot_id": "RESEARCH_R1000_snapshot_20260411.csv:c282f552",
+  "data_snapshot_id": "6f7778b3b202e4fe",
+  "start_date": "2026-03-01",
+  "end_date": "2026-04-11",
+  "status": "DONE",
+  "started_at": "2026-04-11T15:03:30+00:00",
+  "finished_at": "2026-04-11T15:03:32+00:00",
+  "error": "",
+  "results": {
+    "vol_regime": {
+      "metrics": {
+        "cagr": 0.0,
+        "mdd": 0.0,
+        "sharpe": 0.0,
+        "calmar": 0.0,
+        "turnover": 0.0,
+        "avg_hold_days": 0.0,
+        "trade_count": 0,
+        "win_rate": 0.0,
+        "exposure": 0.0,
+        "avg_positions": 0.0,
+        "exit_reason_distribution": {},
+        "missing_data_ratio": 1.5
+      },
+      "trade_count": 0,
+      "final_equity": "100000",
+      "excluded_top10": [
+        [
+          "BLSH",
+          0.3412698412698413
+        ],
+        [
+          "CAI",
+          0.19047619047619047
+        ],
+        [
+          "CBC",
+          0.623015873015873
+        ],
+        [
+          "CRCL",
+          0.15476190476190477
+        ],
+        [
+          "FIGR",
+          0.4206349206349206
+        ],
+        [
+          "FRMI",
+          0.47619047619047616
+        ],
+        [
+          "GLIBA",
+          0.25
+        ],
+        [
+          "GLIBK",
+          0.25
+        ],
+        [
+          "MDLN",
+          0.6904761904761905
+        ],
+        [
+          "NIQ",
+          0.28174603174603174
+        ]
+      ]
+    }
+  },
+  "result_meta": {
+    "universe_snapshot_id": "RESEARCH_R1000_snapshot_20260411.csv:c282f552",
+    "data_snapshot_id": "6f7778b3b202e4fe",
+    "universe_count": 999,
+    "data_count": 998
+  }
+}
