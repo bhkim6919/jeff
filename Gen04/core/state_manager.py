@@ -14,6 +14,9 @@ import json
 import logging
 import os
 import shutil
+import time
+import threading  # Phase 1-A: RLock for reentrant safety (JUG CONDITIONAL → resolved)
+from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -31,7 +34,7 @@ class StateManager:
     """
 
     # Valid trading modes
-    VALID_MODES = ("mock", "paper", "live")
+    VALID_MODES = ("mock", "paper", "paper_test", "shadow_test", "live")
 
     def __init__(self, state_dir: Path, trading_mode: str = "paper",
                  paper: bool = None):
@@ -57,6 +60,8 @@ class StateManager:
                              f"must be one of {self.VALID_MODES}")
 
         self.trading_mode = trading_mode
+        self._lock = threading.RLock()  # Phase 1-A: reentrant lock (JUG 권고)
+        self._lock_contention_threshold = 0.1  # 100ms
         suffix = f"_{trading_mode}"
         self._portfolio_file = self.state_dir / f"portfolio_state{suffix}.json"
         self._runtime_file = self.state_dir / f"runtime_state{suffix}.json"
@@ -93,59 +98,79 @@ class StateManager:
             logger.info(f"[STATE_MIGRATION] {legacy_runtime.name} → "
                         f"{self._runtime_file.name}")
 
+    @contextmanager
+    def _timed_lock(self):
+        """Lock with contention measurement."""
+        t0 = time.monotonic()
+        self._lock.acquire()
+        wait = time.monotonic() - t0
+        if wait > self._lock_contention_threshold:
+            logger.warning(f"[LOCK_CONTENTION] wait={wait:.3f}s")
+        try:
+            yield
+        finally:
+            self._lock.release()
+
     # ── Portfolio State ──────────────────────────────────────────────
 
     def save_portfolio(self, portfolio_data: dict) -> bool:
         """
         Atomically save portfolio state.
         portfolio_data must contain: cash, positions, peak_equity, etc.
+
+        Positions are serialized using Position.to_dict() via
+        PortfolioManager.to_dict(), so all fields (including current_price,
+        entry_rank, score_mom) are preserved.  The legacy field-by-field
+        extraction was removed (C1 fix) to prevent field-list drift.
         """
-        data = {
-            "timestamp": datetime.now().isoformat(),
-            "version": "4.0",
-            **portfolio_data,
-        }
+        with self._timed_lock():
+            data = {
+                "timestamp": datetime.now().isoformat(),
+                "version": "4.1",
+                **portfolio_data,
+            }
 
-        # Serialize positions
-        if "positions" in data:
-            pos_dict = {}
-            for code, pos in data["positions"].items():
-                pos_dict[code] = {
-                    "code": code,
-                    "quantity": pos.get("quantity", pos.get("qty", 0)),
-                    "avg_price": pos.get("avg_price", pos.get("entry_price", 0)),
-                    "entry_date": str(pos.get("entry_date", "")),
-                    "high_watermark": pos.get("high_watermark", pos.get("high_wm", 0)),
-                    "trail_stop_price": pos.get("trail_stop_price", 0),
-                    "sector": pos.get("sector", ""),
-                }
-            data["positions"] = pos_dict
+            # Positions should already be dicts (from PortfolioManager.to_dict()).
+            # If a caller passes raw Position objects, convert them.
+            if "positions" in data:
+                pos_dict = {}
+                for code, pos in data["positions"].items():
+                    if isinstance(pos, dict):
+                        # Already serialized by Position.to_dict() — use as-is
+                        pos_dict[code] = pos
+                    else:
+                        # Fallback: raw Position object (shouldn't happen)
+                        pos_dict[code] = pos.to_dict() if hasattr(pos, "to_dict") else pos
+                data["positions"] = pos_dict
 
-        return self._atomic_write(self._portfolio_file, data)
+            return self._atomic_write(self._portfolio_file, data)
 
     def load_portfolio(self) -> Optional[dict]:
         """Load portfolio state. Returns None if not found."""
-        data = self._atomic_read(self._portfolio_file)
-        if data is None:
-            return None
+        with self._timed_lock():
+            data = self._atomic_read(self._portfolio_file)
+            if data is None:
+                return None
 
-        logger.info(f"Loaded portfolio: {len(data.get('positions', {}))} positions, "
-                     f"cash={data.get('cash', 0):,.0f}")
-        return data
+            logger.info(f"Loaded portfolio: {len(data.get('positions', {}))} positions, "
+                         f"cash={data.get('cash', 0):,.0f}")
+            return data
 
     # ── Runtime State ────────────────────────────────────────────────
 
     def save_runtime(self, state: dict) -> bool:
         """Save runtime metadata."""
-        data = {
-            "timestamp": datetime.now().isoformat(),
-            **state,
-        }
-        return self._atomic_write(self._runtime_file, data)
+        with self._timed_lock():
+            data = {
+                "timestamp": datetime.now().isoformat(),
+                **state,
+            }
+            return self._atomic_write(self._runtime_file, data)
 
     def load_runtime(self) -> dict:
         """Load runtime state. Returns empty dict if not found."""
-        return self._atomic_read(self._runtime_file) or {}
+        with self._timed_lock():
+            return self._atomic_read(self._runtime_file) or {}
 
     # ── Rebalance Tracking ───────────────────────────────────────────
 
@@ -156,10 +181,90 @@ class StateManager:
 
     def set_last_rebalance_date(self, dt_str: str) -> None:
         """Update last rebalance date."""
+        with self._timed_lock():
+            rt = self._atomic_read(self._runtime_file) or {}
+            rt["last_rebalance_date"] = dt_str
+            rt["rebalance_count"] = rt.get("rebalance_count", 0) + 1
+            self._atomic_write(self._runtime_file,
+                               {"timestamp": datetime.now().isoformat(), **rt})
+
+    # ── Pending Buys (T+1 model) ────────────────────────────────────
+
+    def save_pending_buys(self, buys: list, sell_status: str = "COMPLETE") -> bool:
+        """Save pending buy orders and rebalance sell status to runtime state."""
+        with self._timed_lock():
+            rt = self._atomic_read(self._runtime_file) or {}
+            rt["pending_buys"] = buys
+            rt["rebal_sell_status"] = sell_status
+            return self._atomic_write(self._runtime_file,
+                                      {"timestamp": datetime.now().isoformat(), **rt})
+
+    def load_pending_buys(self) -> tuple:
+        """Load pending buys and sell status. Returns (list, str)."""
         rt = self.load_runtime()
-        rt["last_rebalance_date"] = dt_str
-        rt["rebalance_count"] = rt.get("rebalance_count", 0) + 1
-        self.save_runtime(rt)
+        return rt.get("pending_buys", []), rt.get("rebal_sell_status", "")
+
+    def clear_pending_buys(self) -> bool:
+        """Clear pending buys after execution or expiry."""
+        with self._timed_lock():
+            rt = self._atomic_read(self._runtime_file) or {}
+            rt["pending_buys"] = []
+            rt["rebal_sell_status"] = ""
+            return self._atomic_write(self._runtime_file,
+                                      {"timestamp": datetime.now().isoformat(), **rt})
+
+    # ── Pending External Orders ──────────────────────────────────────
+
+    def save_pending_external(self, orders: list) -> bool:
+        """Save PENDING_EXTERNAL order info for reconcile after restart."""
+        with self._timed_lock():
+            rt = self._atomic_read(self._runtime_file) or {}
+            rt["pending_external_orders"] = orders
+            return self._atomic_write(self._runtime_file,
+                                      {"timestamp": datetime.now().isoformat(), **rt})
+
+    def load_pending_external(self) -> list:
+        """Load PENDING_EXTERNAL orders. Returns empty list if none."""
+        rt = self.load_runtime()
+        return rt.get("pending_external_orders", [])
+
+    def clear_pending_external(self) -> bool:
+        """Clear PENDING_EXTERNAL orders after settlement."""
+        with self._timed_lock():
+            rt = self._atomic_read(self._runtime_file) or {}
+            rt["pending_external_orders"] = []
+            return self._atomic_write(self._runtime_file,
+                                      {"timestamp": datetime.now().isoformat(), **rt})
+
+    # ── Shutdown Reason (dirty exit detection) ──────────────────
+
+    def mark_startup(self) -> bool:
+        """Mark session as running (dirty). Call at startup BEFORE trading."""
+        with self._timed_lock():
+            rt = self._atomic_read(self._runtime_file) or {}
+            rt["shutdown_reason"] = "running"
+            rt["session_start"] = datetime.now().isoformat()
+            return self._atomic_write(self._runtime_file,
+                                      {"timestamp": datetime.now().isoformat(), **rt})
+
+    def mark_shutdown(self, reason: str = "normal") -> bool:
+        """Mark clean shutdown. reason: 'normal' | 'sigint' | 'eod_complete'"""
+        with self._timed_lock():
+            rt = self._atomic_read(self._runtime_file) or {}
+            rt["shutdown_reason"] = reason
+            rt["session_end"] = datetime.now().isoformat()
+            return self._atomic_write(self._runtime_file,
+                                      {"timestamp": datetime.now().isoformat(), **rt})
+
+    def get_last_shutdown_reason(self) -> str:
+        """Get last shutdown reason. 'running' = dirty exit (crash/power loss)."""
+        rt = self.load_runtime()
+        return rt.get("shutdown_reason", "unknown")
+
+    def was_dirty_exit(self) -> bool:
+        """True if last session didn't shut down cleanly."""
+        reason = self.get_last_shutdown_reason()
+        return reason in ("running", "unknown")
 
     # ── Atomic I/O ───────────────────────────────────────────────────
 
@@ -203,12 +308,20 @@ class StateManager:
 
     def _atomic_read(self, path: Path) -> Optional[dict]:
         """Read with backup fallback."""
+        primary_failed = False
         for p in [path, path.with_suffix(".bak")]:
             if p.exists():
                 try:
                     data = json.loads(p.read_text(encoding="utf-8"))
                     if isinstance(data, dict):
+                        if primary_failed:
+                            logger.warning(
+                                f"[STATE_BACKUP_USED] Primary {path.name} failed, "
+                                f"loaded from {p.name}")
                         return data
                 except Exception as e:
                     logger.warning(f"Failed to read {p.name}: {e}")
+                    primary_failed = True
+            else:
+                primary_failed = True
         return None

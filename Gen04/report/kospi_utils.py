@@ -122,10 +122,9 @@ def compute_excess_return(port_return: float,
 
 
 def inject_kospi_close(index_file: Path, date_str: str, close: float) -> None:
-    """Inject today's KOSPI close into the in-memory cache.
+    """Inject today's KOSPI close into memory cache AND append to CSV file.
 
-    Does NOT modify the CSV file on disk. Used by live mode EOD
-    to provide current-day KOSPI data for daily report.
+    Ensures both live-session reports and manual re-generation use correct data.
     """
     cache_key = str(index_file)
     if cache_key not in _cache:
@@ -135,6 +134,24 @@ def inject_kospi_close(index_file: Path, date_str: str, close: float) -> None:
         logger.info("KOSPI close injected: %s = %.2f", date_str, close)
     else:
         logger.warning("Cannot inject KOSPI — cache not initialized for %s", index_file)
+
+    # Also append to CSV file (for offline report regeneration)
+    try:
+        index_path = Path(index_file)
+        if index_path.exists():
+            # Check if date already exists in file
+            with open(index_path, "r") as f:
+                last_line = ""
+                for line in f:
+                    last_line = line.strip()
+            if last_line and last_line.startswith(date_str):
+                return  # already written
+            # Append: date, open=close, high=close, low=close, close, volume=0
+            with open(index_path, "a", newline="") as f:
+                f.write(f"\n{date_str},{close:.2f},{close:.2f},{close:.2f},{close:.2f},0")
+            logger.info("KOSPI close appended to file: %s = %.2f", date_str, close)
+    except Exception as e:
+        logger.warning("KOSPI file append failed: %s (non-critical)", e)
 
 
 def count_outperform_days(equity_df: pd.DataFrame,

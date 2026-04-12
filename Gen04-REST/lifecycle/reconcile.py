@@ -7,7 +7,7 @@ from datetime import date
 
 
 def _reconcile_with_broker(portfolio, provider, logger, trade_logger=None,
-                            buy_cost: float = 0.00115):
+                            buy_cost: float = 0.00115, guard=None):
     """
     Sync internal state TO broker truth (limited, guarded).
 
@@ -27,15 +27,33 @@ def _reconcile_with_broker(portfolio, provider, logger, trade_logger=None,
     CASH_SPIKE_RATIO = 0.5   # 50% change = critical alert
 
     summary = provider.query_account_summary()
+
+    # REST latency/status → exposure_guard 반영
+    if guard and hasattr(guard, 'update_rest_latency'):
+        from web.api_state import tracker as api_tracker
+        # PaginatedResult 메타데이터에서 추출
+        _elapsed = summary.get("_batch_end_ts", 0) - summary.get("_snapshot_ts", 0)
+        _latency_ms = _elapsed * 1000 if _elapsed > 0 else 0
+        guard.update_rest_latency(
+            latency_ms=_latency_ms,
+            status=summary.get("_status", "COMPLETE"),
+            consistency=summary.get("_consistency", "CLEAN"),
+        )
+
     if summary.get("error") and summary["error"] not in ("", "empty_account"):
         logger.warning(f"Broker sync failed: {summary['error']}")
         return {"ok": False, "error": summary["error"], "corrections": 0,
                 "safe_mode": False, "safe_mode_reason": ""}
     if summary.get("holdings_reliable") is False:
+        _status = summary.get("_status", "unknown")
+        _consistency = summary.get("_consistency", "unknown")
         logger.critical(
-            "[BROKER_STATE_UNRELIABLE] Holdings data unreliable (msg_rejected). "
-            "Cash-only sync applied. Rebalance and new orders will be BLOCKED "
-            "for this session (monitor-only).")
+            f"[RECON_BLOCKED_PARTIAL] Holdings data unreliable. "
+            f"status={_status} consistency={_consistency} "
+            f"pages={summary.get('_pages_fetched', '?')} "
+            f"ws_events={summary.get('_ws_events_during_batch', '?')}. "
+            f"Cash-only sync applied. Rebalance and new orders will be BLOCKED "
+            f"for this session (monitor-only).")
         broker_cash = summary.get("available_cash", 0)
         if broker_cash > 0:
             old_cash = portfolio.cash

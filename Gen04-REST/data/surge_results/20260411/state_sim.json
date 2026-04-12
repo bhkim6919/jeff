@@ -1,0 +1,241 @@
+{
+  "running": false,
+  "elapsed_sec": 39.0,
+  "tick_count": 0,
+  "strategies": [
+    {
+      "name": "A",
+      "label": "기본 (등락률만)",
+      "cash": 10000000,
+      "positions": [],
+      "trades": [],
+      "trade_count": 0,
+      "risk": {
+        "daily_entries": 0,
+        "concurrent": 0,
+        "consecutive_losses": 0,
+        "halted": false,
+        "per_stock_losses": {}
+      },
+      "summary": {
+        "total_trades": 0,
+        "strategy": "A",
+        "label": "기본 (등락률만)",
+        "cash": 10000000
+      }
+    },
+    {
+      "name": "B",
+      "label": "+ 거래량급증",
+      "cash": 10000000,
+      "positions": [],
+      "trades": [],
+      "trade_count": 0,
+      "risk": {
+        "daily_entries": 0,
+        "concurrent": 0,
+        "consecutive_losses": 0,
+        "halted": false,
+        "per_stock_losses": {}
+      },
+      "summary": {
+        "total_trades": 0,
+        "strategy": "B",
+        "label": "+ 거래량급증",
+        "cash": 10000000
+      }
+    },
+    {
+      "name": "C",
+      "label": "+ 거래량급증 + 체결강도",
+      "cash": 10000000,
+      "positions": [],
+      "trades": [],
+      "trade_count": 0,
+      "risk": {
+        "daily_entries": 0,
+        "concurrent": 0,
+        "consecutive_losses": 0,
+        "halted": false,
+        "per_stock_losses": {}
+      },
+      "summary": {
+        "total_trades": 0,
+        "strategy": "C",
+        "label": "+ 거래량급증 + 체결강도",
+        "cash": 10000000
+      }
+    }
+  ],
+  "candidates": [
+    {
+      "code": "047040",
+      "name": "대우건설",
+      "price": 24300,
+      "change_pct": 4.07,
+      "rank": 3,
+      "volume_surge": false,
+      "volume_surge_pct": 0.0,
+      "strength": 90.84,
+      "strength_pass": false
+    },
+    {
+      "code": "006360",
+      "name": "GS건설",
+      "price": 38000,
+      "change_pct": 6.89,
+      "rank": 8,
+      "volume_surge": true,
+      "volume_surge_pct": 50.42,
+      "strength": 82.02,
+      "strength_pass": false
+    },
+    {
+      "code": "009150",
+      "name": "삼성전기",
+      "price": 561000,
+      "change_pct": 8.72,
+      "rank": 10,
+      "volume_surge": false,
+      "volume_surge_pct": 0.0,
+      "strength": 113.13,
+      "strength_pass": false
+    },
+    {
+      "code": "005290",
+      "name": "동진쎄미켐",
+      "price": 50500,
+      "change_pct": 12.1,
+      "rank": 15,
+      "volume_surge": true,
+      "volume_surge_pct": 212.01,
+      "strength": 116.55,
+      "strength_pass": true
+    },
+    {
+      "code": "079550",
+      "name": "LIG넥스원",
+      "price": 921000,
+      "change_pct": 3.83,
+      "rank": 17,
+      "volume_surge": false,
+      "volume_surge_pct": 0.0,
+      "strength": 124.18,
+      "strength_pass": true
+    }
+  ],
+  "events": [
+    {
+      "timestamp": "2026-04-11 12:17:12.285",
+      "tag": "SURGE_CANDIDATE",
+      "code": "047040",
+      "name": "대우건설",
+      "strategy_state": "",
+      "trigger_reason": "rank=3 chg=4.07% vol_surge=False str=91",
+      "bid": 0,
+      "ask": 0,
+      "bid_size": 0,
+      "ask_size": 0,
+      "last_price": 24300,
+      "expected_fill_price": 0,
+      "pnl_pct": 0.0,
+      "holding_seconds": 0
+    },
+    {
+      "timestamp": "2026-04-11 12:17:12.286",
+      "tag": "SURGE_CANDIDATE",
+      "code": "006360",
+      "name": "GS건설",
+      "strategy_state": "",
+      "trigger_reason": "rank=8 chg=6.89% vol_surge=True str=82",
+      "bid": 0,
+      "ask": 0,
+      "bid_size": 0,
+      "ask_size": 0,
+      "last_price": 38000,
+      "expected_fill_price": 0,
+      "pnl_pct": 0.0,
+      "holding_seconds": 0
+    },
+    {
+      "timestamp": "2026-04-11 12:17:12.287",
+      "tag": "SURGE_CANDIDATE",
+      "code": "009150",
+      "name": "삼성전기",
+      "strategy_state": "",
+      "trigger_reason": "rank=10 chg=8.72% vol_surge=False str=113",
+      "bid": 0,
+      "ask": 0,
+      "bid_size": 0,
+      "ask_size": 0,
+      "last_price": 561000,
+      "expected_fill_price": 0,
+      "pnl_pct": 0.0,
+      "holding_seconds": 0
+    },
+    {
+      "timestamp": "2026-04-11 12:17:12.287",
+      "tag": "SURGE_CANDIDATE",
+      "code": "005290",
+      "name": "동진쎄미켐",
+      "strategy_state": "",
+      "trigger_reason": "rank=15 chg=12.1% vol_surge=True str=117",
+      "bid": 0,
+      "ask": 0,
+      "bid_size": 0,
+      "ask_size": 0,
+      "last_price": 50500,
+      "expected_fill_price": 0,
+      "pnl_pct": 0.0,
+      "holding_seconds": 0
+    },
+    {
+      "timestamp": "2026-04-11 12:17:12.325",
+      "tag": "SURGE_CANDIDATE",
+      "code": "079550",
+      "name": "LIG넥스원",
+      "strategy_state": "",
+      "trigger_reason": "rank=17 chg=3.83% vol_surge=False str=124",
+      "bid": 0,
+      "ask": 0,
+      "bid_size": 0,
+      "ask_size": 0,
+      "last_price": 921000,
+      "expected_fill_price": 0,
+      "pnl_pct": 0.0,
+      "holding_seconds": 0
+    },
+    {
+      "timestamp": "2026-04-11 12:17:12.327",
+      "tag": "SURGE_TR_RECEIVED",
+      "code": "",
+      "name": "",
+      "strategy_state": "",
+      "trigger_reason": "START 5 codes",
+      "bid": 0,
+      "ask": 0,
+      "bid_size": 0,
+      "ask_size": 0,
+      "last_price": 0,
+      "expected_fill_price": 0,
+      "pnl_pct": 0.0,
+      "holding_seconds": 0
+    },
+    {
+      "timestamp": "2026-04-11 12:17:42.649",
+      "tag": "SURGE_TR_RECEIVED",
+      "code": "",
+      "name": "",
+      "strategy_state": "",
+      "trigger_reason": "SCAN found=20 filtered=3 new=0",
+      "bid": 0,
+      "ask": 0,
+      "bid_size": 0,
+      "ask_size": 0,
+      "last_price": 0,
+      "expected_fill_price": 0,
+      "pnl_pct": 0.0,
+      "holding_seconds": 0
+    }
+  ]
+}

@@ -15,12 +15,13 @@ from web.surge.config import SurgeConfig
 
 logger = logging.getLogger("gen4.rest.surge")
 
-# Kiwoom REST API IDs (lab_simulator.py에서 가져옴)
+# Kiwoom REST API — ka10027/ka10030/ka10032 deprecated (1504 error).
+# All ranking via ka00198 + qry_tp: 1=실시간, 2=거래량, 3=거래대금, 5=등락률
 _RANKING_API_MAP = {
-    "실시간순위": ("ka00198", "/api/dostk/stkinfo"),
-    "등락률":    ("ka10027", "/api/dostk/mrkcond"),
-    "거래량":    ("ka10030", "/api/dostk/mrkcond"),
-    "거래대금":  ("ka10032", "/api/dostk/mrkcond"),
+    "실시간순위": ("ka00198", "/api/dostk/stkinfo", "1"),
+    "등락률":    ("ka00198", "/api/dostk/stkinfo", "5"),
+    "거래량":    ("ka00198", "/api/dostk/stkinfo", "2"),
+    "거래대금":  ("ka00198", "/api/dostk/stkinfo", "3"),
 }
 
 # ETF/ETN prefix codes
@@ -87,19 +88,10 @@ class SurgeScanner:
         """
         source = config.ranking_source
         top_n = config.ranking_top_n
-        api_id, path = _RANKING_API_MAP.get(source, _RANKING_API_MAP["등락률"])
+        entry = _RANKING_API_MAP.get(source, _RANKING_API_MAP["등락률"])
+        api_id, path, qry_tp = entry
 
-        if api_id == "ka00198":
-            body: Dict[str, Any] = {"qry_tp": "1"}
-        else:
-            body = {
-                "mkt_tp_cd": "0",
-                "vol_tp_cd": "0",
-                "prc_tp_cd": "0",
-                "up_dn_tp": "1",
-                "cont_yn": "N",
-                "cont_key": "",
-            }
+        body: Dict[str, Any] = {"qry_tp": qry_tp}
 
         now = time.time()
         try:
@@ -119,18 +111,13 @@ class SurgeScanner:
         candidates = []
         for i, item in enumerate(output[:top_n]):
             try:
-                if api_id == "ka00198":
-                    name = item.get("stk_nm", "").strip()
-                    price = abs(int(item.get("past_curr_prc", "0").replace(",", "") or "0"))
-                    change_pct = float(item.get("base_comp_chgr", "0") or "0")
-                    code = ""
-                    volume = 0
-                else:
-                    code = str(item.get("stk_cd", item.get("shtn_pdno", ""))).strip()
-                    name = item.get("stk_nm", item.get("hts_kor_isnm", "")).strip()
-                    price = abs(int(item.get("cur_prc", item.get("stck_prpr", 0))))
-                    change_pct = float(item.get("flu_rt", item.get("prdy_ctrt", 0)))
-                    volume = int(item.get("acml_vol", item.get("acml_vol", 0)))
+                code = str(item.get("stk_cd", "")).strip()
+                name = item.get("stk_nm", "").strip()
+                price = abs(int(
+                    str(item.get("past_curr_prc", "0")).replace(",", "").replace("+", "") or "0"
+                ))
+                change_pct = float(item.get("base_comp_chgr", "0") or "0")
+                volume = 0  # ka00198 doesn't return volume
 
                 if name and price > 0:
                     candidates.append(SurgeCandidate(
@@ -156,36 +143,39 @@ class SurgeScanner:
         """
         try:
             body = {
-                "mkt_tp_cd": "0",
-                "vol_tp_cd": "0",
-                "prc_tp_cd": "0",
-                "up_dn_tp": "1",
-                "cont_yn": "N",
-                "cont_key": "",
+                "mrkt_tp": "000",
+                "sort_tp": "1",
+                "tm_tp": "2",
+                "trde_qty_tp": "5",
+                "tm": "",
+                "stk_cnd": "0",
+                "pric_tp": "0",
+                "stex_tp": "3",
             }
-            resp = provider._request("ka10023", "/api/dostk/mrkcond", body,
+            resp = provider._request("ka10023", "/api/dostk/rkinfo", body,
                                      related_code="SURGE_VOL")
         except Exception as e:
             logger.warning(f"[SURGE_VOL] ka10023 failed: {e}")
             return
 
         if not resp or resp.get("return_code") not in (0, None):
+            logger.warning(f"[SURGE_VOL] ka10023 rc={resp.get('return_code') if resp else 'None'}")
             return
 
-        output = resp.get("output", [])
+        output = resp.get("trde_qty_sdnin", [])
         surge_codes: Dict[str, float] = {}
-        for item in output[:50]:
+        for item in output[:100]:
             try:
-                code = str(item.get("stk_cd", item.get("shtn_pdno", ""))).strip()
+                code = str(item.get("stk_cd", "")).strip().replace("_AL", "")
+                rate_str = str(item.get("sdnin_rt", "0")).replace("+", "").replace(",", "")
                 if code:
-                    vol_rate = float(item.get("vol_inrt", item.get("acml_vol_prdy_vrss_rate", 0)))
-                    surge_codes[code.zfill(6)] = vol_rate
+                    surge_codes[code.zfill(6)] = float(rate_str)
             except (ValueError, TypeError):
                 continue
 
         for c in candidates:
             rate = surge_codes.get(c.code, 0)
-            if rate >= 300:  # 300% 이상 거래량 급증
+            if rate >= 50:  # 순매수율 50% 이상
                 c.volume_surge = True
                 c.volume_surge_pct = rate
 
@@ -195,46 +185,37 @@ class SurgeScanner:
     def enrich_strength(self, provider: Any, candidates: List[SurgeCandidate],
                         min_strength: float = 115.0) -> None:
         """
-        ka10046 (시간별체결강도) 조회 → 후보에 strength 마킹.
-        체결강도 상위 종목과 교차 확인.
+        ka10046 (체결강도시세시간별) 조회 → 후보에 strength 마킹.
+        종목별 조회이므로 후보 종목만 조회.
         """
-        try:
-            body = {
-                "mkt_tp_cd": "0",
-                "vol_tp_cd": "0",
-                "prc_tp_cd": "0",
-                "up_dn_tp": "1",
-                "cont_yn": "N",
-                "cont_key": "",
-            }
-            resp = provider._request("ka10046", "/api/dostk/mrkcond", body,
-                                     related_code="SURGE_STR")
-        except Exception as e:
-            logger.warning(f"[SURGE_STR] ka10046 failed: {e}")
-            return
-
-        if not resp or resp.get("return_code") not in (0, None):
-            return
-
-        output = resp.get("output", [])
-        strength_codes: Dict[str, float] = {}
-        for item in output[:50]:
+        enriched = 0
+        for c in candidates:
             try:
-                code = str(item.get("stk_cd", item.get("shtn_pdno", ""))).strip()
-                if code:
-                    stren = float(item.get("tday_rltv", item.get("stck_sdpr", 0)))
-                    strength_codes[code.zfill(6)] = stren
-            except (ValueError, TypeError):
+                resp = provider._request("ka10046", "/api/dostk/mrkcond",
+                                         {"stk_cd": c.code},
+                                         related_code="SURGE_STR")
+            except Exception as e:
+                logger.debug(f"[SURGE_STR] ka10046 {c.code} failed: {e}")
                 continue
 
-        for c in candidates:
-            s = strength_codes.get(c.code, 0)
-            if s > 0:
-                c.strength = s
-                if s >= min_strength:
-                    c.strength_pass = True
+            if not resp or resp.get("return_code") not in (0, None):
+                continue
 
-        logger.info(f"[SURGE_STR] ka10046: {len(strength_codes)} codes, "
+            items = resp.get("cntr_str_tm", [])
+            if items:
+                latest = items[0]
+                try:
+                    stren = float(str(latest.get("cntr_str", "0")).replace("+", ""))
+                    c.strength = stren
+                    if stren >= min_strength:
+                        c.strength_pass = True
+                    enriched += 1
+                except (ValueError, TypeError):
+                    pass
+
+            time.sleep(0.25)  # rate limit between per-stock calls
+
+        logger.info(f"[SURGE_STR] ka10046: {enriched}/{len(candidates)} enriched, "
                     f"{sum(1 for c in candidates if c.strength_pass)} passed (>={min_strength})")
 
 

@@ -62,20 +62,19 @@ def save_ip(ip: str) -> None:
 
 
 def send_kakao_alert(old_ip: str, new_ip: str) -> None:
-    """Send Kakao notification about IP change."""
+    """Send Telegram notification about IP change."""
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-        from notify.kakao_notify import notify
+        from notify.telegram_bot import send
         msg = (
-            f"[IP 변경 감지]\n"
+            f"<b>IP 변경 감지</b>\n"
             f"이전: {old_ip}\n"
             f"현재: {new_ip}\n"
             f"시각: {datetime.now():%Y-%m-%d %H:%M}\n\n"
-            f"키움 REST API IP 등록 변경 필요!\n"
-            f"https://openapi.kiwoom.com"
+            f"키움 REST API IP 등록 변경 필요!"
         )
-        notify(msg)
-        logger.info(f"[IP_ALERT] Kakao sent: {old_ip} -> {new_ip}")
+        send(msg, "CRITICAL")
+        logger.info(f"[IP_ALERT] Telegram sent: {old_ip} -> {new_ip}")
     except Exception as e:
         logger.warning(f"[IP_ALERT] Kakao failed: {e}")
 

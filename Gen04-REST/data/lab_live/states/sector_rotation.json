@@ -1,0 +1,218 @@
+{
+  "version_seq": 1,
+  "strategy": "sector_rotation",
+  "cash": 13816314.729250021,
+  "positions": {
+    "047040": {
+      "code": "047040",
+      "name": "대우건설",
+      "qty": 194,
+      "entry_price": 25650.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 25650.0,
+      "buy_cost_total": 5722.515,
+      "current_price": 24300.0,
+      "entry_day_idx": 1783
+    },
+    "032820": {
+      "code": "032820",
+      "name": "우리기술",
+      "qty": 220,
+      "entry_price": 22650.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 22650.0,
+      "buy_cost_total": 5730.45,
+      "current_price": 21000.0,
+      "entry_day_idx": 1783
+    },
+    "010170": {
+      "code": "010170",
+      "name": "대한광통신",
+      "qty": 344,
+      "entry_price": 14490.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 17770.0,
+      "buy_cost_total": 5732.244,
+      "current_price": 17770.0,
+      "entry_day_idx": 1783
+    },
+    "192410": {
+      "code": "192410",
+      "name": "오늘이엔엠",
+      "qty": 650,
+      "entry_price": 7680.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 7770.0,
+      "buy_cost_total": 5740.8,
+      "current_price": 7770.0,
+      "entry_day_idx": 1783
+    },
+    "049080": {
+      "code": "049080",
+      "name": "기가레인",
+      "qty": 1928,
+      "entry_price": 2590.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 2590.0,
+      "buy_cost_total": 5742.548,
+      "current_price": 2455.0,
+      "entry_day_idx": 1783
+    },
+    "327260": {
+      "code": "327260",
+      "name": "RF머트리얼즈",
+      "qty": 65,
+      "entry_price": 76300.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 92700.0,
+      "buy_cost_total": 5703.425,
+      "current_price": 92700.0,
+      "entry_day_idx": 1783
+    },
+    "322000": {
+      "code": "322000",
+      "name": "HD현대에너지솔루션",
+      "qty": 30,
+      "entry_price": 165900.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 168400.0,
+      "buy_cost_total": 5723.55,
+      "current_price": 168400.0,
+      "entry_day_idx": 1783
+    },
+    "043260": {
+      "code": "043260",
+      "name": "성호전자",
+      "qty": 119,
+      "entry_price": 41850.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 44450.0,
+      "buy_cost_total": 5727.1725,
+      "current_price": 44450.0,
+      "entry_day_idx": 1783
+    },
+    "475150": {
+      "code": "475150",
+      "name": "SK이터닉스",
+      "qty": 84,
+      "entry_price": 59000.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 59000.0,
+      "buy_cost_total": 5699.4,
+      "current_price": 59000.0,
+      "entry_day_idx": 1783
+    },
+    "088280": {
+      "code": "088280",
+      "name": "쏘닉스",
+      "qty": 1034,
+      "entry_price": 4830.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 4920.0,
+      "buy_cost_total": 5743.353,
+      "current_price": 4920.0,
+      "entry_day_idx": 1783
+    },
+    "100590": {
+      "code": "100590",
+      "name": "머큐리",
+      "qty": 524,
+      "entry_price": 9530.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 9530.0,
+      "buy_cost_total": 5742.778,
+      "current_price": 9290.0,
+      "entry_day_idx": 1783
+    },
+    "062970": {
+      "code": "062970",
+      "name": "한국첨단소재",
+      "qty": 1309,
+      "entry_price": 3815.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 4055.0,
+      "buy_cost_total": 5742.91025,
+      "current_price": 4055.0,
+      "entry_day_idx": 1783
+    },
+    "069540": {
+      "code": "069540",
+      "name": "빛과전자",
+      "qty": 1104,
+      "entry_price": 4520.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 4920.0,
+      "buy_cost_total": 5738.592,
+      "current_price": 4920.0,
+      "entry_day_idx": 1783
+    },
+    "138080": {
+      "code": "138080",
+      "name": "오이솔루션",
+      "qty": 125,
+      "entry_price": 39900.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 41500.0,
+      "buy_cost_total": 5735.625,
+      "current_price": 41500.0,
+      "entry_day_idx": 1783
+    },
+    "290550": {
+      "code": "290550",
+      "name": "디케이티",
+      "qty": 268,
+      "entry_price": 18600.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 19340.0,
+      "buy_cost_total": 5732.5199999999995,
+      "current_price": 19340.0,
+      "entry_day_idx": 1783
+    },
+    "393890": {
+      "code": "393890",
+      "name": "더블유씨피",
+      "qty": 304,
+      "entry_price": 16400.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 16820.0,
+      "buy_cost_total": 5733.44,
+      "current_price": 16820.0,
+      "entry_day_idx": 1783
+    },
+    "440110": {
+      "code": "440110",
+      "name": "파두",
+      "qty": 86,
+      "entry_price": 57500.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 57500.0,
+      "buy_cost_total": 5686.75,
+      "current_price": 55700.0,
+      "entry_day_idx": 1783
+    }
+  },
+  "pending_buys": [],
+  "last_rebal_idx": 1783,
+  "equity_history": [
+    {
+      "date": "2026-04-10",
+      "equity": 100000000.0,
+      "n_positions": 0
+    },
+    {
+      "date": "2026-04-10",
+      "equity": 101339199.72925001,
+      "n_positions": 17
+    },
+    {
+      "date": "2026-04-10",
+      "equity": 101339199.72925001,
+      "n_positions": 17
+    },
+    {
+      "date": "2026-04-10",
+      "equity": 101339199.72925001,
+      "n_positions": 17
+    }
+  ]
+}

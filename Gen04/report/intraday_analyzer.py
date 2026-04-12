@@ -109,8 +109,9 @@ def analyze_stock(code: str, bars: pd.DataFrame,
     drawdown = (close_col - running_high) / running_high * 100
     drawdown = drawdown.replace([float("inf"), float("-inf")], 0)
     max_dd_idx = drawdown.idxmin()
-    max_intraday_dd_pct = drawdown.iloc[max_dd_idx] if not pd.isna(max_dd_idx) else 0.0
-    max_dd_time = bars["datetime"].iloc[max_dd_idx] if not pd.isna(max_dd_idx) else ""
+    # FIX-A7: idxmin returns label-based index, use .loc not .iloc
+    max_intraday_dd_pct = drawdown.loc[max_dd_idx] if not pd.isna(max_dd_idx) else 0.0
+    max_dd_time = bars["datetime"].loc[max_dd_idx] if not pd.isna(max_dd_idx) else ""
     # Extract time only (HH:MM)
     if max_dd_time and " " in str(max_dd_time):
         max_dd_time = str(max_dd_time).split(" ")[-1][:5]
@@ -122,7 +123,7 @@ def analyze_stock(code: str, bars: pd.DataFrame,
         if not drop_5m.empty:
             max_5m_drop_idx = drop_5m.idxmin()
             max_5m_drop_pct = drop_5m.loc[max_5m_drop_idx]
-            max_5m_drop_time = bars["datetime"].iloc[max_5m_drop_idx]
+            max_5m_drop_time = bars["datetime"].loc[max_5m_drop_idx]
             if max_5m_drop_time and " " in str(max_5m_drop_time):
                 max_5m_drop_time = str(max_5m_drop_time).split(" ")[-1][:5]
         else:

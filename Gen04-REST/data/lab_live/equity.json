@@ -1,0 +1,149 @@
+{
+  "version_seq": 1,
+  "rows": [
+    {
+      "date": "2026-04-10",
+      "breakout_trend": "100000000.0",
+      "hybrid_qscore": "100000000.0",
+      "liquidity_signal": "100000000.0",
+      "lowvol_momentum": "100000000.0",
+      "mean_reversion": "100000000.0",
+      "momentum_base": "100000000.0",
+      "quality_factor": "100000000.0",
+      "sector_rotation": "100000000.0",
+      "vol_regime": "100000000.0"
+    },
+    {
+      "date": "2026-04-10",
+      "breakout_trend": "115254061.37650001",
+      "hybrid_qscore": "101533656.55699998",
+      "liquidity_signal": "109607616.5535",
+      "lowvol_momentum": "100617697.24599999",
+      "mean_reversion": "102336175.44125",
+      "momentum_base": "101331313.85000002",
+      "quality_factor": "101314942.1165",
+      "sector_rotation": "101339199.72925001",
+      "vol_regime": "100995679.0205"
+    },
+    {
+      "date": "2026-04-10",
+      "breakout_trend": "115254061.37650001",
+      "hybrid_qscore": "101533656.55699998",
+      "liquidity_signal": "109607616.5535",
+      "lowvol_momentum": "100617697.24599999",
+      "mean_reversion": "102336175.44125",
+      "momentum_base": "101331313.85000002",
+      "quality_factor": "101314942.1165",
+      "sector_rotation": "101339199.72925001",
+      "vol_regime": "100995679.0205"
+    },
+    {
+      "date": "2026-04-10",
+      "breakout_trend": "115254061.37650001",
+      "hybrid_qscore": "101533656.55699998",
+      "liquidity_signal": "109607616.5535",
+      "lowvol_momentum": "100617697.24599999",
+      "mean_reversion": "102336175.44125",
+      "momentum_base": "101331313.85000002",
+      "quality_factor": "101314942.1165",
+      "sector_rotation": "101339199.72925001",
+      "vol_regime": "100995679.0205"
+    },
+    {
+      "date": "2026-04-10",
+      "breakout_trend": "115254061.37650001",
+      "hybrid_qscore": "101533656.55699998",
+      "liquidity_signal": "109607616.5535",
+      "lowvol_momentum": "100617697.24599999",
+      "mean_reversion": "102336175.44125",
+      "momentum_base": "101331313.85000002",
+      "quality_factor": "101314942.1165",
+      "sector_rotation": "101339199.72925001",
+      "vol_regime": "100995679.0205"
+    },
+    {
+      "date": "2026-04-10",
+      "breakout_trend": "115254061.37650001",
+      "hybrid_qscore": "101533656.55699998",
+      "liquidity_signal": "109607616.5535",
+      "lowvol_momentum": "100617697.24599999",
+      "mean_reversion": "102336175.44125",
+      "momentum_base": "101331313.85000002",
+      "quality_factor": "101314942.1165",
+      "sector_rotation": "101339199.72925001",
+      "vol_regime": "100995679.0205"
+    },
+    {
+      "date": "2026-04-10",
+      "breakout_trend": "100000000.0",
+      "hybrid_qscore": "100000000.0",
+      "liquidity_signal": "100000000.0",
+      "lowvol_momentum": "100000000.0",
+      "mean_reversion": "100000000.0",
+      "momentum_base": "100000000.0",
+      "quality_factor": "100000000.0",
+      "sector_rotation": "100000000.0",
+      "vol_regime": "100000000.0"
+    },
+    {
+      "date": "2026-04-10",
+      "breakout_trend": "100000000.0",
+      "hybrid_qscore": "100000000.0",
+      "liquidity_signal": "100000000.0",
+      "lowvol_momentum": "100000000.0",
+      "mean_reversion": "100000000.0",
+      "momentum_base": "100000000.0",
+      "quality_factor": "100000000.0",
+      "sector_rotation": "100000000.0",
+      "vol_regime": "100000000.0"
+    },
+    {
+      "date": "2026-04-10",
+      "breakout_trend": "100000000.0",
+      "hybrid_qscore": "100000000.0",
+      "liquidity_signal": "100000000.0",
+      "lowvol_momentum": "100000000.0",
+      "mean_reversion": "100000000.0",
+      "momentum_base": "100000000.0",
+      "quality_factor": "100000000.0",
+      "sector_rotation": "100000000.0",
+      "vol_regime": "100000000.0"
+    },
+    {
+      "date": "2026-04-10",
+      "breakout_trend": "115254061.37650001",
+      "hybrid_qscore": "101533656.55699998",
+      "liquidity_signal": "109607616.5535",
+      "lowvol_momentum": "100617697.24599999",
+      "mean_reversion": "102336175.44125",
+      "momentum_base": "101331313.85000002",
+      "quality_factor": "101314942.1165",
+      "sector_rotation": "101339199.72925001",
+      "vol_regime": "100995679.0205"
+    },
+    {
+      "date": "2026-04-10",
+      "breakout_trend": "115254061.37650001",
+      "hybrid_qscore": "101533656.55699998",
+      "liquidity_signal": "109607616.5535",
+      "lowvol_momentum": "100617697.24599999",
+      "mean_reversion": "102336175.44125",
+      "momentum_base": "101331313.85000002",
+      "quality_factor": "101314942.1165",
+      "sector_rotation": "101339199.72925001",
+      "vol_regime": "100995679.0205"
+    },
+    {
+      "date": "2026-04-10",
+      "breakout_trend": "115254061.37650001",
+      "hybrid_qscore": "101533656.55699998",
+      "liquidity_signal": "109607616.5535",
+      "lowvol_momentum": "100617697.24599999",
+      "mean_reversion": "102336175.44125",
+      "momentum_base": "101331313.85000002",
+      "quality_factor": "101314942.1165",
+      "sector_rotation": "101339199.72925001",
+      "vol_regime": "100995679.0205"
+    }
+  ]
+}

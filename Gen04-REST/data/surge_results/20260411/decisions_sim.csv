@@ -1,0 +1,9 @@
+timestamp,tag,code,name,strategy_state,trigger_reason,bid,ask,bid_size,ask_size,last_price,expected_fill_price,pnl_pct,holding_seconds
+2026-04-11 12:17:12.285,SURGE_CANDIDATE,047040,대우건설,,rank=3 chg=4.07% vol_surge=False str=91,0,0,0,0,24300,0,0.0,0
+2026-04-11 12:17:12.286,SURGE_CANDIDATE,006360,GS건설,,rank=8 chg=6.89% vol_surge=True str=82,0,0,0,0,38000,0,0.0,0
+2026-04-11 12:17:12.287,SURGE_CANDIDATE,009150,삼성전기,,rank=10 chg=8.72% vol_surge=False str=113,0,0,0,0,561000,0,0.0,0
+2026-04-11 12:17:12.287,SURGE_CANDIDATE,005290,동진쎄미켐,,rank=15 chg=12.1% vol_surge=True str=117,0,0,0,0,50500,0,0.0,0
+2026-04-11 12:17:12.325,SURGE_CANDIDATE,079550,LIG넥스원,,rank=17 chg=3.83% vol_surge=False str=124,0,0,0,0,921000,0,0.0,0
+2026-04-11 12:17:12.327,SURGE_TR_RECEIVED,,,,START 5 codes,0,0,0,0,0,0,0.0,0
+2026-04-11 12:17:42.649,SURGE_TR_RECEIVED,,,,SCAN found=20 filtered=3 new=0,0,0,0,0,0,0,0.0,0
+2026-04-11 12:17:47.861,SIM_RESULT,,,,STOP trades=0,0,0,0,0,0,0,0.0,0

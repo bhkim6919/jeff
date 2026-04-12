@@ -1,0 +1,95 @@
+{
+  "strategies": [
+    {
+      "total_trades": 5,
+      "win_count": 1,
+      "loss_count": 4,
+      "win_rate": 20.0,
+      "avg_win_pct": 1.045,
+      "avg_loss_pct": -1.163,
+      "profit_factor": 0.25,
+      "expectancy_pct": -0.721,
+      "total_pnl_pct": -3.607,
+      "total_pnl_krw": -44695,
+      "max_consecutive_losses": 2,
+      "time_of_day_performance": {
+        "14:00": {
+          "count": 5,
+          "win_rate": 20.0,
+          "avg_pnl_pct": -0.721
+        }
+      },
+      "exit_reason_distribution": {
+        "SL": 2,
+        "TIME_EXIT": 3
+      },
+      "gross_vs_net": {
+        "gross_total_pct": -2.557,
+        "net_total_pct": -3.607,
+        "cost_impact_pct": 1.05
+      },
+      "top_stocks": [
+        {
+          "code": "047810",
+          "pnl_pct": 1.045
+        },
+        {
+          "code": "079550",
+          "pnl_pct": -0.485
+        },
+        {
+          "code": "047040",
+          "pnl_pct": -1.135
+        },
+        {
+          "code": "000250",
+          "pnl_pct": -1.5
+        },
+        {
+          "code": "006110",
+          "pnl_pct": -1.532
+        }
+      ],
+      "bottom_stocks": [
+        {
+          "code": "047810",
+          "pnl_pct": 1.045
+        },
+        {
+          "code": "079550",
+          "pnl_pct": -0.485
+        },
+        {
+          "code": "047040",
+          "pnl_pct": -1.135
+        },
+        {
+          "code": "000250",
+          "pnl_pct": -1.5
+        },
+        {
+          "code": "006110",
+          "pnl_pct": -1.532
+        }
+      ],
+      "overheating_chase_failures": 0,
+      "avg_holding_seconds": 457.7,
+      "total_fees": 13405,
+      "strategy": "A",
+      "label": "기본 (등락률만)",
+      "cash": 9955305
+    },
+    {
+      "total_trades": 0,
+      "strategy": "B",
+      "label": "+ 거래량급증 (비활성)",
+      "cash": 10000000
+    },
+    {
+      "total_trades": 0,
+      "strategy": "C",
+      "label": "+ 거래량급증 + 체결강도 (비활성)",
+      "cash": 10000000
+    }
+  ]
+}

@@ -29,7 +29,7 @@ class SurgeConfig:
     """Surge simulator parameters — all values are overridable via API."""
 
     # ── TP / SL ────────────────────────────────────────────
-    tp_pct: float = 1.5           # Take-profit target (%)
+    tp_pct: float = 2.0           # Take-profit target (%)
     sl_pct: float = 1.0           # Stop-loss limit (%)
     max_hold_sec: int = 600       # 최대 보유 시간 (초)
     cooldown_sec: int = 120       # 동일 종목 재진입 쿨다운 (초)
@@ -59,7 +59,7 @@ class SurgeConfig:
     max_hoga_stale_sec: float = 5.0  # 호가 데이터 최대 허용 나이
 
     # ── 필터 ──────────────────────────────────────────────
-    min_price: int = 5000
+    min_price: int = 20000
     min_volume_krw: int = 1_000_000_000  # 10억
     exclude_etf: bool = True
     min_change_pct: float = 3.0   # 최소 등락률 (%) for ranking filter

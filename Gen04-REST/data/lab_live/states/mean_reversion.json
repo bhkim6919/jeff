@@ -1,0 +1,86 @@
+{
+  "version_seq": 1,
+  "strategy": "mean_reversion",
+  "cash": 1004060.4412499964,
+  "positions": {
+    "017940": {
+      "code": "017940",
+      "name": "E1",
+      "qty": 212,
+      "entry_price": 94200.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 94200.0,
+      "buy_cost_total": 22965.96,
+      "current_price": 95200.0,
+      "entry_day_idx": 1783
+    },
+    "475830": {
+      "code": "475830",
+      "name": "오름테라퓨틱",
+      "qty": 251,
+      "entry_price": 79500.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 79500.0,
+      "buy_cost_total": 22947.675,
+      "current_price": 86300.0,
+      "entry_day_idx": 1783
+    },
+    "042520": {
+      "code": "042520",
+      "name": "한스바이오메드",
+      "qty": 672,
+      "entry_price": 29700.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 29700.0,
+      "buy_cost_total": 22952.16,
+      "current_price": 31300.0,
+      "entry_day_idx": 1783
+    },
+    "065170": {
+      "code": "065170",
+      "name": "비엘팜텍",
+      "qty": 7773,
+      "entry_price": 2570.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 2570.0,
+      "buy_cost_total": 22973.1015,
+      "current_price": 2500.0,
+      "entry_day_idx": 1783
+    },
+    "389030": {
+      "code": "389030",
+      "name": "지니너스",
+      "qty": 4043,
+      "entry_price": 4705.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 4705.0,
+      "buy_cost_total": 21875.66225,
+      "current_price": 4705.0,
+      "entry_day_idx": 1783
+    }
+  },
+  "pending_buys": [],
+  "last_rebal_idx": -999,
+  "equity_history": [
+    {
+      "date": "2026-04-10",
+      "equity": 100000000.0,
+      "n_positions": 0
+    },
+    {
+      "date": "2026-04-10",
+      "equity": 102336175.44125,
+      "n_positions": 5
+    },
+    {
+      "date": "2026-04-10",
+      "equity": 102336175.44125,
+      "n_positions": 5
+    },
+    {
+      "date": "2026-04-10",
+      "equity": 102336175.44125,
+      "n_positions": 5
+    }
+  ]
+}

@@ -180,6 +180,27 @@ class IntradayCollector:
         with self._lock:
             return dict(self._last_prices)
 
+    def get_active_codes(self) -> set:
+        """Return current active codes (read-only copy)."""
+        with self._lock:
+            return set(self._active_codes)
+
+    def add_active_codes(self, codes: list) -> int:
+        """Add codes to active set while preserving existing ones.
+        Returns number of newly added codes."""
+        with self._lock:
+            before = len(self._active_codes)
+            for code in codes:
+                code = str(code).zfill(6)
+                if code not in self._active_codes:
+                    self._active_codes.add(code)
+                    if code not in self._accumulators:
+                        self._accumulators[code] = _MinuteBarAccumulator()
+            added = len(self._active_codes) - before
+            if added:
+                logger.info("[Intraday] +%d codes, total=%d", added, len(self._active_codes))
+            return added
+
     # ── Data Loading (for reports) ──────────────────────────────────────
 
     def load_today_bars(self, code: str) -> pd.DataFrame:

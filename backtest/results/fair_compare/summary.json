@@ -1,0 +1,80 @@
+[
+  {
+    "strategy": "Gen4_Core",
+    "universe": "KOSPI",
+    "cagr": "11.41%",
+    "mdd": "-23.68%",
+    "sharpe": "0.697",
+    "trades": 766,
+    "win_rate": "43.7%",
+    "exit_dist": {
+      "TRAIL": 389,
+      "REBAL": 377
+    }
+  },
+  {
+    "strategy": "Pure_Mom12-1",
+    "universe": "KOSPI",
+    "cagr": "-10.84%",
+    "mdd": "-67.61%",
+    "sharpe": "-0.381",
+    "trades": 1161,
+    "win_rate": "32.5%",
+    "exit_dist": {
+      "TRAIL": 1012,
+      "REBAL": 149
+    }
+  },
+  {
+    "strategy": "Hybrid_LowVol+RS",
+    "universe": "KOSPI",
+    "cagr": "-0.16%",
+    "mdd": "-49.90%",
+    "sharpe": "0.077",
+    "trades": 1067,
+    "win_rate": "35.5%",
+    "exit_dist": {
+      "REBAL": 594,
+      "TRAIL": 473
+    }
+  },
+  {
+    "strategy": "Gen4_Core",
+    "universe": "ALL",
+    "cagr": "9.96%",
+    "mdd": "-24.84%",
+    "sharpe": "0.589",
+    "trades": 932,
+    "win_rate": "42.6%",
+    "exit_dist": {
+      "TRAIL": 570,
+      "REBAL": 362
+    }
+  },
+  {
+    "strategy": "Pure_Mom12-1",
+    "universe": "ALL",
+    "cagr": "-18.56%",
+    "mdd": "-80.13%",
+    "sharpe": "-0.759",
+    "trades": 1262,
+    "win_rate": "29.7%",
+    "exit_dist": {
+      "TRAIL": 1130,
+      "REBAL": 132
+    }
+  },
+  {
+    "strategy": "Hybrid_LowVol+RS",
+    "universe": "ALL",
+    "cagr": "-7.90%",
+    "mdd": "-60.78%",
+    "sharpe": "-0.309",
+    "trades": 1258,
+    "win_rate": "35.6%",
+    "exit_dist": {
+      "TRAIL": 781,
+      "REBAL": 477
+    }
+  }
+]

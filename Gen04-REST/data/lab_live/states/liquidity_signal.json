@@ -1,0 +1,141 @@
+{
+  "version_seq": 1,
+  "strategy": "liquidity_signal",
+  "cash": 508806.55349999666,
+  "positions": {
+    "044450": {
+      "code": "044450",
+      "name": "KSS해운",
+      "qty": 872,
+      "entry_price": 11450.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 12640.0,
+      "buy_cost_total": 11482.06,
+      "current_price": 12640.0,
+      "entry_day_idx": 1783
+    },
+    "228670": {
+      "code": "228670",
+      "name": "레이",
+      "qty": 1412,
+      "entry_price": 7070.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 7250.0,
+      "buy_cost_total": 11480.266,
+      "current_price": 7250.0,
+      "entry_day_idx": 1783
+    },
+    "064260": {
+      "code": "064260",
+      "name": "다날",
+      "qty": 1426,
+      "entry_price": 7000.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 7960.0,
+      "buy_cost_total": 11479.3,
+      "current_price": 7960.0,
+      "entry_day_idx": 1783
+    },
+    "003310": {
+      "code": "003310",
+      "name": "대주산업",
+      "qty": 2714,
+      "entry_price": 3680.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 3900.0,
+      "buy_cost_total": 11485.648,
+      "current_price": 3900.0,
+      "entry_day_idx": 1783
+    },
+    "306040": {
+      "code": "306040",
+      "name": "에스제이그룹",
+      "qty": 1506,
+      "entry_price": 6630.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 7820.0,
+      "buy_cost_total": 11482.497,
+      "current_price": 7820.0,
+      "entry_day_idx": 1783
+    },
+    "040300": {
+      "code": "040300",
+      "name": "YTN",
+      "qty": 3036,
+      "entry_price": 3290.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 3415.0,
+      "buy_cost_total": 11486.706,
+      "current_price": 3415.0,
+      "entry_day_idx": 1783
+    },
+    "005290": {
+      "code": "005290",
+      "name": "동진쎄미켐",
+      "qty": 215,
+      "entry_price": 46450.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 49500.0,
+      "buy_cost_total": 11484.762499999999,
+      "current_price": 49500.0,
+      "entry_day_idx": 1783
+    },
+    "095270": {
+      "code": "095270",
+      "name": "웨이브일렉트로",
+      "qty": 1585,
+      "entry_price": 6300.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 7810.0,
+      "buy_cost_total": 11483.324999999999,
+      "current_price": 7810.0,
+      "entry_day_idx": 1783
+    },
+    "010820": {
+      "code": "010820",
+      "name": "퍼스텍",
+      "qty": 944,
+      "entry_price": 10570.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 11390.0,
+      "buy_cost_total": 11474.792,
+      "current_price": 11390.0,
+      "entry_day_idx": 1783
+    },
+    "405100": {
+      "code": "405100",
+      "name": "큐알티",
+      "qty": 510,
+      "entry_price": 18660.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 19580.0,
+      "buy_cost_total": 10944.09,
+      "current_price": 19580.0,
+      "entry_day_idx": 1783
+    }
+  },
+  "pending_buys": [],
+  "last_rebal_idx": -999,
+  "equity_history": [
+    {
+      "date": "2026-04-10",
+      "equity": 100000000.0,
+      "n_positions": 0
+    },
+    {
+      "date": "2026-04-10",
+      "equity": 109607616.5535,
+      "n_positions": 10
+    },
+    {
+      "date": "2026-04-10",
+      "equity": 109607616.5535,
+      "n_positions": 10
+    },
+    {
+      "date": "2026-04-10",
+      "equity": 109607616.5535,
+      "n_positions": 10
+    }
+  ]
+}

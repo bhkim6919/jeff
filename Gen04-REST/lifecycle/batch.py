@@ -46,6 +46,24 @@ def run_batch(config, fast: bool = False):
             if codes:
                 updated = update_ohlcv_incremental(ohlcv_dir, codes, days=30)
                 logger.info(f"  Updated {updated}/{len(codes)} stocks")
+                # DB sync: CSV → DB for updated stocks
+                try:
+                    from data.db_provider import DbProvider
+                    db = DbProvider()
+                    db_synced = 0
+                    for code in codes:
+                        csv_path = ohlcv_dir / f"{code}.csv"
+                        if csv_path.exists():
+                            import pandas as _pd
+                            _df = _pd.read_csv(csv_path, parse_dates=["date"])
+                            # Only last 5 days (incremental)
+                            _df = _df.tail(5)
+                            if not _df.empty:
+                                db.upsert_ohlcv(code, _df)
+                                db_synced += 1
+                    logger.info(f"  DB synced: {db_synced} stocks")
+                except Exception as e2:
+                    logger.warning(f"  DB sync failed: {e2} (non-critical)")
         except Exception as e:
             logger.warning(f"  pykrx update failed: {e}. Using existing data.")
 
@@ -73,30 +91,85 @@ def run_batch(config, fast: bool = False):
         logger.error("Empty universe!")
         return None
 
-    # Step 3: Load OHLCV for scoring
+    # Step 3: Load OHLCV for scoring (DB first, CSV fallback)
     logger.info("[3/5] Loading OHLCV...")
     close_dict = {}
-    for code in universe:
-        path = ohlcv_dir / f"{code}.csv"
-        if path.exists():
-            df = pd.read_csv(path, parse_dates=["date"])
-            df["close"] = pd.to_numeric(df["close"], errors="coerce").fillna(0)
-            if len(df) >= config.VOL_LOOKBACK:
-                close_dict[code] = df.set_index("date")["close"]
-    logger.info(f"  Loaded {len(close_dict)} stocks")
+    try:
+        from data.db_provider import DbProvider
+        db = DbProvider()
+        close_dict = db.load_close_dict(min_history=config.VOL_LOOKBACK)
+        # Filter to universe
+        close_dict = {k: v for k, v in close_dict.items() if k in universe}
+        logger.info(f"  Loaded {len(close_dict)} stocks [DB]")
+    except Exception as e:
+        logger.warning(f"  DB load failed ({e}), CSV fallback")
+        for code in universe:
+            path = ohlcv_dir / f"{code}.csv"
+            if path.exists():
+                df = pd.read_csv(path, parse_dates=["date"])
+                df["close"] = pd.to_numeric(df["close"], errors="coerce").fillna(0)
+                if len(df) >= config.VOL_LOOKBACK:
+                    close_dict[code] = df.set_index("date")["close"]
+        logger.info(f"  Loaded {len(close_dict)} stocks [CSV]")
 
     # Step 4: Score and select
     logger.info("[4/5] Scoring and selecting...")
     target = build_target_portfolio(close_dict, config)
     path = save_target_portfolio(target, config.SIGNALS_DIR)
     logger.info(f"  Target: {len(target['target_tickers'])} stocks -> {path}")
+
+    # DB 저장 (PostgreSQL)
+    try:
+        from data.db_provider import DbProvider
+        db = DbProvider()
+        db.save_target_portfolio(target)
+        logger.info(f"  Target saved to DB")
+    except Exception as e:
+        logger.warning(f"  DB save failed: {e} (non-critical)")
     for i, tk in enumerate(target["target_tickers"], 1):
         s = target["scores"].get(tk, {})
         logger.info(f"    {i:2d}. {tk}  vol={s.get('vol_12m',0):.4f}  mom={s.get('mom_12_1',0):.4f}")
 
-    # Step 5: Generate Top20 MA HTML report
+    # Step 5 (fast): Fundamental snapshot (lightweight, Lab 9전략 필수)
     if fast:
-        logger.info("[5-7/7] Skipped (--fast mode)")
+        logger.info("[5/5] Fundamental snapshot (fast, for Lab strategies)...")
+        try:
+            fund_dir = config.OHLCV_DIR.parent / "fundamental"
+            fund_dir.mkdir(parents=True, exist_ok=True)
+            fund_date = target.get("date", datetime.now().strftime("%Y%m%d"))
+            fund_path = fund_dir / f"fundamental_{fund_date}.csv"
+
+            if fund_path.exists():
+                logger.info(f"  Already exists: {fund_path}")
+            else:
+                from data.fundamental_collector import fetch_daily_snapshot
+                fund_df = fetch_daily_snapshot()
+                if fund_df is not None:
+                    fund_df.to_csv(fund_path, index=False)
+                    logger.info(f"  Fundamental: {fund_path} ({len(fund_df)} stocks)")
+                    # DB 저장
+                    try:
+                        from data.db_provider import DbProvider
+                        db = DbProvider()
+                        db.upsert_fundamental(fund_date, fund_df)
+                        logger.info(f"  Fundamental saved to DB")
+                    except Exception as e2:
+                        logger.warning(f"  Fundamental DB save failed: {e2}")
+        except Exception as e:
+            logger.warning(f"  Fundamental failed: {e} (Lab uses latest available)")
+
+        # Lab Live daily run (9전략 forward paper trading)
+        try:
+            _run_lab_live_daily(config, logger)
+        except Exception as e:
+            logger.warning(f"  Lab Live failed: {e} (non-critical)")
+
+        # Advisor daily analysis + Telegram
+        try:
+            _run_advisor(config, logger)
+        except Exception as e:
+            logger.warning(f"  Advisor failed: {e} (non-critical)")
+
         logger.info("Batch complete (fast).")
         return target
     logger.info("[5/7] Generating Top20 MA report...")
@@ -151,5 +224,64 @@ def run_batch(config, fast: bool = False):
     except Exception as e:
         logger.warning(f"  Valuation report failed: {e} (non-critical)")
 
+    # Step 8: Lab Live daily run (9전략 forward paper trading)
+    logger.info("[8/9] Lab Live daily run...")
+    try:
+        _run_lab_live_daily(config, logger)
+    except Exception as e:
+        logger.warning(f"  Lab Live failed: {e} (non-critical)")
+
+    # Step 9: Advisor daily analysis + Telegram
+    logger.info("[9/9] Advisor daily analysis...")
+    try:
+        _run_advisor(config, logger)
+    except Exception as e:
+        logger.warning(f"  Advisor failed: {e} (non-critical)")
+
     logger.info("Batch complete.")
     return target
+
+
+def _run_lab_live_daily(config, logger):
+    """Lab Live 9전략 forward paper trading daily run."""
+    try:
+        from web.lab_live.engine import LabLiveSimulator
+        sim = LabLiveSimulator()
+        sim.initialize()
+        result = sim.run_daily()
+        if result.get("ok"):
+            logger.info(f"  Lab Live: {result['date']}, {result['trades']} trades, "
+                        f"{result['elapsed']:.1f}s")
+        elif result.get("skipped"):
+            logger.info(f"  Lab Live: already ran for {result['date']}")
+        else:
+            logger.warning(f"  Lab Live: {result}")
+    except Exception as e:
+        logger.warning(f"  Lab Live error: {e}")
+
+
+def _run_advisor(config, logger):
+    """Advisor 일일 분석 + 텔레그램 알림."""
+    try:
+        from advisor.runner import run_analysis
+        from notify.helpers import _notify_advisor
+        from datetime import datetime
+
+        today = datetime.now().strftime("%Y%m%d")
+        mode = getattr(config, "TRADING_MODE", "live")
+
+        result = run_analysis(today, mode)
+        status = result.get("status", "UNKNOWN")
+
+        # Summary log
+        alerts = result.get("alerts", [])
+        recs = result.get("recommendations", [])
+        n_high = sum(1 for a in alerts if a.get("priority") == "HIGH")
+        logger.info(f"  Advisor: {status}, {len(alerts)} alerts ({n_high} HIGH), "
+                     f"{len(recs)} recommendations, {result.get('elapsed_sec', 0):.1f}s")
+
+        # Telegram
+        _notify_advisor(alerts, recs)
+
+    except Exception as e:
+        logger.warning(f"  Advisor error: {e}")

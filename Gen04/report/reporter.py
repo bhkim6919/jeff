@@ -41,44 +41,44 @@ class TradeLogger:
         self._ensure_headers()
 
     def _ensure_headers(self):
-        """Create CSV headers if files don't exist."""
-        if not self._trades_file.exists():
-            self._write_header(self._trades_file, [
-                "date", "code", "side", "quantity", "price",
-                "cost", "slippage_pct", "mode", "event_id",
-            ])
+        """Validate/create CSV headers. Uses _ensure_header for safe schema migration."""
+        self._ensure_header(self._trades_file, [
+            "date", "code", "side", "quantity", "price",
+            "cost", "slippage_pct", "mode", "event_id",
+        ])
 
-        if not self._close_file.exists():
-            self._write_header(self._close_file, [
-                "date", "code", "exit_reason", "quantity",
-                "entry_price", "exit_price", "entry_date",
-                "hold_days", "pnl_pct", "pnl_amount", "mode", "event_id",
-            ])
+        self._ensure_header(self._close_file, [
+            "date", "code", "exit_reason", "quantity",
+            "entry_price", "exit_price", "entry_date",
+            "hold_days", "pnl_pct", "pnl_amount", "mode", "event_id",
+            "entry_rank", "score_mom", "max_hwm_pct",
+        ])
 
-        if not self._equity_file.exists():
-            self._write_header(self._equity_file, [
-                "date", "equity", "cash", "n_positions",
-                "daily_pnl_pct", "monthly_dd_pct",
-                "risk_mode", "rebalance_executed", "price_fail_count",
-                "reconcile_corrections", "monitor_only",
-            ])
+        self._ensure_header(self._equity_file, [
+            "date", "equity", "cash", "n_positions",
+            "daily_pnl_pct", "monthly_dd_pct",
+            "risk_mode", "rebalance_executed", "price_fail_count",
+            "reconcile_corrections", "monitor_only",
+            "kospi_close", "kosdaq_close",
+            "regime", "kospi_ma200", "breadth",
+            "broker_total_buy", "broker_total_pnl", "broker_total_asset",
+        ])
 
-        if not self._decision_file.exists():
-            self._write_header(self._decision_file, [
-                "event_id", "date", "code", "side", "reason",
-                "score_vol", "score_mom", "rank",
-                "target_weight", "price", "cash_before",
-                "high_watermark", "trail_stop_price",
-                "pnl_pct", "hold_days",
-            ])
+        self._ensure_header(self._decision_file, [
+            "event_id", "date", "code", "side", "reason",
+            "score_vol", "score_mom", "rank",
+            "target_weight", "price", "cash_before",
+            "high_watermark", "trail_stop_price",
+            "pnl_pct", "hold_days",
+            "regime",
+        ])
 
-        if not self._reconcile_file.exists():
-            self._write_header(self._reconcile_file, [
-                "date", "time", "code", "diff_type",
-                "engine_qty", "broker_qty",
-                "engine_avg", "broker_avg",
-                "resolution",
-            ])
+        self._ensure_header(self._reconcile_file, [
+            "date", "time", "code", "diff_type",
+            "engine_qty", "broker_qty",
+            "engine_avg", "broker_avg",
+            "resolution",
+        ])
 
         self._ensure_header(self._positions_file, [
             "date", "code", "quantity", "avg_price",
@@ -87,6 +87,7 @@ class TradeLogger:
             "est_cost_pct", "net_pnl_pct",
             "high_watermark", "trail_stop_price",
             "entry_date", "hold_days",
+            "hwm_pct",
         ])
 
     def _write_header(self, path: Path, columns: list):
@@ -146,7 +147,9 @@ class TradeLogger:
         self._append(self._trades_file, row)
 
     def log_close(self, trade: dict, exit_reason: str, mode: str = "LIVE",
-                  event_id: str = ""):
+                  event_id: str = "",
+                  entry_rank: int = 0, score_mom: float = 0.0,
+                  max_hwm_pct: float = 0.0):
         """Log a closed position."""
         row = [
             date.today().strftime("%Y-%m-%d"),
@@ -162,6 +165,9 @@ class TradeLogger:
             mode,
             event_id or make_event_id(
                 trade.get("code", ""), exit_reason),
+            entry_rank,
+            f"{score_mom:.4f}",
+            f"{max_hwm_pct:.4f}",
         ]
         self._append(self._close_file, row)
 
@@ -182,8 +188,15 @@ class TradeLogger:
                    rebalance_executed: bool = False,
                    price_fail_count: int = 0,
                    reconcile_corrections: int = 0,
-                   monitor_only: bool = False):
+                   monitor_only: bool = False,
+                   kospi_close: float = 0.0,
+                   kosdaq_close: float = 0.0,
+                   regime: str = "",
+                   kospi_ma200: float = 0.0,
+                   breadth: float = 0.0,
+                   broker_summary: dict = None):
         """Log daily equity snapshot with context tags."""
+        bs = broker_summary or {}
         row = [
             date.today().strftime("%Y-%m-%d"),
             f"{equity:.2f}", f"{cash:.2f}", n_positions,
@@ -193,6 +206,14 @@ class TradeLogger:
             price_fail_count,
             reconcile_corrections,
             "Y" if monitor_only else "N",
+            f"{kospi_close:.2f}" if kospi_close else "",
+            f"{kosdaq_close:.2f}" if kosdaq_close else "",
+            regime,
+            f"{kospi_ma200:.2f}" if kospi_ma200 else "",
+            f"{breadth:.4f}" if breadth else "",
+            bs.get("총매입금액", ""),
+            bs.get("총평가손익금액", ""),
+            bs.get("추정예탁자산", ""),
         ]
         self._append(self._equity_file, row)
 
@@ -236,6 +257,7 @@ class TradeLogger:
                 f"{est_cost_pct:.4f}", f"{net_pnl_pct:.4f}",
                 f"{pos.high_watermark:.2f}", f"{pos.trail_stop_price:.2f}",
                 pos.entry_date, hold_days,
+                f"{(pos.high_watermark / pos.avg_price - 1):.4f}" if pos.avg_price > 0 else "0.0000",
             ]
             self._append(self._positions_file, row)
 
@@ -247,7 +269,7 @@ class TradeLogger:
                          score_vol: float = 0, score_mom: float = 0,
                          rank: int = 0, target_weight: float = 0,
                          price: float = 0, cash_before: float = 0,
-                         event_id: str = ""):
+                         event_id: str = "", regime: str = ""):
         """Log buy decision context."""
         eid = event_id or make_event_id(code, "BUY")
         row = [
@@ -256,6 +278,7 @@ class TradeLogger:
             f"{score_vol:.6f}", f"{score_mom:.4f}", rank,
             f"{target_weight:.2f}", f"{price:.2f}", f"{cash_before:.2f}",
             "", "", "", "",
+            regime,
         ]
         self._append(self._decision_file, row)
         return eid
@@ -264,7 +287,7 @@ class TradeLogger:
                           price: float = 0, high_watermark: float = 0,
                           trail_stop_price: float = 0,
                           pnl_pct: float = 0, hold_days: int = 0,
-                          event_id: str = ""):
+                          event_id: str = "", regime: str = ""):
         """Log sell decision context."""
         eid = event_id or make_event_id(code, "SELL")
         row = [
@@ -274,6 +297,7 @@ class TradeLogger:
             "", f"{price:.2f}", "",
             f"{high_watermark:.2f}", f"{trail_stop_price:.2f}",
             f"{pnl_pct:.4f}", hold_days,
+            regime,
         ]
         self._append(self._decision_file, row)
         return eid
@@ -299,7 +323,8 @@ class TradeLogger:
 
     def _append(self, path: Path, row: list):
         try:
-            with open(path, "a", newline="", encoding="utf-8-sig") as f:
+            # FIX-A5: utf-8 for append (BOM은 _ensure_header에서만 사용)
+            with open(path, "a", newline="", encoding="utf-8") as f:
                 csv.writer(f).writerow(row)
         except Exception as e:
             logger.error(f"Failed to write to {path.name}: {e}")

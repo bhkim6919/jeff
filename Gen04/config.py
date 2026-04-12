@@ -30,6 +30,7 @@ class Gen4Config:
 
     # Trailing stop
     TRAIL_PCT: float = 0.12          # -12% from high watermark
+    TRAIL_ALERT_DISTANCE_PP: float = 4.0  # /trail 알림 기준: stop까지 남은 거리 %p
 
     # ── Emergency Rebalance (Ver.02: Strategy A) ──────────────────
     EMERGENCY_REBAL_ENABLED: bool = False   # False = Gen4 Base, True = Ver.02

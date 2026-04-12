@@ -1,0 +1,71 @@
+{
+  "feature_date": "2026-04-10",
+  "target_date": "2026-04-13",
+  "predicted_regime": 4,
+  "predicted_label": "BULL",
+  "composite_score": 0.259822,
+  "global_score": 0.3401,
+  "global_avail": 1,
+  "vol_score": 0.3,
+  "vol_avail": 1,
+  "domestic_score": 0.0,
+  "domestic_avail": 1,
+  "micro_score": 0.0,
+  "micro_avail": 0,
+  "fx_score": 0.7181,
+  "fx_avail": 1,
+  "available_weight": 0.9,
+  "confidence_flag": "FULL",
+  "source_health": {
+    "sp500": {
+      "ok": true,
+      "stale": false,
+      "from_cache": false,
+      "source": "yahoo_v8:^GSPC",
+      "error": null
+    },
+    "nasdaq": {
+      "ok": true,
+      "stale": false,
+      "from_cache": false,
+      "source": "yahoo_v8:^IXIC",
+      "error": null
+    },
+    "vix": {
+      "ok": true,
+      "stale": false,
+      "from_cache": false,
+      "source": "yahoo_v8:^VIX",
+      "error": null
+    },
+    "usdkrw": {
+      "ok": true,
+      "stale": false,
+      "from_cache": false,
+      "source": "yahoo_v8:KRW=X",
+      "error": null
+    },
+    "kospi": {
+      "ok": true,
+      "stale": false,
+      "from_cache": false,
+      "source": "ka20001:kospi",
+      "error": null
+    },
+    "kosdaq": {
+      "ok": true,
+      "stale": false,
+      "from_cache": false,
+      "source": "ka20001:kosdaq",
+      "error": null
+    },
+    "strength": {
+      "ok": false,
+      "stale": true,
+      "from_cache": false,
+      "source": "ka10046",
+      "error": "ka10046 requires stk_cd (not supported for market-wide query)"
+    }
+  },
+  "created_at": "2026-04-10T08:25:51"
+}

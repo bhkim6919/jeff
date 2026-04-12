@@ -534,6 +534,17 @@ def run_eod(ctx: LiveContext) -> None:
                     logger.error(f"[EOD_SETTLE_ERROR] {e}", exc_info=True)
 
     finally:
+        # XVAL: save daily summary before shutdown
+        if ctx.xval_observer:
+            try:
+                xval_dir = config.BASE_DIR / "data" / "xval"
+                ctx.xval_observer.save_daily_summary(xval_dir)
+                ctx.xval_observer.log_summary()
+                p3_check = ctx.xval_observer.check_phase3_ready()
+                logger.info(f"[XVAL_EOD] Phase3 ready={p3_check['ready']}")
+            except Exception as _xval_err:
+                logger.debug(f"[XVAL_EOD_ERR] {_xval_err}")
+
         # Shutdown cleanup
         try:
             state_mgr.mark_shutdown("eod_complete")

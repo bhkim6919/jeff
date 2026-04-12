@@ -26,6 +26,7 @@ from web.lab_live.config import LabLiveConfig
 from web.lab_live.state_store import (
     save_state, load_state, save_trades, load_trades, append_equity,
     atomic_write_json, safe_read_json,
+    save_state_v2, load_state_v2, archive_state_v2,
 )
 
 
@@ -164,10 +165,15 @@ class LabLiveSimulator:
             # Load sector map
             self._sector_map = load_sector_map(self.config.sector_map_file)
 
-            # Try restore from saved state
+            # Try restore from saved state (v2: per-strategy + HEAD)
             saved = None
+            _corrupted = False
             if not reset:
-                saved = load_state(self.config.state_file)
+                saved = load_state_v2(self.config)
+                if saved and saved.get("status") == "CORRUPTED":
+                    logger.error(f"[LAB_LIVE] State CORRUPTED: {saved.get('message')}")
+                    _corrupted = True
+                    saved = None  # fall through to fresh start
 
             strategy_names = list(STRATEGY_CONFIGS.keys())
 
@@ -223,21 +229,31 @@ class LabLiveSimulator:
 
             if saved:
                 self._last_run_date = saved.get("last_run_date", "")
-                # Restore trades
-                self._all_trades = load_trades(self.config.trades_file)
+                # v2 includes trades; fallback to file load
+                self._all_trades = saved.get("trades", [])
+                if not self._all_trades:
+                    self._all_trades = load_trades(self.config.trades_file)
+                self._equity_rows = saved.get("equity_rows", [])
             else:
                 self._all_trades = []
+                self._equity_rows = []
 
             self._initialized = True
             self._running = True
             self._start_time = datetime.now()
 
-            return {
+            result = {
                 "ok": True,
                 "lanes": len(self._lanes),
                 "restored": saved is not None and not reset,
                 "last_run_date": self._last_run_date,
             }
+            if _corrupted:
+                result["warning"] = "CORRUPTED"
+                result["message"] = "State was corrupted — started fresh"
+            if saved and saved.get("recovered_from"):
+                result["recovered_from"] = saved["recovered_from"]
+            return result
 
     # ── Daily Run (Phase 1 핵심) ─────────────────────────────
 
@@ -252,7 +268,7 @@ class LabLiveSimulator:
 
             t0 = time.time()
             today_str = datetime.now().strftime("%Y-%m-%d")
-            lock_dir = self.config.state_file.parent / "locks"
+            lock_dir = self.config.state_dir / "locks"
 
             # Date lock — prevent concurrent/duplicate EOD
             if not _acquire_date_lock(lock_dir, today_str):
@@ -499,17 +515,12 @@ class LabLiveSimulator:
                     )
                     equity_row[sname] = equity
 
-            # Save state
+            # Accumulate trades + equity, then save all via v2 committed write
             self._last_run_date = today_date
-            self._save_state()
-
-            # Save new trades
             if new_trades:
                 self._all_trades.extend(new_trades)
-                save_trades(new_trades, self.config.trades_file)
-
-            # Append equity
-            append_equity(equity_row, self.config.equity_file)
+            self._equity_rows.append(equity_row)
+            self._save_state()
 
             elapsed = time.time() - t0
             logger.info(f"[LAB_LIVE] Daily run complete: {today_date} "
@@ -642,28 +653,15 @@ class LabLiveSimulator:
         return trade
 
     def _archive_state(self):
-        """Archive current state + trades before reset (audit trail)."""
-        import shutil
-        from datetime import datetime
-        archive_dir = self.config.state_file.parent / "archive"
-        archive_dir.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        dest = archive_dir / ts
-        dest.mkdir(exist_ok=True)
-
-        for f in [self.config.state_file,
-                  self.config.state_file.parent / "trades.json",
-                  self.config.state_file.parent / "equity_history.csv"]:
-            if f.exists():
-                try:
-                    shutil.copy2(f, dest / f.name)
-                except Exception as e:
-                    logger.warning(f"[LAB_LIVE] Archive copy failed {f.name}: {e}")
-
-        logger.info(f"[LAB_LIVE] State archived → {dest}")
+        """Archive current committed state (head + states + trades + equity)."""
+        dest = archive_state_v2(self.config)
+        if dest:
+            logger.info(f"[LAB_LIVE] State archived → {dest}")
+        else:
+            logger.warning("[LAB_LIVE] Archive failed")
 
     def _save_state(self):
-        """현재 상태를 JSON으로 저장."""
+        """현재 상태를 v2 committed version으로 저장."""
         lanes_data = {}
         for sname, lane in self._lanes.items():
             lanes_data[sname] = {
@@ -681,4 +679,4 @@ class LabLiveSimulator:
                 "last_rebal_idx": lane.last_rebal_idx,
                 "equity_history": lane.equity_history[-60:],  # keep last 60 days
             }
-        save_state(lanes_data, self.config.state_file)
+        save_state_v2(lanes_data, self._all_trades, self._equity_rows, self.config)

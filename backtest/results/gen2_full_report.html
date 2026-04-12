@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"/>
+<title>Gen2 Q-Score Backtest</title>
+<style>
+body{font-family:'Malgun Gothic',monospace;background:#1a1a2e;color:#e0e0e0;padding:20px;}
+h1{color:#00d4ff;} h2{color:#ffd700;}
+table{border-collapse:collapse;margin:10px 0;}
+td,th{border:1px solid #444;padding:6px 12px;text-align:right;}
+th{background:#2a2a4a;}
+.pos{color:#00ff88;} .neg{color:#ff4444;}
+</style></head><body>
+<h1>Gen2 Q-Score Backtest (Demand=0)</h1>
+<h2>Summary</h2>
+<table>
+<tr><th>Metric</th><th>Value</th></tr>
+<tr><td>Initial Capital</td><td>100,000,000</td></tr>
+<tr><td>Final Equity</td><td>62,228,467</td></tr>
+<tr><td>Total Return</td><td class="neg">-37.8%</td></tr>
+<tr><td>CAGR</td><td class="neg">-6.7%</td></tr>
+<tr><td>MDD</td><td class="neg">-60.9%</td></tr>
+<tr><td>Sharpe</td><td>-0.36</td></tr>
+<tr><td>Profit Factor</td><td>0.89</td></tr>
+<tr><td>Total Trades</td><td>2642</td></tr>
+<tr><td>Win Rate</td><td>28.3%</td></tr>
+<tr><td>Avg Hold Days</td><td>9.8</td></tr>
+</table>
+
+<h2>Exit Reasons</h2>
+<table>
+<tr><th>Reason</th><th>Count</th></tr>
+<tr><td>MA20</td><td>2221</td></tr><tr><td>TP</td><td>292</td></tr><tr><td>SL</td><td>109</td></tr><tr><td>EOD_FINAL</td><td>20</td></tr>
+</table>
+
+<p style="color:#666;margin-top:30px;">
+Note: Demand Score = 0 (no foreign/institutional data), Alpha = 0.<br>
+Effective Q-Score uses ~65%% (BULL) / ~60%% (SIDEWAYS) of full scoring capacity.
+</p>
+</body></html>

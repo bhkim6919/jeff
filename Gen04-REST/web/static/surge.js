@@ -20,6 +20,65 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
+// ── Regime Banner ────────────────────────────────────────────
+function _regimeBarHtml(score, size) {
+    const pct = Math.max(0, Math.min(100, ((parseFloat(score) + 3) / 6) * 100));
+    const w = size === 'sm' ? 80 : 120;
+    const h = size === 'sm' ? 4 : 6;
+    const tw = size === 'sm' ? 8 : 12;
+    const th = size === 'sm' ? 8 : 12;
+    return `<span class="rb-bar" style="width:${w}px;height:${h}px">` +
+        `<span class="rb-bar-thumb" style="left:${pct}%;width:${tw}px;height:${th}px;top:-${(th-h)/2}px"></span></span>`;
+}
+
+async function fetchRegime() {
+    try {
+        const resp = await fetch('/api/regime/current');
+        const data = await resp.json();
+        const a = data.actual || {};
+        const el = document.getElementById('regime-banner');
+        if (!el) return;
+        if (!a.actual_label) {
+            el.innerHTML = `<div class="rb-main">
+                <span class="rb-label">오늘 레짐</span>
+                <span class="rb-regime neutral">미판정</span>
+                <span class="rb-detail">데이터 수신 대기 중</span>
+            </div>`;
+            el.style.display = 'flex';
+            return;
+        }
+        const label = a.actual_label || '--';
+        const score = a.scores?.total ?? '--';
+        const kospi = a.kospi_change != null ? `KOSPI ${(a.kospi_change*100).toFixed(1)}%` : '';
+        const breadth = a.breadth_ratio != null ? `breadth ${(a.breadth_ratio*100).toFixed(0)}%` : '';
+        const cls = label.toLowerCase().replace('_', '-');
+
+        // History bars (10m, 30m, 1h ago — progressively faded)
+        const opMap = {'10m': 0.7, '30m': 0.5, '1h': 0.35};
+        const histHtml = (data.history || []).map(h => {
+            const hCls = h.label.toLowerCase().replace('_', '-');
+            const op = opMap[h.ago] || 0.2;
+            return `<span class="rb-hist" style="opacity:${op}" title="${h.ago} ago: ${h.label} (${h.score})">` +
+                _regimeBarHtml(h.score, 'sm') +
+                `<span class="rb-hist-label">${h.ago}</span></span>`;
+        }).join('');
+
+        el.innerHTML = `
+            <div class="rb-main">
+                <span class="rb-label">오늘 레짐</span>
+                <span class="rb-regime ${cls}">${label}</span>
+                <span class="rb-score">${score}</span>
+                ${_regimeBarHtml(score, 'lg')}
+                <span class="rb-detail">${kospi} | ${breadth}</span>
+            </div>
+            ${histHtml ? `<div class="rb-history">${histHtml}</div>` : ''}
+        `;
+        el.style.display = 'flex';
+    } catch(e) {}
+}
+fetchRegime();
+setInterval(fetchRegime, 300000); // 5분마다 갱신
+
 // ── Init ─────────────────────────────────────────────────────
 async function init() {
     try {
@@ -202,7 +261,7 @@ function renderStrategyCards(strategies) {
             const pc = p.pnl_pct >= 0 ? 'pnl-pos' : 'pnl-neg';
             const hold = p.holding_sec >= 60 ? `${Math.floor(p.holding_sec/60)}m` : `${Math.floor(p.holding_sec)}s`;
             return `<tr>
-                <td>${p.code}</td>
+                <td>${p.name||p.code}</td>
                 <td class="${pc}">${p.pnl_pct>=0?'+':''}${p.pnl_pct.toFixed(2)}%</td>
                 <td>${hold}</td>
             </tr>`;
@@ -213,7 +272,7 @@ function renderStrategyCards(strategies) {
             const ec = {'TP':'exit-tp','SL':'exit-sl','TIME_EXIT':'exit-time','FORCE_EXIT':'exit-force'}[t.exit_reason]||'';
             const nc = t.net_pnl_pct >= 0 ? 'pnl-pos' : 'pnl-neg';
             return `<tr>
-                <td>${t.code}</td>
+                <td>${t.name||t.code}</td>
                 <td class="${ec}">${t.exit_reason}</td>
                 <td class="${nc}">${t.net_pnl_pct>=0?'+':''}${(t.net_pnl_pct||0).toFixed(2)}%</td>
             </tr>`;
@@ -267,7 +326,7 @@ function renderCandidates(candidates) {
             <td>${c.rank}</td>
             <td>${c.code} <span style="font-size:10px;color:var(--text-dim)">${c.name||''}</span></td>
             <td>${(c.price||0).toLocaleString()}</td>
-            <td style="color:var(--green)">+${c.change_pct}%</td>
+            <td style="color:#F04452">+${c.change_pct}%</td>
             <td>${volBadge}</td>
             <td>${strBadge}</td>
         </tr>`;

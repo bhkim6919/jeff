@@ -1,15 +1,10 @@
 """
-reporter.py — Trade logging and report generation
-===================================================
-Outputs:
-  trades.csv       — all buy/sell records
-  close_log.csv    — closed position details
-  equity_log.csv   — daily equity snapshots
-  decision_log.csv — buy/sell decision context (forensic)
-  reconcile_log.csv — broker sync diffs (forensic)
+reporter.py — Trade logging and report generation (PostgreSQL)
+===============================================================
+All report data is stored in PostgreSQL report_* tables.
+DB write failures are suppressed (logged only) — never propagate to callers.
 """
 from __future__ import annotations
-import csv
 import json
 import logging
 from datetime import date, datetime
@@ -25,159 +20,75 @@ def make_event_id(code: str, action: str) -> str:
 
 
 class TradeLogger:
-    """Log trades and closed positions to CSV."""
+    """Log trades and closed positions to PostgreSQL report_* tables."""
 
-    def __init__(self, log_dir: Path):
+    def __init__(self, log_dir: Path, mode: str = "LIVE"):
         self.log_dir = log_dir
         self.log_dir.mkdir(parents=True, exist_ok=True)
+        self._mode = mode
 
-        self._trades_file = log_dir / "trades.csv"
-        self._close_file = log_dir / "close_log.csv"
-        self._equity_file = log_dir / "equity_log.csv"
-        self._decision_file = log_dir / "decision_log.csv"
-        self._reconcile_file = log_dir / "reconcile_log.csv"
-        self._positions_file = log_dir / "daily_positions.csv"
-
-        self._ensure_headers()
-
-    def _ensure_headers(self):
-        """Validate/create CSV headers. Uses _ensure_header for safe schema migration."""
-        self._ensure_header(self._trades_file, [
-            "date", "code", "side", "quantity", "price",
-            "cost", "slippage_pct", "mode", "event_id",
-        ])
-
-        self._ensure_header(self._close_file, [
-            "date", "code", "exit_reason", "quantity",
-            "entry_price", "exit_price", "entry_date",
-            "hold_days", "pnl_pct", "pnl_amount", "mode", "event_id",
-            "entry_rank", "score_mom", "max_hwm_pct",
-        ])
-
-        self._ensure_header(self._equity_file, [
-            "date", "equity", "cash", "n_positions",
-            "daily_pnl_pct", "monthly_dd_pct",
-            "risk_mode", "rebalance_executed", "price_fail_count",
-            "reconcile_corrections", "monitor_only",
-            "kospi_close", "kosdaq_close",
-            "regime", "kospi_ma200", "breadth",
-        ])
-
-        self._ensure_header(self._decision_file, [
-            "event_id", "date", "code", "side", "reason",
-            "score_vol", "score_mom", "rank",
-            "target_weight", "price", "cash_before",
-            "high_watermark", "trail_stop_price",
-            "pnl_pct", "hold_days",
-            "regime",
-        ])
-
-        self._ensure_header(self._reconcile_file, [
-            "date", "time", "code", "diff_type",
-            "engine_qty", "broker_qty",
-            "engine_avg", "broker_avg",
-            "resolution",
-        ])
-
-        self._ensure_header(self._positions_file, [
-            "date", "code", "quantity", "avg_price",
-            "current_price", "market_value",
-            "pnl_pct", "pnl_amount",
-            "est_cost_pct", "net_pnl_pct",
-            "high_watermark", "trail_stop_price",
-            "entry_date", "hold_days",
-            "hwm_pct",
-        ])
-
-    def _write_header(self, path: Path, columns: list):
-        with open(path, "w", newline="", encoding="utf-8-sig") as f:
-            csv.writer(f).writerow(columns)
-
-    def _ensure_header(self, path: Path, expected_columns: list):
-        """Validate CSV header matches expected columns.
-
-        If column count mismatches, the old file is backed up as .mismatch_backup
-        and a fresh file with correct header is created. NO silent padding/truncation.
-        """
-        if not path.exists():
-            self._write_header(path, expected_columns)
-            return
+        # Initialize DB provider
         try:
-            with open(path, "r", encoding="utf-8-sig") as f:
-                header = f.readline().strip().split(",")
-            if header == expected_columns:
-                return  # header matches, no action needed
-
-            if len(header) == len(expected_columns):
-                # Same column count, just rename header (safe)
-                import pandas as pd
-                logger.warning(
-                    "[CSV_HEADER_FIX] %s: renaming %d cols (count matches)",
-                    path.name, len(header))
-                df = pd.read_csv(path, encoding="utf-8-sig", header=0)
-                df.columns = expected_columns
-                df.to_csv(path, index=False, encoding="utf-8-sig")
-            else:
-                # Column count mismatch — backup old file, start fresh.
-                # NO silent padding/truncation to prevent data corruption.
-                import shutil
-                backup = path.with_suffix(".mismatch_backup")
-                shutil.copy2(path, backup)
-                logger.error(
-                    "[CSV_HEADER_MISMATCH_FATAL] %s: %d cols -> %d cols. "
-                    "Old file backed up to %s. Starting fresh CSV.",
-                    path.name, len(header), len(expected_columns), backup.name)
-                self._write_header(path, expected_columns)
-        except Exception as e:
-            logger.error("[CSV_HEADER_FIX] failed for %s: %s", path.name, e)
+            from data.db_provider import DbProvider
+            self._db = DbProvider()
+            self._db.ensure_report_tables()
+            logger.info("[REPORT] PostgreSQL report_* tables ready (mode=%s)", mode)
+        except Exception:
+            logger.exception("[REPORT_DB_INIT_FAIL] DB init failed, reporting disabled")
+            self._db = None
 
     # ── Trades ────────────────────────────────────────────────────
 
     def log_trade(self, code: str, side: str, qty: int, price: float,
                   cost: float = 0, mode: str = "LIVE",
                   event_id: str = "", slippage_pct: str = "N/A"):
-        """Log a buy or sell trade. slippage_pct='N/A' if unmeasured."""
-        row = [
-            date.today().strftime("%Y-%m-%d"),
-            code, side, qty, f"{price:.2f}",
-            f"{cost:.2f}", slippage_pct, mode,
-            event_id or make_event_id(code, side),
-        ]
-        self._append(self._trades_file, row)
+        """Log a buy or sell trade."""
+        if not self._db:
+            return
+        eid = event_id or make_event_id(code, side)
+        try:
+            self._db.insert_report_trade(
+                date.today().strftime("%Y-%m-%d"),
+                code, side, qty, price, cost, slippage_pct, mode, eid)
+        except Exception:
+            logger.exception("[REPORT_DB_WRITE_FAIL] log_trade %s %s %s", code, side, eid)
 
     def log_close(self, trade: dict, exit_reason: str, mode: str = "LIVE",
                   event_id: str = "",
                   entry_rank: int = 0, score_mom: float = 0.0,
                   max_hwm_pct: float = 0.0):
         """Log a closed position."""
-        row = [
-            date.today().strftime("%Y-%m-%d"),
-            trade.get("code", trade.get("ticker", "")),
-            exit_reason,
-            trade.get("quantity", 0),
-            f"{trade.get('entry_price', 0):.2f}",
-            f"{trade.get('exit_price', 0):.2f}",
-            trade.get("entry_date", ""),
-            trade.get("hold_days", 0),
-            f"{trade.get('pnl_pct', 0):.4f}",
-            f"{trade.get('pnl_amount', 0):.2f}",
-            mode,
-            event_id or make_event_id(
-                trade.get("code", ""), exit_reason),
-            entry_rank,
-            f"{score_mom:.4f}",
-            f"{max_hwm_pct:.4f}",
-        ]
-        self._append(self._close_file, row)
+        if not self._db:
+            return
+        code = trade.get("code", trade.get("ticker", ""))
+        eid = event_id or make_event_id(code, exit_reason)
+        try:
+            self._db.insert_report_close(
+                date.today().strftime("%Y-%m-%d"),
+                code, exit_reason,
+                trade.get("quantity", 0),
+                trade.get("entry_price", 0),
+                trade.get("exit_price", 0),
+                trade.get("entry_date", ""),
+                trade.get("hold_days", 0),
+                trade.get("pnl_pct", 0),
+                trade.get("pnl_amount", 0),
+                mode, eid, entry_rank, score_mom, max_hwm_pct)
+        except Exception:
+            logger.exception("[REPORT_DB_WRITE_FAIL] log_close %s %s", code, eid)
 
     def log_rebalance_summary(self, sells: int, buys: int, equity: float):
         """Log rebalance event marker."""
-        row = [
-            date.today().strftime("%Y-%m-%d"),
-            "REBALANCE", "SUMMARY", f"sells={sells}", f"buys={buys}",
-            f"{equity:.2f}", "0.00", "LIVE", "",
-        ]
-        self._append(self._trades_file, row)
+        if not self._db:
+            return
+        eid = make_event_id("REBALANCE", "SUMMARY")
+        try:
+            self._db.insert_report_trade(
+                date.today().strftime("%Y-%m-%d"),
+                "REBALANCE", "SUMMARY", 0, equity,
+                0, f"sells={sells},buys={buys}", "LIVE", eid)
+        except Exception:
+            logger.exception("[REPORT_DB_WRITE_FAIL] log_rebalance_summary")
 
     # ── Equity (extended) ─────────────────────────────────────────
 
@@ -194,66 +105,60 @@ class TradeLogger:
                    kospi_ma200: float = 0.0,
                    breadth: float = 0.0):
         """Log daily equity snapshot with context tags."""
-        row = [
-            date.today().strftime("%Y-%m-%d"),
-            f"{equity:.2f}", f"{cash:.2f}", n_positions,
-            f"{daily_pnl:.4f}", f"{monthly_dd:.4f}",
-            risk_mode,
-            "Y" if rebalance_executed else "N",
-            price_fail_count,
-            reconcile_corrections,
-            "Y" if monitor_only else "N",
-            f"{kospi_close:.2f}" if kospi_close else "",
-            f"{kosdaq_close:.2f}" if kosdaq_close else "",
-            regime,
-            f"{kospi_ma200:.2f}" if kospi_ma200 else "",
-            f"{breadth:.4f}" if breadth else "",
-        ]
-        self._append(self._equity_file, row)
+        if not self._db:
+            return
+        try:
+            self._db.insert_report_equity(
+                date.today().strftime("%Y-%m-%d"),
+                equity, cash, n_positions,
+                daily_pnl, monthly_dd, risk_mode,
+                "Y" if rebalance_executed else "N",
+                price_fail_count, reconcile_corrections,
+                "Y" if monitor_only else "N",
+                kospi_close or 0, kosdaq_close or 0,
+                regime, kospi_ma200 or 0, breadth or 0,
+                self._mode)
+        except Exception:
+            logger.exception("[REPORT_DB_WRITE_FAIL] log_equity")
 
     # ── Daily Position Snapshot (EOD) ────────────────────────────
 
     def log_daily_positions(self, positions: dict, today_str: str = "",
                             buy_cost: float = 0.00115,
                             sell_cost: float = 0.00295):
-        """
-        Log all open positions at EOD with unrealized P&L.
-
-        Args:
-            positions: {code: Position} from PortfolioManager.positions
-            today_str: date string override (default: today)
-            buy_cost: buy transaction cost rate (for est_cost_pct)
-            sell_cost: sell transaction cost rate (for est_cost_pct)
-        """
+        """Log all open positions at EOD with unrealized P&L."""
+        if not self._db:
+            return
         dt = today_str or date.today().strftime("%Y-%m-%d")
-        est_cost_pct = buy_cost + sell_cost  # ~0.41%
+        est_cost_pct = buy_cost + sell_cost
 
         for code, pos in sorted(positions.items()):
-            mv = pos.quantity * pos.current_price if pos.current_price > 0 else 0
-            cost = pos.quantity * pos.avg_price
-            pnl_pct = (pos.current_price / pos.avg_price - 1) if pos.avg_price > 0 else 0
-            pnl_amt = mv - cost
-            net_pnl_pct = pnl_pct - est_cost_pct
+            try:
+                mv = pos.quantity * pos.current_price if pos.current_price > 0 else 0
+                cost_basis = pos.quantity * pos.avg_price
+                pnl_pct = (pos.current_price / pos.avg_price - 1) if pos.avg_price > 0 else 0
+                pnl_amt = mv - cost_basis
+                net_pnl_pct = pnl_pct - est_cost_pct
 
-            hold_days = 0
-            if pos.entry_date:
-                try:
-                    fmt = "%Y-%m-%d" if "-" in pos.entry_date else "%Y%m%d"
-                    ed = datetime.strptime(pos.entry_date, fmt).date()
-                    hold_days = (date.today() - ed).days
-                except (ValueError, TypeError):
-                    pass
+                hold_days = 0
+                if pos.entry_date:
+                    try:
+                        fmt = "%Y-%m-%d" if "-" in pos.entry_date else "%Y%m%d"
+                        ed = datetime.strptime(pos.entry_date, fmt).date()
+                        hold_days = (date.today() - ed).days
+                    except (ValueError, TypeError):
+                        pass
 
-            row = [
-                dt, code, pos.quantity,
-                f"{pos.avg_price:.2f}", f"{pos.current_price:.2f}",
-                f"{mv:.2f}", f"{pnl_pct:.4f}", f"{pnl_amt:.2f}",
-                f"{est_cost_pct:.4f}", f"{net_pnl_pct:.4f}",
-                f"{pos.high_watermark:.2f}", f"{pos.trail_stop_price:.2f}",
-                pos.entry_date, hold_days,
-                f"{(pos.high_watermark / pos.avg_price - 1):.4f}" if pos.avg_price > 0 else "0.0000",
-            ]
-            self._append(self._positions_file, row)
+                hwm_pct = (pos.high_watermark / pos.avg_price - 1) if pos.avg_price > 0 else 0
+
+                self._db.insert_report_daily_position(
+                    dt, code, pos.quantity,
+                    pos.avg_price, pos.current_price, mv,
+                    pnl_pct, pnl_amt, est_cost_pct, net_pnl_pct,
+                    pos.high_watermark, pos.trail_stop_price,
+                    pos.entry_date, hold_days, hwm_pct, self._mode)
+            except Exception:
+                logger.exception("[REPORT_DB_WRITE_FAIL] log_daily_positions %s", code)
 
         logger.info(f"Daily positions logged: {len(positions)} open positions")
 
@@ -266,15 +171,17 @@ class TradeLogger:
                          event_id: str = "", regime: str = ""):
         """Log buy decision context."""
         eid = event_id or make_event_id(code, "BUY")
-        row = [
-            eid, date.today().strftime("%Y-%m-%d"),
-            code, "BUY", reason,
-            f"{score_vol:.6f}", f"{score_mom:.4f}", rank,
-            f"{target_weight:.2f}", f"{price:.2f}", f"{cash_before:.2f}",
-            "", "", "", "",
-            regime,
-        ]
-        self._append(self._decision_file, row)
+        if not self._db:
+            return eid
+        try:
+            self._db.insert_report_decision(
+                eid, date.today().strftime("%Y-%m-%d"),
+                code, "BUY", reason,
+                score_vol, score_mom, rank,
+                target_weight, price, cash_before,
+                0, 0, 0, 0, regime)
+        except Exception:
+            logger.exception("[REPORT_DB_WRITE_FAIL] log_decision_buy %s", code)
         return eid
 
     def log_decision_sell(self, code: str, reason: str,
@@ -284,16 +191,17 @@ class TradeLogger:
                           event_id: str = "", regime: str = ""):
         """Log sell decision context."""
         eid = event_id or make_event_id(code, "SELL")
-        row = [
-            eid, date.today().strftime("%Y-%m-%d"),
-            code, "SELL", reason,
-            "", "", "",
-            "", f"{price:.2f}", "",
-            f"{high_watermark:.2f}", f"{trail_stop_price:.2f}",
-            f"{pnl_pct:.4f}", hold_days,
-            regime,
-        ]
-        self._append(self._decision_file, row)
+        if not self._db:
+            return eid
+        try:
+            self._db.insert_report_decision(
+                eid, date.today().strftime("%Y-%m-%d"),
+                code, "SELL", reason,
+                0, 0, 0, 0, price, 0,
+                high_watermark, trail_stop_price,
+                pnl_pct, hold_days, regime)
+        except Exception:
+            logger.exception("[REPORT_DB_WRITE_FAIL] log_decision_sell %s", code)
         return eid
 
     # ── Reconcile Log (forensic) ──────────────────────────────────
@@ -303,25 +211,17 @@ class TradeLogger:
                       engine_avg: float = 0, broker_avg: float = 0,
                       resolution: str = ""):
         """Log broker reconciliation diff."""
-        row = [
-            date.today().strftime("%Y-%m-%d"),
-            datetime.now().strftime("%H:%M:%S"),
-            code, diff_type,
-            engine_qty, broker_qty,
-            f"{engine_avg:.2f}", f"{broker_avg:.2f}",
-            resolution,
-        ]
-        self._append(self._reconcile_file, row)
-
-    # ── Internal ──────────────────────────────────────────────────
-
-    def _append(self, path: Path, row: list):
+        if not self._db:
+            return
         try:
-            # FIX-A5: utf-8 for append (BOM은 _ensure_header에서만 사용)
-            with open(path, "a", newline="", encoding="utf-8") as f:
-                csv.writer(f).writerow(row)
-        except Exception as e:
-            logger.error(f"Failed to write to {path.name}: {e}")
+            self._db.insert_report_reconcile(
+                date.today().strftime("%Y-%m-%d"),
+                datetime.now().strftime("%H:%M:%S"),
+                code, diff_type,
+                engine_qty, broker_qty,
+                engine_avg, broker_avg, resolution)
+        except Exception:
+            logger.exception("[REPORT_DB_WRITE_FAIL] log_reconcile %s %s", code, diff_type)
 
 
 # ── Forensic Snapshot ─────────────────────────────────────────────────────

@@ -1,0 +1,251 @@
+{
+  "version_seq": 1,
+  "strategy": "hybrid_qscore",
+  "cash": 2837571.5569999907,
+  "positions": {
+    "037460": {
+      "code": "037460",
+      "name": "삼지전자",
+      "qty": 176,
+      "entry_price": 28300.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 29100.0,
+      "buy_cost_total": 5727.92,
+      "current_price": 29100.0,
+      "entry_day_idx": 1783
+    },
+    "005960": {
+      "code": "005960",
+      "name": "동부건설",
+      "qty": 518,
+      "entry_price": 9640.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 9640.0,
+      "buy_cost_total": 5742.548,
+      "current_price": 9290.0,
+      "entry_day_idx": 1783
+    },
+    "058470": {
+      "code": "058470",
+      "name": "리노공업",
+      "qty": 43,
+      "entry_price": 114300.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 114300.0,
+      "buy_cost_total": 5652.135,
+      "current_price": 111800.0,
+      "entry_day_idx": 1783
+    },
+    "082920": {
+      "code": "082920",
+      "name": "비츠로셀",
+      "qty": 120,
+      "entry_price": 41600.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 45250.0,
+      "buy_cost_total": 5740.8,
+      "current_price": 45250.0,
+      "entry_day_idx": 1783
+    },
+    "264450": {
+      "code": "264450",
+      "name": "유비쿼스",
+      "qty": 325,
+      "entry_price": 15330.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 16200.0,
+      "buy_cost_total": 5729.5875,
+      "current_price": 16200.0,
+      "entry_day_idx": 1783
+    },
+    "282330": {
+      "code": "282330",
+      "name": "BGF리테일",
+      "qty": 34,
+      "entry_price": 143700.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 143700.0,
+      "buy_cost_total": 5618.67,
+      "current_price": 131100.0,
+      "entry_day_idx": 1783
+    },
+    "005930": {
+      "code": "005930",
+      "name": "삼성전자",
+      "qty": 23,
+      "entry_price": 208500.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 208500.0,
+      "buy_cost_total": 5514.825,
+      "current_price": 206000.0,
+      "entry_day_idx": 1783
+    },
+    "031330": {
+      "code": "031330",
+      "name": "에스에이엠티",
+      "qty": 856,
+      "entry_price": 5830.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 6370.0,
+      "buy_cost_total": 5739.052,
+      "current_price": 6370.0,
+      "entry_day_idx": 1783
+    },
+    "028050": {
+      "code": "028050",
+      "name": "삼성E&A",
+      "qty": 93,
+      "entry_price": 53200.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 53200.0,
+      "buy_cost_total": 5689.74,
+      "current_price": 51200.0,
+      "entry_day_idx": 1783
+    },
+    "007340": {
+      "code": "007340",
+      "name": "DN오토모티브",
+      "qty": 139,
+      "entry_price": 35900.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 35900.0,
+      "buy_cost_total": 5738.615,
+      "current_price": 35350.0,
+      "entry_day_idx": 1783
+    },
+    "009150": {
+      "code": "009150",
+      "name": "삼성전기",
+      "qty": 9,
+      "entry_price": 530000.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 565000.0,
+      "buy_cost_total": 5485.5,
+      "current_price": 565000.0,
+      "entry_day_idx": 1783
+    },
+    "037030": {
+      "code": "037030",
+      "name": "파워넷",
+      "qty": 781,
+      "entry_price": 6390.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 6550.0,
+      "buy_cost_total": 5739.1785,
+      "current_price": 6550.0,
+      "entry_day_idx": 1783
+    },
+    "272110": {
+      "code": "272110",
+      "name": "케이엔제이",
+      "qty": 145,
+      "entry_price": 34350.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 34650.0,
+      "buy_cost_total": 5727.8625,
+      "current_price": 34650.0,
+      "entry_day_idx": 1783
+    },
+    "290550": {
+      "code": "290550",
+      "name": "디케이티",
+      "qty": 268,
+      "entry_price": 18600.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 19340.0,
+      "buy_cost_total": 5732.5199999999995,
+      "current_price": 19340.0,
+      "entry_day_idx": 1783
+    },
+    "035460": {
+      "code": "035460",
+      "name": "기산텔레콤",
+      "qty": 1307,
+      "entry_price": 3820.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 4645.0,
+      "buy_cost_total": 5741.651,
+      "current_price": 4645.0,
+      "entry_day_idx": 1783
+    },
+    "005940": {
+      "code": "005940",
+      "name": "NH투자증권",
+      "qty": 146,
+      "entry_price": 34100.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 34100.0,
+      "buy_cost_total": 5725.39,
+      "current_price": 34050.0,
+      "entry_day_idx": 1783
+    },
+    "189860": {
+      "code": "189860",
+      "name": "서전기전",
+      "qty": 951,
+      "entry_price": 5250.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 5330.0,
+      "buy_cost_total": 5741.662499999999,
+      "current_price": 5330.0,
+      "entry_day_idx": 1783
+    },
+    "298040": {
+      "code": "298040",
+      "name": "효성중공업",
+      "qty": 1,
+      "entry_price": 2975000.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 2975000.0,
+      "buy_cost_total": 3421.25,
+      "current_price": 2940000.0,
+      "entry_day_idx": 1783
+    },
+    "375500": {
+      "code": "375500",
+      "name": "DL이앤씨",
+      "qty": 49,
+      "entry_price": 100600.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 100600.0,
+      "buy_cost_total": 5668.8099999999995,
+      "current_price": 94500.0,
+      "entry_day_idx": 1783
+    },
+    "402490": {
+      "code": "402490",
+      "name": "그린리소스",
+      "qty": 317,
+      "entry_price": 15720.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 15720.0,
+      "buy_cost_total": 5730.726,
+      "current_price": 15290.0,
+      "entry_day_idx": 1783
+    }
+  },
+  "pending_buys": [],
+  "last_rebal_idx": 1783,
+  "equity_history": [
+    {
+      "date": "2026-04-10",
+      "equity": 100000000.0,
+      "n_positions": 0
+    },
+    {
+      "date": "2026-04-10",
+      "equity": 101533656.55699998,
+      "n_positions": 20
+    },
+    {
+      "date": "2026-04-10",
+      "equity": 101533656.55699998,
+      "n_positions": 20
+    },
+    {
+      "date": "2026-04-10",
+      "equity": 101533656.55699998,
+      "n_positions": 20
+    }
+  ]
+}

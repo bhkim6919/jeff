@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Q-TRON SURGE</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="/static/surge.css">
 </head>
@@ -15,14 +16,22 @@
             <h1 class="logo">Q-TRON <span class="logo-accent" style="color: var(--orange);">SURGE</span></h1>
             <span class="badge badge-mock">SIMULATOR</span>
         </div>
+        <div class="header-center">
+            <nav class="nav-pages">
+                <a href="/" class="nav-page">Dashboard</a>
+                <a href="/lab" class="nav-page">Lab</a>
+                <a href="/surge" class="nav-page active nav-surge">Surge</a>
+            </nav>
+        </div>
         <div class="header-right">
-            <a href="/" class="nav-link">Dashboard</a>
-            <a href="/lab" class="nav-link">Lab</a>
             <span id="clock" class="clock">--:--:--</span>
         </div>
     </header>
 
     <main id="main">
+
+        <!-- Regime Banner -->
+        <div id="regime-banner" class="regime-banner" style="display:none"></div>
 
         <!-- Parameter Panel -->
         <section class="surge-section">

@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gen4 Daily Report — 2026-03-30</title>
+<style>
+body { font-family: 'Malgun Gothic','Segoe UI',sans-serif; background:#f0f2f5;
+       margin:0; padding:20px; color:#333; line-height:1.5; }
+.container { max-width:800px; margin:0 auto; }
+h1 { font-size:20px; color:#1a237e; margin-bottom:16px; }
+h2 { font-size:16px; color:#1a237e; border-bottom:2px solid #1565c0;
+     padding-bottom:6px; margin-bottom:12px; }
+/* Card hover */
+.g4-card { flex:1; min-width:140px; background:#fff; border-radius:8px;
+    padding:16px; box-shadow:0 1px 3px rgba(0,0,0,.12); text-align:center;
+    transition: transform 0.18s ease, box-shadow 0.18s ease; }
+.g4-card:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,.15); }
+/* Table row hover */
+table tbody tr { transition: background 0.15s ease; }
+table tbody tr:hover { background:#e3f2fd !important; }
+/* Alert box hover */
+.g4-alert { transition: box-shadow 0.18s ease; }
+.g4-alert:hover { box-shadow:0 2px 8px rgba(0,0,0,.12); }
+/* Sortable header */
+.g4-sortable { cursor:pointer; user-select:none; transition: color 0.15s ease; }
+.g4-sortable:hover { color:#1565c0 !important; }
+/* Sticky table header */
+.g4-sticky-wrap { overflow-x:auto; max-height:none; }
+.g4-sticky-wrap thead th { position:sticky; top:0; background:#f5f5f5; z-index:1; }
+/* Ops card hover */
+.g4-ops { transition: box-shadow 0.18s ease; }
+.g4-ops:hover { box-shadow:0 2px 8px rgba(0,0,0,.1); }
+</style>
+<script>
+function g4sort(tableId, colIdx, isNum) {
+  var table = document.getElementById(tableId);
+  if (!table) return;
+  var tbody = table.querySelector('tbody') || table;
+  var rows = Array.from(tbody.querySelectorAll('tr'));
+  // Exclude summary row (last row with colspan)
+  var dataRows = rows.filter(function(r) {
+    return !r.querySelector('td[colspan]');
+  });
+  var sumRow = rows.filter(function(r) {
+    return r.querySelector('td[colspan]');
+  });
+  // Get current sort state
+  var th = table.querySelectorAll('thead th, tr:first-child th')[colIdx];
+  var asc = th && th.getAttribute('data-sort') === 'asc';
+  // Reset all headers
+  var ths = table.querySelectorAll('thead th, tr:first-child th');
+  for (var i = 0; i < ths.length; i++) {
+    ths[i].setAttribute('data-sort', '');
+    var arrow = ths[i].querySelector('.g4-arrow');
+    if (arrow) arrow.textContent = '';
+  }
+  // Set current
+  if (th) {
+    th.setAttribute('data-sort', asc ? 'desc' : 'asc');
+    var arrow = th.querySelector('.g4-arrow');
+    if (arrow) arrow.textContent = asc ? ' \u25BC' : ' \u25B2';
+  }
+  var dir = asc ? -1 : 1;
+  dataRows.sort(function(a, b) {
+    var cellA = a.cells[colIdx];
+    var cellB = b.cells[colIdx];
+    if (!cellA || !cellB) return 0;
+    var va = cellA.textContent.trim();
+    var vb = cellB.textContent.trim();
+    if (isNum) {
+      // Parse: remove %, comma, +, 원, 일
+      va = parseFloat(va.replace(/[,%+원일\s]/g, '')) || 0;
+      vb = parseFloat(vb.replace(/[,%+원일\s]/g, '')) || 0;
+      return (va - vb) * dir;
+    }
+    return va.localeCompare(vb, 'ko') * dir;
+  });
+  // Re-append
+  for (var i = 0; i < dataRows.length; i++) {
+    tbody.appendChild(dataRows[i]);
+  }
+  for (var i = 0; i < sumRow.length; i++) {
+    tbody.appendChild(sumRow[i]);
+  }
+}
+</script>
+</head>
+<body>
+<div class="container">
+<h1>Gen4 일일 보고서 — 2026-03-30</h1>
+<div style="background:#e8eaf6;border-radius:8px;padding:14px 18px;
+        margin-bottom:20px;border-left:4px solid #1565c0;">
+        <div style="font-size:13px;font-weight:700;color:#1a237e;margin-bottom:8px;">
+            운영 상태</div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;"><span style="color:#78909c;">Mode</span><span style="color:#1565c0;font-weight:600;">PAPER</span></div><div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;"><span style="color:#78909c;">Rebalance</span><span style="color:#78909c;font-weight:600;">Pending Buy 실행</span></div><div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;"><span style="color:#78909c;">Cash Sync</span><span style="color:#2e7d32;font-weight:600;">OK (-68,297,443)</span></div><div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;"><span style="color:#78909c;">State Save</span><span style="color:#2e7d32;font-weight:600;">OK</span></div><div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;"><span style="color:#78909c;">Price Feed</span><span style="color:#2e7d32;font-weight:600;">RT=19 / FB=0 / FAIL=0</span></div>
+        <div style="margin-top:6px;padding-top:6px;border-top:1px solid #c5cae9;font-size:11px;display:flex;gap:10px;flex-wrap:wrap;"><span style="color:#78909c;font-size:11px;">Cash보정:28</span> <span style="color:#78909c;font-size:11px;">State저장:18</span> <span style="color:#78909c;font-size:11px;">PriceFB:0</span> <span style="color:#78909c;font-size:11px;">PriceFail:0</span> <span style="color:#78909c;font-size:11px;">Warning:38</span> <span style="color:#d32f2f;font-size:11px;">Error:7</span></div>
+    </div>
+<div style="display:flex;justify-content:space-between;align-items:flex-start;
+        background:#f5f5f5;border-radius:8px;padding:16px;margin-bottom:20px;">
+        <div style="font-size:14px;line-height:1.7;">당일 수익률 <b>-4.64%</b>, 총 자산 <b>+476,789,407</b>원 (누적 -4.64%)<br>주요 손익: 삼성E&A(-8.27%), DB손해보험(-8.47%), 오리온홀딩스(-7.76%)<br>포지션 19종목 보유</div>
+        <div><span style="display:inline-block;padding:4px 14px;border-radius:12px;font-size:14px;font-weight:700;color:#d32f2f;background:#ffcdd2;">위험</span></div>
+    </div>
+<div style="font-size:11px;color:#90a4ae;margin-bottom:12px;padding:0 4px;">기준: 2026-03-30 15:30 KST | 당일 수익률 = EOD 총자산 / 전일 종가 총자산 - 1</div>
+<div style="background:#fff8e1;border-left:4px solid #f57c00;border-radius:0 6px 6px 0;padding:10px 14px;margin-bottom:16px;"><div style="font-size:11px;font-weight:700;color:#1a237e;margin-bottom:4px;">오늘의 판단</div><div style="padding:2px 0;font-size:12px;">오늘 상태: 하락 마감 (-4.64%) / 리밸런싱 Pending Buy 실행 / 운영 정상</div><div style="padding:2px 0;font-size:12px;">핵심 경고: 일부 종목 DD -7.1%</div><div style="padding:2px 0;font-size:12px;">운영 안정성: Cash Sync OK (-68,297,443), Price Feed 안정</div></div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">리스크 요약</h2>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;"><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">Worst DD</div>
+        <div style="font-size:22px;font-weight:700;color:#d32f2f;">-7.1%</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px;">009150</div>
+    </div><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">Avg DD</div>
+        <div style="font-size:22px;font-weight:700;color:#f57c00;">-2.1%</div>
+        
+    </div><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">VWAP 하회</div>
+        <div style="font-size:22px;font-weight:700;color:#333;">7/19</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px;">37%</div>
+    </div><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">Risk Score</div>
+        <div style="font-size:22px;font-weight:700;color:#f57c00;">62</div>
+        
+    </div></div>
+    </div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">이상 탐지</h2>
+        <div style="background:#ffebee;border-left:4px solid #d32f2f;padding:8px 12px;margin-bottom:6px;font-size:13px;border-radius:0 4px 4px 0;"><span style="font-weight:700;color:#d32f2f;margin-right:6px;">!!</span>일부 종목 -7.1% DD 발생 (009150)<div style="font-size:11px;color:#555;margin-top:4px;padding-left:20px;line-height:1.5;"><span style="color:#78909c;">의미:</span> 장중 급락으로 trail stop 근접 위험<br><span style="color:#78909c;">체크:</span> 내일 해당 종목 시가 및 거래량 확인<br><span style="color:#78909c;">주의:</span> trail 발동 시 빈 슬롯 보충 없음에 유의</div></div><div style="background:#fff8e1;border-left:4px solid #ffc107;padding:8px 12px;margin-bottom:6px;font-size:13px;border-radius:0 4px 4px 0;"><span style="font-weight:700;color:#ffc107;margin-right:6px;">!</span>볼륨 스파이크 3x: 27건 (변동성 확대)<div style="font-size:11px;color:#555;margin-top:4px;padding-left:20px;line-height:1.5;"><span style="color:#78909c;">의미:</span> 거래량 급증으로 변동성 확대<br><span style="color:#78909c;">체크:</span> 내일 스파이크 지속 여부 확인<br><span style="color:#78909c;">주의:</span> 급등 후 되돌림 가능성 주의</div></div><div style="background:#ffebee;border-left:4px solid #d32f2f;padding:8px 12px;margin-bottom:6px;font-size:13px;border-radius:0 4px 4px 0;"><span style="font-weight:700;color:#d32f2f;margin-right:6px;">!!</span>CRITICAL 이벤트 5건<div style="font-size:11px;color:#555;margin-top:4px;padding-left:20px;line-height:1.5;"><span style="color:#78909c;">의미:</span> 시스템 크리티컬 오류 발생<br><span style="color:#78909c;">체크:</span> 로그 파일에서 CRITICAL 이벤트 원인 파악<br><span style="color:#78909c;">주의:</span> forensic snapshot 확인, 필요시 수동 재시작</div></div>
+    </div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">성과 지표</h2>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;"><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">당일 수익률</div>
+        <div style="font-size:22px;font-weight:700;color:#1565c0;">-4.64%</div>
+        
+    </div><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">누적 수익률</div>
+        <div style="font-size:22px;font-weight:700;color:#1565c0;">-4.64%</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px;">기준 +500,000,000</div>
+    </div><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">실현 손익</div>
+        <div style="font-size:22px;font-weight:700;color:#78909c;">0</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px;">청산 확정</div>
+    </div><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">미실현 손익</div>
+        <div style="font-size:22px;font-weight:700;color:#1565c0;">-11,991,121</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px;">보유 중</div>
+    </div></div>
+    </div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">장중 수익률 추이</h2>
+        <svg xmlns="http://www.w3.org/2000/svg" width="720" height="200" style="background:#fafafa;border-radius:8px;"><line x1="10" y1="20.0" x2="670" y2="20.0" stroke="#e0e0e0" stroke-width="0.5"/><line x1="10" y1="59.0" x2="670" y2="59.0" stroke="#e0e0e0" stroke-width="0.5"/><line x1="10" y1="98.0" x2="670" y2="98.0" stroke="#e0e0e0" stroke-width="0.5"/><line x1="10" y1="137.0" x2="670" y2="137.0" stroke="#e0e0e0" stroke-width="0.5"/><line x1="10" y1="176.0" x2="670" y2="176.0" stroke="#e0e0e0" stroke-width="0.5"/><line x1="10" y1="84.9" x2="670" y2="84.9" stroke="#333" stroke-width="0.5"/><polygon points="10.0,84.9 10.0,84.9 18.9,84.9 27.8,84.9 36.8,84.9 45.7,84.9 54.6,84.9 63.5,84.9 72.4,84.9 81.4,84.9 90.3,84.9 99.2,84.9 108.1,84.9 117.0,84.9 125.9,84.9 134.9,84.9 143.8,84.9 152.7,71.9 161.6,58.8 170.5,38.2 179.5,33.6 188.4,37.9 197.3,44.3 206.2,49.1 215.1,48.6 224.1,53.3 233.0,41.1 241.9,43.4 250.8,41.8 259.7,53.3 268.6,61.0 277.6,54.3 286.5,52.5 295.4,53.0 304.3,54.7 313.2,61.5 322.2,64.6 331.1,69.7 340.0,78.2 348.9,77.6 357.8,82.3 366.8,81.8 375.7,77.8 384.6,69.7 393.5,67.9 402.4,74.1 411.4,70.4 420.3,57.4 429.2,61.0 438.1,66.7 447.0,71.3 455.9,69.3 464.9,78.3 473.8,76.2 482.7,74.0 491.6,77.2 500.5,65.5 509.5,66.5 518.4,68.8 527.3,59.0 536.2,57.0 545.1,44.0 554.1,43.2 563.0,46.1 571.9,62.7 580.8,60.3 589.7,58.1 598.6,56.8 607.6,59.3 616.5,52.7 625.4,47.3 634.3,33.0 643.2,41.7 652.2,51.3 661.1,53.9 670.0,58.9 670.0,84.9" fill="rgba(211,47,47,0.15)" stroke="none"/><polygon points="10.0,84.9 10.0,163.0 18.9,153.0 27.8,134.0 36.8,121.8 45.7,89.4 54.6,97.3 63.5,101.0 72.4,100.3 81.4,111.8 90.3,96.4 99.2,87.5 108.1,98.4 117.0,98.4 125.9,102.1 134.9,96.4 143.8,96.6 152.7,84.9 161.6,84.9 170.5,84.9 179.5,84.9 188.4,84.9 197.3,84.9 206.2,84.9 215.1,84.9 224.1,84.9 233.0,84.9 241.9,84.9 250.8,84.9 259.7,84.9 268.6,84.9 277.6,84.9 286.5,84.9 295.4,84.9 304.3,84.9 313.2,84.9 322.2,84.9 331.1,84.9 340.0,84.9 348.9,84.9 357.8,84.9 366.8,84.9 375.7,84.9 384.6,84.9 393.5,84.9 402.4,84.9 411.4,84.9 420.3,84.9 429.2,84.9 438.1,84.9 447.0,84.9 455.9,84.9 464.9,84.9 473.8,84.9 482.7,84.9 491.6,84.9 500.5,84.9 509.5,84.9 518.4,84.9 527.3,84.9 536.2,84.9 545.1,84.9 554.1,84.9 563.0,84.9 571.9,84.9 580.8,84.9 589.7,84.9 598.6,84.9 607.6,84.9 616.5,84.9 625.4,84.9 634.3,84.9 643.2,84.9 652.2,84.9 661.1,84.9 670.0,84.9 670.0,84.9" fill="rgba(21,101,192,0.15)" stroke="none"/><polyline points="10.0,163.0 18.9,153.0 27.8,134.0 36.8,121.8 45.7,89.4 54.6,97.3 63.5,101.0 72.4,100.3 81.4,111.8 90.3,96.4 99.2,87.5 108.1,98.4 117.0,98.4 125.9,102.1 134.9,96.4 143.8,96.6 152.7,71.9 161.6,58.8 170.5,38.2 179.5,33.6 188.4,37.9 197.3,44.3 206.2,49.1 215.1,48.6 224.1,53.3 233.0,41.1 241.9,43.4 250.8,41.8 259.7,53.3 268.6,61.0 277.6,54.3 286.5,52.5 295.4,53.0 304.3,54.7 313.2,61.5 322.2,64.6 331.1,69.7 340.0,78.2 348.9,77.6 357.8,82.3 366.8,81.8 375.7,77.8 384.6,69.7 393.5,67.9 402.4,74.1 411.4,70.4 420.3,57.4 429.2,61.0 438.1,66.7 447.0,71.3 455.9,69.3 464.9,78.3 473.8,76.2 482.7,74.0 491.6,77.2 500.5,65.5 509.5,66.5 518.4,68.8 527.3,59.0 536.2,57.0 545.1,44.0 554.1,43.2 563.0,46.1 571.9,62.7 580.8,60.3 589.7,58.1 598.6,56.8 607.6,59.3 616.5,52.7 625.4,47.3 634.3,33.0 643.2,41.7 652.2,51.3 661.1,53.9 670.0,58.9" fill="none" stroke="#d32f2f" stroke-width="1.8"/><text x="674" y="179.0" font-size="9" fill="#78909c">-1.27%</text><text x="674" y="140.0" font-size="9" fill="#78909c">-0.73%</text><text x="674" y="101.0" font-size="9" fill="#78909c">-0.18%</text><text x="674" y="62.0" font-size="9" fill="#78909c">+0.36%</text><text x="674" y="23.0" font-size="9" fill="#78909c">+0.91%</text><text x="482.7" y="196" font-size="9" fill="#78909c" text-anchor="middle">10:00</text><text x="674" y="52.9" font-size="10" font-weight="700" fill="#d32f2f">+0.36%</text></svg>
+    </div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">장중 흐름 요약</h2>
+        
+        <div style="background:#fff;border-radius:8px;padding:14px 18px;
+            box-shadow:0 1px 3px rgba(0,0,0,.08);">
+            <div style="padding:3px 0;font-size:13px;"><span style="color:#78909c;margin-right:6px;">-</span>고점: 09:29 (474원)</div><div style="padding:3px 0;font-size:13px;"><span style="color:#78909c;margin-right:6px;">-</span>저점: 09:04 (468원)</div><div style="padding:3px 0;font-size:13px;"><span style="color:#78909c;margin-right:6px;">-</span>장중 변동폭: 1.28%</div><div style="padding:3px 0;font-size:13px;"><span style="color:#78909c;margin-right:6px;">-</span>평균 장중DD: -2.08%</div><div style="padding:3px 0;font-size:13px;"><span style="color:#78909c;margin-right:6px;">-</span>최악 DD: -7.14% (삼성전기 @ 09:02)</div><div style="padding:3px 0;font-size:13px;"><span style="color:#78909c;margin-right:6px;">-</span>고점→종가 DD: -0.21%</div><div style="padding:3px 0;font-size:13px;"><span style="color:#78909c;margin-right:6px;">-</span>저점 이후 회복: +1.07%</div>
+        </div>
+    </div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">장중 분석 (Intraday Analytics)</h2>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+        <div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">Risk Score</div>
+        <div style="font-size:22px;font-weight:700;color:#f57c00;">62</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px;">(참고용 · MED)</div>
+    </div>
+        <div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">VWAP 하회</div>
+        <div style="font-size:22px;font-weight:700;color:#78909c;">7/19</div>
+        
+    </div>
+        <div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">Spike 2x/3x</div>
+        <div style="font-size:22px;font-weight:700;color:#f57c00;">98/27</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px;">개장5분 제외</div>
+    </div>
+        <div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">Trail 근접</div>
+        <div style="font-size:22px;font-weight:700;color:#388e3c;">0</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px;">DD ≤ -10%</div>
+    </div>
+    </div><table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+            <tr style="background:#e8eaf6;color:#1a237e;">
+                <th style="padding:8px;text-align:left;">종목</th>
+                <th style="padding:8px;text-align:right;">장중DD</th>
+                <th style="padding:8px;text-align:center;">시각</th>
+                <th style="padding:8px;text-align:right;">vs VWAP</th>
+                <th style="padding:8px;text-align:right;">5m Drop</th>
+                <th style="padding:8px;text-align:center;">Spikes</th>
+            </tr>
+        </thead>
+        <tbody><tr>
+            <td style="font-weight:600;">삼성전기 <span style="font-size:9px;color:#aaa;">009150</span></td>
+            <td style="color:#d32f2f;font-weight:700;">-7.14%</td>
+            <td>09:02</td>
+            <td style="color:#d32f2f;">+0.68%</td>
+            <td>-1.20%</td>
+            <td>0</td>
+        </tr><tr>
+            <td style="font-weight:600;">신한지주 <span style="font-size:9px;color:#aaa;">055550</span></td>
+            <td style="color:#d32f2f;font-weight:700;">-5.45%</td>
+            <td>09:01</td>
+            <td style="color:#d32f2f;">+0.11%</td>
+            <td>-0.78%</td>
+            <td>3</td>
+        </tr><tr>
+            <td style="font-weight:600;">오리온홀딩스 <span style="font-size:9px;color:#aaa;">001800</span></td>
+            <td style="color:#333;font-weight:700;">-2.32%</td>
+            <td>09:51</td>
+            <td style="color:#d32f2f;">+0.13%</td>
+            <td>-0.85%</td>
+            <td>6</td>
+        </tr><tr>
+            <td style="font-weight:600;">LX인터내셔널 <span style="font-size:9px;color:#aaa;">001120</span></td>
+            <td style="color:#333;font-weight:700;">-2.26%</td>
+            <td>09:02</td>
+            <td style="color:#1565c0;">-0.12%</td>
+            <td>-1.50%</td>
+            <td>7</td>
+        </tr><tr>
+            <td style="font-weight:600;">한국타이어앤테크놀로지 <span style="font-size:9px;color:#aaa;">161390</span></td>
+            <td style="color:#333;font-weight:700;">-2.17%</td>
+            <td>09:36</td>
+            <td style="color:#d32f2f;">+0.02%</td>
+            <td>-1.27%</td>
+            <td>3</td>
+        </tr></tbody>
+    </table>
+    <div style="font-size:10px;color:#aaa;margin-top:6px;">
+        장중DD: 고점 대비 종가 기준 | 5m Drop: 종가-종가 5분 | Spike: 직전5분 평균 대비 2x (개장5분 제외) <span style="color:#f57c00;font-size:11px;">(장중)</span>
+    </div>
+    </div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">시장 대비 성과</h2>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;"><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">포트폴리오</div>
+        <div style="font-size:22px;font-weight:700;color:#1565c0;">-4.64%</div>
+        
+    </div><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">KOSPI</div>
+        <div style="font-size:22px;font-weight:700;color:#1565c0;">-4.23%</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px;">종가 5,258.02</div>
+    </div><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">초과 수익</div>
+        <div style="font-size:22px;font-weight:700;color:#1565c0;">-0.41%</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px;"><span style="color:#d32f2f;font-weight:600;">Underperform</span></div>
+    </div></div><div style="font-size:10px;color:#aaa;margin-top:6px;">KOSPI 수익률 = 당일 종가 / 전일 종가 - 1 | 포트폴리오 수익률 = EOD 총자산 / 전일 종가 총자산 - 1</div>
+    </div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">비용 분석</h2>
+        <div style="color:#aaa;padding:12px;">당일 비용 없음</div>
+    </div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">거래 요약</h2>
+        <div style="color:#aaa;padding:12px;">당일 거래 없음</div>
+    </div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">미청산 포지션</h2>
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">
+            헤더 클릭으로 정렬 | 상태: 정상 / 주의(VWAP+DD) / 경계(Trail) / 고위험(복합)</div>
+        <div class="g4-sticky-wrap" style="overflow-x:auto;">
+        <table id="pos-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:900px;">
+        <thead><tr>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',0,true)" style="text-align:right;padding:6px 8px;border-bottom:1px solid #e0e0e0;color:#78909c;font-size:11px;">#<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',1,false)" style="text-align:left;padding:6px 8px;border-bottom:1px solid #e0e0e0;color:#78909c;font-size:11px;">종목명<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',2,true)" style="text-align:right;padding:6px 8px;border-bottom:1px solid #e0e0e0;color:#78909c;font-size:11px;">수량<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',3,true)" style="text-align:right;padding:6px 8px;border-bottom:1px solid #e0e0e0;color:#78909c;font-size:11px;">평균가<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',4,true)" style="text-align:right;padding:6px 8px;border-bottom:1px solid #e0e0e0;color:#78909c;font-size:11px;">현재가<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',5,true)" style="text-align:right;padding:6px 8px;border-bottom:1px solid #e0e0e0;color:#78909c;font-size:11px;">손익률<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',6,true)" style="text-align:right;padding:6px 8px;border-bottom:1px solid #e0e0e0;color:#78909c;font-size:11px;">순손익률<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',7,true)" style="text-align:right;padding:6px 8px;border-bottom:1px solid #e0e0e0;color:#78909c;font-size:11px;">vs VWAP<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',8,true)" style="text-align:right;padding:6px 8px;border-bottom:1px solid #e0e0e0;color:#78909c;font-size:11px;">장중DD<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',9,true)" style="text-align:right;padding:6px 8px;border-bottom:1px solid #e0e0e0;color:#78909c;font-size:11px;">보유<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',10,true)" style="text-align:right;padding:6px 8px;border-bottom:1px solid #e0e0e0;color:#78909c;font-size:11px;">Trail Gap<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',11,false)" style="text-align:center;padding:6px 8px;border-bottom:1px solid #e0e0e0;color:#78909c;font-size:11px;">상태<span class="g4-arrow" style="font-size:9px;"></span></th>
+        </tr></thead>
+        <tbody>
+        <tr style="background:#fff3e0;"><td style="padding:5px 8px;font-size:12px;">1</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#1565c0;">오리온홀딩스<span style="font-size:9px;color:#aaa;margin-left:4px;">001800</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">961</td><td style="padding:5px 8px;text-align:right;font-size:12px;">25,206</td><td style="padding:5px 8px;text-align:right;font-size:12px;">23,250</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-7.76%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;font-weight:600;">-8.17%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">+0.13%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#f57c00;">-2.32%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#e65100;">4.8%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#e65100;font-weight:600;">경계</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">2</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#1565c0;">한국타이어앤테크놀로지<span style="font-size:9px;color:#aaa;margin-left:4px;">161390</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">426</td><td style="padding:5px 8px;text-align:right;font-size:12px;">57,847</td><td style="padding:5px 8px;text-align:right;font-size:12px;">54,700</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-5.44%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;font-weight:600;">-5.85%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">+0.02%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#f57c00;">-2.17%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">7.2%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">3</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#1565c0;">LG<span style="font-size:9px;color:#aaa;margin-left:4px;">003550</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">279</td><td style="padding:5px 8px;text-align:right;font-size:12px;">88,343</td><td style="padding:5px 8px;text-align:right;font-size:12px;">84,300</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-4.58%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;font-weight:600;">-4.99%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">+0.25%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#333;">-1.42%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">7.6%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">4</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#1565c0;">DB손해보험<span style="font-size:9px;color:#aaa;margin-left:4px;">005830</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">133</td><td style="padding:5px 8px;text-align:right;font-size:12px;">179,180</td><td style="padding:5px 8px;text-align:right;font-size:12px;">164,000</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-8.47%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;font-weight:600;">-8.88%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-0.09%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#333;">-1.08%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">7.8%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">5</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#1565c0;">KB금융<span style="font-size:9px;color:#aaa;margin-left:4px;">105560</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">160</td><td style="padding:5px 8px;text-align:right;font-size:12px;">146,966</td><td style="padding:5px 8px;text-align:right;font-size:12px;">145,900</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-0.73%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;font-weight:600;">-1.14%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">+0.13%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#333;">-1.10%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">8.9%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">6</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#d32f2f;">JB금융지주<span style="font-size:9px;color:#aaa;margin-left:4px;">175330</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">805</td><td style="padding:5px 8px;text-align:right;font-size:12px;">28,873</td><td style="padding:5px 8px;text-align:right;font-size:12px;">29,900</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">+3.56%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;font-weight:600;">+3.15%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-0.23%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#333;">-1.53%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">9.2%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">7</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#d32f2f;">우리금융지주<span style="font-size:9px;color:#aaa;margin-left:4px;">316140</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">735</td><td style="padding:5px 8px;text-align:right;font-size:12px;">32,208</td><td style="padding:5px 8px;text-align:right;font-size:12px;">32,350</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">+0.44%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;font-weight:600;">+0.03%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-0.31%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#333;">-1.38%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">9.4%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">8</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#1565c0;">GS<span style="font-size:9px;color:#aaa;margin-left:4px;">078930</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">361</td><td style="padding:5px 8px;text-align:right;font-size:12px;">67,384</td><td style="padding:5px 8px;text-align:right;font-size:12px;">65,400</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-2.94%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;font-weight:600;">-3.35%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">+0.08%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#333;">-1.52%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">9.4%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">9</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#1565c0;">삼천리<span style="font-size:9px;color:#aaa;margin-left:4px;">004690</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">161</td><td style="padding:5px 8px;text-align:right;font-size:12px;">152,944</td><td style="padding:5px 8px;text-align:right;font-size:12px;">142,000</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-7.16%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;font-weight:600;">-7.57%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">+0.33%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#333;">-1.60%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">9.6%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">10</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#1565c0;">신한지주<span style="font-size:9px;color:#aaa;margin-left:4px;">055550</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">254</td><td style="padding:5px 8px;text-align:right;font-size:12px;">92,000</td><td style="padding:5px 8px;text-align:right;font-size:12px;">90,400</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-1.74%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;font-weight:600;">-2.15%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">+0.11%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">-5.45%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">9.9%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">11</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#d32f2f;">BNK금융지주<span style="font-size:9px;color:#aaa;margin-left:4px;">138930</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">1,322</td><td style="padding:5px 8px;text-align:right;font-size:12px;">17,959</td><td style="padding:5px 8px;text-align:right;font-size:12px;">18,080</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">+0.67%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;font-weight:600;">+0.26%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-0.02%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#333;">-1.80%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">10.0%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">12</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#1565c0;">SK<span style="font-size:9px;color:#aaa;margin-left:4px;">034730</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">72</td><td style="padding:5px 8px;text-align:right;font-size:12px;">333,514</td><td style="padding:5px 8px;text-align:right;font-size:12px;">323,500</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-3.00%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;font-weight:600;">-3.41%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-0.13%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#333;">-1.57%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">10.1%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">13</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#78909c;">하나금융지주<span style="font-size:9px;color:#aaa;margin-left:4px;">086790</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">220</td><td style="padding:5px 8px;text-align:right;font-size:12px;">107,103</td><td style="padding:5px 8px;text-align:right;font-size:12px;">107,100</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#78909c;">-0.00%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;font-weight:600;">-0.41%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">+0.44%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#333;">-1.24%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">10.2%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">14</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#1565c0;">JW중외제약<span style="font-size:9px;color:#aaa;margin-left:4px;">001060</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">1,023</td><td style="padding:5px 8px;text-align:right;font-size:12px;">31,870</td><td style="padding:5px 8px;text-align:right;font-size:12px;">31,100</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-2.42%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;font-weight:600;">-2.83%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-0.23%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#333;">-1.45%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">10.3%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">15</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#1565c0;">삼성전기<span style="font-size:9px;color:#aaa;margin-left:4px;">009150</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">53</td><td style="padding:5px 8px;text-align:right;font-size:12px;">433,943</td><td style="padding:5px 8px;text-align:right;font-size:12px;">428,000</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-1.37%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;font-weight:600;">-1.78%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">+0.68%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">-7.14%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">11.6%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">16</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#1565c0;">LX인터내셔널<span style="font-size:9px;color:#aaa;margin-left:4px;">001120</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">528</td><td style="padding:5px 8px;text-align:right;font-size:12px;">47,229</td><td style="padding:5px 8px;text-align:right;font-size:12px;">46,900</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-0.70%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;font-weight:600;">-1.11%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-0.12%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#f57c00;">-2.26%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">12.6%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">17</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#d32f2f;">E1<span style="font-size:9px;color:#aaa;margin-left:4px;">017940</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">324</td><td style="padding:5px 8px;text-align:right;font-size:12px;">101,711</td><td style="padding:5px 8px;text-align:right;font-size:12px;">101,900</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">+0.19%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;font-weight:600;">-0.22%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">+1.38%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#333;">-1.66%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">12.8%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">18</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#1565c0;">삼성E&A<span style="font-size:9px;color:#aaa;margin-left:4px;">028050</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">706</td><td style="padding:5px 8px;text-align:right;font-size:12px;">36,302</td><td style="padding:5px 8px;text-align:right;font-size:12px;">33,300</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;">-8.27%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#1565c0;font-weight:600;">-8.68%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">+1.36%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#333;">-1.42%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">12.8%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr><tr style="background:#fff;"><td style="padding:5px 8px;font-size:12px;">19</td><td style="padding:5px 8px;font-size:12px;" style="font-weight:600;color:#d32f2f;">삼성SDI<span style="font-size:9px;color:#aaa;margin-left:4px;">006400</span></td><td style="padding:5px 8px;text-align:right;font-size:12px;">61</td><td style="padding:5px 8px;text-align:right;font-size:12px;">405,500</td><td style="padding:5px 8px;text-align:right;font-size:12px;">412,000</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">+1.60%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;font-weight:600;">+1.19%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#d32f2f;">+0.84%</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#333;">-1.48%</td><td style="padding:5px 8px;text-align:right;font-size:12px;">0일</td><td style="padding:5px 8px;text-align:right;font-size:12px;" style="color:#2e7d32;">13.1%</td><td style="padding:5px 8px;font-size:12px;" style="text-align:center;color:#2e7d32;font-weight:600;">정상</td></tr>
+        <tr style="border-top:2px solid #1565c0;font-weight:700;">
+        <td colspan="7" style="padding:6px 8px;">합계</td>
+        <td colspan="2" style="padding:6px 8px;text-align:right;color:#1565c0;">-11,991,121</td>
+        <td colspan="3" style="padding:6px 8px;text-align:right;">463,276,560</td></tr>
+        </tbody>
+        </table></div>
+    </div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">위험 종목 장중 차트</h2>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;"><div style="display:inline-block;margin:4px;"><svg xmlns="http://www.w3.org/2000/svg" width="300" height="130" style="background:#fafafa;border-radius:6px;"><text x="14" y="14" font-size="11" font-weight="600" fill="#333">오리온홀딩스 (001800)</text><text x="245" y="14" font-size="11" font-weight="700" fill="#78909c" text-anchor="end">+0.00%</text><line x1="10" y1="28.0" x2="245" y2="28.0" stroke="#e0e0e0" stroke-width="0.5"/><line x1="10" y1="54.7" x2="245" y2="54.7" stroke="#e0e0e0" stroke-width="0.5"/><line x1="10" y1="81.3" x2="245" y2="81.3" stroke="#e0e0e0" stroke-width="0.5"/><line x1="10" y1="108.0" x2="245" y2="108.0" stroke="#e0e0e0" stroke-width="0.5"/><polyline points="10.0,75.5 13.2,74.2 16.4,75.5 19.7,74.2 22.9,71.6 26.1,70.3 29.3,71.6 32.5,72.9 35.8,72.9 39.0,74.2 42.2,74.2 45.4,76.7 48.6,75.5 51.8,76.1 55.1,76.7 58.3,75.5 61.5,75.5 64.7,74.2 67.9,71.6 71.2,75.5 74.4,75.5 77.6,76.7 80.8,76.7 84.0,74.2 87.3,76.7 90.5,74.2 93.7,74.2 96.9,74.2 100.1,74.2 103.4,75.5 106.6,75.5 109.8,76.7 113.0,76.7 116.2,76.7 119.5,78.0 122.7,78.0 125.9,78.0 129.1,77.4 132.3,76.7 135.5,78.0 138.8,78.0 142.0,78.0 145.2,78.0 148.4,79.3 151.6,80.6 154.9,80.6 158.1,78.0 161.3,78.0 164.5,79.3 167.7,80.6 171.0,81.9 174.2,81.9 177.4,81.9 180.6,79.3 183.8,81.9 187.1,78.0 190.3,79.3 193.5,78.0 196.7,78.0 199.9,76.7 203.2,75.5 206.4,74.2 209.6,74.2 212.8,76.7 216.0,75.5 219.2,76.7 222.5,75.5 225.7,75.5 228.9,75.5 232.1,72.9 235.3,74.2 238.6,75.5 241.8,74.2 245.0,75.5" fill="none" stroke="#78909c" stroke-width="1.5"/><line x1="10" y1="106.9" x2="245" y2="106.9" stroke="#d32f2f" stroke-width="1" stroke-dasharray="4,3"/><text x="248" y="109.9" font-size="9" fill="#d32f2f">TS 22,176</text><line x1="10" y1="29.3" x2="245" y2="29.3" stroke="#90a4ae" stroke-width="1" stroke-dasharray="2,4"/><text x="248" y="32.3" font-size="9" fill="#90a4ae">HW 25,200</text><line x1="10" y1="29.1" x2="245" y2="29.1" stroke="#1565c0" stroke-width="1" stroke-dasharray="1,3"/><text x="10.0" y="126" font-size="9" fill="#78909c" text-anchor="middle">09:01</text><text x="129.1" y="126" font-size="9" fill="#78909c" text-anchor="middle">09:38</text><text x="245.0" y="126" font-size="9" fill="#78909c" text-anchor="middle">10:15</text><text x="248" y="78.5" font-size="9" font-weight="600" fill="#78909c">23,400</text></svg></div></div>
+    </div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">손익 원인 분석</h2>
+        <div style="font-size:13px;margin:4px 0;">&#9650; 수익 기여 TOP3: JB금융지주 +3.56% (+826,735원) / 삼성SDI +1.60% (+396,500원) / BNK금융지주 +0.67% (+159,962원)</div>
+<div style="font-size:13px;margin:4px 0;">&#9660; 손실 기여 TOP3: 삼성E&A -8.27% (-2,119,412원) / DB손해보험 -8.47% (-2,018,940원) / 오리온홀딩스 -7.76% (-1,879,716원)</div>
+<div style="font-size:13px;margin-top:8px;">시스템 영향: <span style="font-weight:600;color:#d32f2f;">큼</span> (price_fail=0, reconcile=20, monitor_only)</div>
+    </div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">리스크 분석</h2>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;"><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">전체 MDD</div>
+        <div style="font-size:22px;font-weight:700;color:#1565c0;">-2.96%</div>
+        
+    </div><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">월간 DD</div>
+        <div style="font-size:22px;font-weight:700;color:#1565c0;">-4.64%</div>
+        
+    </div><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">포지션 수</div>
+        <div style="font-size:22px;font-weight:700;color:#333;">19종목</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px;">목표: 20종목</div>
+    </div><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">집중도 (Top3)</div>
+        <div style="font-size:22px;font-weight:700;color:#333;">19.4%</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px;">상위 3종목 비중</div>
+    </div></div>
+    </div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">시스템 상태</h2>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;"><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">가격 실패</div>
+        <div style="font-size:22px;font-weight:700;color:#2e7d32;">0건</div>
+        
+    </div><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">Broker 보정</div>
+        <div style="font-size:22px;font-weight:700;color:#d32f2f;">20건</div>
+        
+    </div><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">Monitor Only</div>
+        <div style="font-size:22px;font-weight:700;color:#d32f2f;">예</div>
+        
+    </div><div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
+        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
+        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">리밸런스</div>
+        <div style="font-size:22px;font-weight:700;color:#2e7d32;">미실행</div>
+        
+    </div></div><div style="font-size:12px;color:#78909c;margin-top:8px;">Risk Mode: DAILY_BLOCKED | Target: N/A | Critical Errors: 0건</div>
+    </div>
+
+<div class="card">
+<h2>EOD 가격 소스 품질</h2>
+<div style="font-size:28px;font-weight:700;color:#2e7d32;margin:8px 0;">
+    100% verified (19/19)
+</div>
+<table><thead><tr><th>소스</th><th>종목 수</th></tr></thead>
+<tbody><tr><td style="color:#2e7d32;font-weight:600">실시간 분봉</td><td>19</td></tr>
+</tbody></table>
+</div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">로그 핵심 이벤트</h2>
+        
+        <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <tr><th style="text-align:left;padding:6px 8px;border-bottom:1px solid #e0e0e0;color:#78909c;font-size:11px;">시각</th><th style="text-align:left;padding:6px 8px;border-bottom:1px solid #e0e0e0;color:#78909c;font-size:11px;">이벤트</th><th style="text-align:left;padding:6px 8px;border-bottom:1px solid #e0e0e0;color:#78909c;font-size:11px;">요약</th></tr>
+        <tr style="background:#fff;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#333;">LOGIN</td><td style="padding:4px 8px;font-size:11px;">TRADING_MODE] paper  (intended=paper, server=MOCK)</td></tr><tr style="background:#fce4ec;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#c62828;">ERROR</td><td style="padding:4px 8px;font-size:11px;">ERROR] Gen4KiwoomProvider: [TR final fail] 미체결요청(opt10075) - 3x retry all no res</td></tr><tr style="background:#fce4ec;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#c62828;">ERROR</td><td style="padding:4px 8px;font-size:11px;">ERROR] Gen4KiwoomProvider: [OpenOrders] query failed: [TR final fail] 미체결요청(opt1</td></tr><tr style="background:#fff;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#333;">RECON</td><td style="padding:4px 8px;font-size:11px;">RECON_WAIT] Waiting 3s for broker data to settle...</td></tr><tr style="background:#fff;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#333;">RECON</td><td style="padding:4px 8px;font-size:11px;">RECON_WAIT] Done — proceeding with reconciliation</td></tr><tr style="background:#ffebee;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#d32f2f;">RECON</td><td style="padding:4px 8px;font-size:11px;">RECON_CASH_SPIKE] 81,739,628 -> 13,442,185 (84% change)</td></tr><tr style="background:#fff;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#333;">RECON</td><td style="padding:4px 8px;font-size:11px;">RECON] Cash synced: 81,739,628 -> 13,442,185</td></tr><tr style="background:#fffde7;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#f57f17;">RECON</td><td style="padding:4px 8px;font-size:11px;">RECON] Removing ENGINE-ONLY position 417310</td></tr><tr style="background:#fffde7;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#f57f17;">RECON</td><td style="padding:4px 8px;font-size:11px;">RECON] Removing ENGINE-ONLY position 033780</td></tr><tr style="background:#fffde7;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#f57f17;">RECON</td><td style="padding:4px 8px;font-size:11px;">RECON] Removing ENGINE-ONLY position 024110</td></tr><tr style="background:#fffde7;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#f57f17;">RECON</td><td style="padding:4px 8px;font-size:11px;">RECON] Removing ENGINE-ONLY position 139130</td></tr><tr style="background:#fffde7;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#f57f17;">RECON</td><td style="padding:4px 8px;font-size:11px;">RECON] Removing ENGINE-ONLY position 003690</td></tr><tr style="background:#fffde7;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#f57f17;">RECON</td><td style="padding:4px 8px;font-size:11px;">RECON_BROKER_ONLY] Added 017940: qty=324, avg=101,711 — verify: manual buy or mi</td></tr><tr style="background:#fffde7;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#f57f17;">RECON</td><td style="padding:4px 8px;font-size:11px;">RECON_BROKER_ONLY] Added 006400: qty=61, avg=405,500 — verify: manual buy or mis</td></tr><tr style="background:#fffde7;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#f57f17;">RECON</td><td style="padding:4px 8px;font-size:11px;">RECON_BROKER_ONLY] Added 001060: qty=1023, avg=31,870 — verify: manual buy or mi</td></tr><tr style="background:#fffde7;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#f57f17;">RECON</td><td style="padding:4px 8px;font-size:11px;">RECON_BROKER_ONLY] Added 001800: qty=961, avg=25,206 — verify: manual buy or mis</td></tr><tr style="background:#fffde7;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#f57f17;">RECON</td><td style="padding:4px 8px;font-size:11px;">RECON_BROKER_ONLY] Added 009150: qty=53, avg=433,943 — verify: manual buy or mis</td></tr><tr style="background:#fffde7;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#f57f17;">RECON</td><td style="padding:4px 8px;font-size:11px;">RECON_BROKER_ONLY] Added 003550: qty=279, avg=88,343 — verify: manual buy or mis</td></tr><tr style="background:#fffde7;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#f57f17;">RECON</td><td style="padding:4px 8px;font-size:11px;">RECON_BROKER_ONLY] Added 034730: qty=72, avg=333,514 — verify: manual buy or mis</td></tr><tr style="background:#fffde7;"><td style="padding:4px 8px;font-size:12px;color:#78909c;">08:16</td><td style="padding:4px 8px;font-size:11px;font-weight:600;color:#f57f17;">RECON</td><td style="padding:4px 8px;font-size:11px;">RECON] QTY fix 161390: 434 -> 426</td></tr>
+        </table></div>
+    </div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">문제 탐지</h2>
+        <div style="background:#fff8e1;border-left:4px solid #ffc107;padding:8px 12px;margin-bottom:6px;font-size:13px;border-radius:0 4px 4px 0;">Broker sync 불일치: 38건 보정</div>
+    </div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">현금 비중 / 포지션 변동</h2>
+        <div style="font-size:13px;">현금 비중: <b>2.8%</b> (+13,512,847원)</div>
+<div style="font-size:13px;margin-top:4px;"><span style="color:#d32f2f;">제거:</span> 013520(화승코퍼레이션)</div>
+    </div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">전략 해석</h2>
+        
+        <div style="background:#ffebee;border-left:4px solid #d32f2f;
+            border-radius:0 8px 8px 0;padding:14px 18px;font-size:13px;line-height:1.8;">
+            <div style="padding:3px 0;">금일 포트폴리오 <b>하락</b> (-4.64%) — 주의 필요</div><div style="padding:3px 0;">리밸런싱 실행 완료 — 포트폴리오 재편성됨</div><div style="padding:3px 0;">종합: <b>위험</b> — 신규 진입 중단 검토</div>
+        </div>
+    </div>
+<div style="margin-bottom:24px;">
+        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
+            padding-bottom:6px;margin-bottom:12px;">자동 판단</h2>
+        <div style="text-align:center;margin:8px 0 16px;"><span style="display:inline-block;padding:8px 24px;border-radius:12px;font-size:18px;font-weight:700;color:#d32f2f;background:#ffcdd2;">위험</span></div><div style="font-size:14px;text-align:center;padding:8px;background:#f5f5f5;border-radius:6px;">다음 액션: <b>신규 진입 중단 검토 및 시스템 상태 우선 점검</b></div>
+    </div>
+<div style="text-align:center;font-size:11px;color:#bbb;margin-top:24px;padding-top:12px;
+    border-top:1px solid #e0e0e0;">
+    Generated: 2026-03-30 15:30:09 | Q-TRON Gen4 v4.0 | Initial: +500,000,000
+</div>
+</div>
+</body>
+</html>

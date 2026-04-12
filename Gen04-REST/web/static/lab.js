@@ -50,6 +50,64 @@
         price_min:        '최소 주가',
     };
 
+    // ── Regime Banner ────────────────────────────────────────
+    function _regimeBarHtml(score, size) {
+        const pct = Math.max(0, Math.min(100, ((parseFloat(score) + 3) / 6) * 100));
+        const w = size === 'sm' ? 80 : 120;
+        const h = size === 'sm' ? 4 : 6;
+        const tw = size === 'sm' ? 8 : 12;
+        const th = size === 'sm' ? 8 : 12;
+        return `<span class="rb-bar" style="width:${w}px;height:${h}px">` +
+            `<span class="rb-bar-thumb" style="left:${pct}%;width:${tw}px;height:${th}px;top:-${(th-h)/2}px"></span></span>`;
+    }
+
+    async function fetchRegime() {
+        try {
+            const resp = await fetch('/api/regime/current');
+            const data = await resp.json();
+            const a = data.actual || {};
+            const el = document.getElementById('regime-banner');
+            if (!el) return;
+            if (!a.actual_label) {
+                el.innerHTML = `<div class="rb-main">
+                    <span class="rb-label">오늘 레짐</span>
+                    <span class="rb-regime neutral">미판정</span>
+                    <span class="rb-detail">데이터 수신 대기 중</span>
+                </div>`;
+                el.style.display = 'flex';
+                return;
+            }
+            const label = a.actual_label || '--';
+            const score = a.scores?.total ?? '--';
+            const kospi = a.kospi_change != null ? `KOSPI ${(a.kospi_change*100).toFixed(1)}%` : '';
+            const breadth = a.breadth_ratio != null ? `breadth ${(a.breadth_ratio*100).toFixed(0)}%` : '';
+            const cls = label.toLowerCase().replace('_', '-');
+
+            const opMap = {'10m': 0.7, '30m': 0.5, '1h': 0.35};
+            const histHtml = (data.history || []).map(h => {
+                const hCls = h.label.toLowerCase().replace('_', '-');
+                const op = opMap[h.ago] || 0.2;
+                return `<span class="rb-hist" style="opacity:${op}" title="${h.ago} ago: ${h.label} (${h.score})">` +
+                    _regimeBarHtml(h.score, 'sm') +
+                    `<span class="rb-hist-label">${h.ago}</span></span>`;
+            }).join('');
+
+            el.innerHTML = `
+                <div class="rb-main">
+                    <span class="rb-label">오늘 레짐</span>
+                    <span class="rb-regime ${cls}">${label}</span>
+                    <span class="rb-score">${score}</span>
+                    ${_regimeBarHtml(score, 'lg')}
+                    <span class="rb-detail">${kospi} | ${breadth}</span>
+                </div>
+                ${histHtml ? `<div class="rb-history">${histHtml}</div>` : ''}
+            `;
+            el.style.display = 'flex';
+        } catch(e) {}
+    }
+    fetchRegime();
+    setInterval(fetchRegime, 300000);
+
     // ── Init ─────────────────────────────────────────────────
     async function init() {
         startClock();

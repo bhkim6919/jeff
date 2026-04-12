@@ -83,7 +83,7 @@ class RealtimeSimulator:
         self._stop_time: float = 0.0
         self._ranking: List[Dict] = []
         self._subscribed_codes: List[str] = []
-        self._original_price_cb = None           # save original WS callback
+        self._listener_key = f"lab_rt:{id(self)}"
         self._tick_count = 0
         self._events: List[Dict] = []            # recent events for UI
 
@@ -123,17 +123,22 @@ class RealtimeSimulator:
 
         self._subscribed_codes = sorted(codes_set)
 
-        # Subscribe to WebSocket for real-time prices
+        # Subscribe to WebSocket via event bus (no legacy callback overwrite)
         try:
             ws = self.provider._ensure_ws()
-            # Save original callback to restore later
-            self._original_price_cb = ws._on_price_tick
-            ws.set_on_price_tick(self._on_price_tick)
-            ws.subscribe(self._subscribed_codes, "0B")
+            ws.add_price_listener(self._on_price_tick, key=self._listener_key)
+            ws.subscribe(self._subscribed_codes, "0B",
+                         owner_key=self._listener_key)
             logger.info(
-                f"[LAB_RT] Subscribed to {len(self._subscribed_codes)} codes"
+                f"[LAB_RT] Subscribed to {len(self._subscribed_codes)} codes "
+                f"(key={self._listener_key})"
             )
         except Exception as e:
+            # Rollback listener on subscribe failure
+            try:
+                ws.remove_price_listener(self._listener_key)
+            except Exception:
+                pass
             logger.error(f"[LAB_RT] WebSocket subscribe failed: {e}")
             return {"error": f"WebSocket subscribe failed: {e}"}
 
@@ -165,16 +170,16 @@ class RealtimeSimulator:
                     if not pos.closed:
                         self._close_position(strat, pos, "CLOSE")
 
-        # Unsubscribe WebSocket
+        # Detach listener + owned subscriptions only (shared WS stays alive)
         try:
-            ws = self.provider._ensure_ws()
-            ws.unsubscribe(self._subscribed_codes, "0B")
-            # Restore original callback
-            if self._original_price_cb is not None:
-                ws.set_on_price_tick(self._original_price_cb)
-                self._original_price_cb = None
+            if hasattr(self.provider, '_ws') and self.provider._ws:
+                ws = self.provider._ws
+                ws.remove_price_listener(self._listener_key)
+                if self._subscribed_codes:
+                    ws.unsubscribe(self._subscribed_codes, "0B",
+                                   owner_key=self._listener_key)
         except Exception as e:
-            logger.warning(f"[LAB_RT] WebSocket unsubscribe: {e}")
+            logger.warning(f"[LAB_RT] WebSocket cleanup: {e}")
 
         self._add_event("SIM_STOP", "Simulation stopped")
 
@@ -259,12 +264,7 @@ class RealtimeSimulator:
                 logger.info("[LAB_RT] Market closed, auto-stopping")
                 self.stop()
 
-        # Also forward to original callback if it exists
-        if self._original_price_cb:
-            try:
-                self._original_price_cb(code, values)
-            except Exception:
-                pass
+        # (event bus handles dispatch — no legacy callback forwarding needed)
 
     def _close_position(
         self, strat: StrategyState, pos: RealtimePosition, reason: str

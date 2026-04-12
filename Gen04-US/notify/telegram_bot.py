@@ -70,6 +70,28 @@ def send(text: str, severity: str = "INFO") -> bool:
         return False
 
 
+def send_photo(photo_bytes: bytes, caption: str = "", filename: str = "image.png") -> bool:
+    """Send photo to Telegram. Non-blocking, never raises."""
+    try:
+        if not _init():
+            return False
+
+        import requests
+        url = f"https://api.telegram.org/bot{_BOT_TOKEN}/sendPhoto"
+        cap = f"[US] {caption}" if caption else "[US]"
+        files = {"photo": (filename, photo_bytes)}
+        data = {"chat_id": _CHAT_ID, "caption": cap, "parse_mode": "HTML"}
+
+        resp = requests.post(url, data=data, files=files, timeout=15)
+        if resp.status_code == 200:
+            return True
+        logger.warning(f"[Telegram] Photo HTTP {resp.status_code}")
+        return False
+    except Exception as e:
+        logger.warning(f"[Telegram] Photo send failed: {e}")
+        return False
+
+
 # ── Formatted Messages ───────────────────────────────────────
 
 def notify_buy(symbol: str, qty: int, price: float) -> bool:

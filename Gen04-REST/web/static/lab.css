@@ -2,6 +2,133 @@
    Q-TRON LAB — Simulator Styles (Dark Theme, Toss-inspired)
    ================================================================ */
 
+/* ── Lab Tabs ────────────────────────────────────────────── */
+.lab-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0;
+}
+.lab-tab {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 20px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all .15s;
+}
+.lab-tab:hover { color: var(--text); }
+.lab-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ── Strategy Lab Banner ─────────────────────────────────── */
+.lab-sim-banner {
+    background: rgba(255,193,7,.08);
+    border: 1px solid rgba(255,193,7,.25);
+    color: #ffc107;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+    margin-bottom: 16px;
+}
+
+/* ── Strategy Lab Controls ───────────────────────────────── */
+.stlab-controls { display: flex; flex-direction: column; gap: 10px; }
+.stlab-row {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.stlab-row label { font-size: 13px; font-weight: 600; color: var(--text-secondary); min-width: 40px; }
+.stlab-row input[type="date"], .stlab-row select {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+}
+
+/* ── Strategy Lab Table ──────────────────────────────────── */
+.stlab-table-wrap { overflow-x: auto; }
+.stlab-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.stlab-table th {
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    padding: 8px 12px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+.stlab-table th:first-child, .stlab-table td:first-child { text-align: left; }
+.stlab-table th:nth-child(2), .stlab-table td:nth-child(2) { text-align: center; }
+.stlab-table td {
+    padding: 8px 12px;
+    text-align: right;
+    border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,.05));
+    font-variant-numeric: tabular-nums;
+}
+.stlab-table tbody tr:hover { background: var(--bg-hover); }
+.stlab-val-pos { color: #ef5350; }
+.stlab-val-neg { color: #42a5f5; }
+.stlab-val-best { font-weight: 700; }
+.stlab-group-tag {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+.stlab-group-rebal { background: rgba(76,175,80,.15); color: #4caf50; }
+.stlab-group-event { background: rgba(255,152,0,.15); color: #ff9800; }
+.stlab-group-macro { background: rgba(156,39,176,.15); color: #ce93d8; }
+.stlab-group-regime { background: rgba(33,150,243,.15); color: #42a5f5; }
+
+/* ── Strategy Lab Chart ──────────────────────────────────── */
+#stlab-canvas {
+    width: 100%;
+    max-height: 350px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+/* ── Strategy Lab Detail Cards ───────────────────────────── */
+.stlab-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+}
+.stlab-card {
+    background: var(--bg-secondary);
+    border-radius: 10px;
+    padding: 14px;
+    border: 1px solid var(--border);
+}
+.stlab-card-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px;
+}
+.stlab-card-name { font-weight: 700; font-size: 14px; }
+.stlab-card-row {
+    display: flex; justify-content: space-between;
+    font-size: 12px; color: var(--text-secondary);
+    padding: 3px 0;
+}
+.stlab-card-row span:last-child { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+
 /* ── Nav Link ─────────────────────────────────────────────── */
 
 .nav-link {
@@ -242,8 +369,8 @@
     margin-bottom: 4px;
 }
 
-.strategy-pnl.positive { color: #3182F6; }
-.strategy-pnl.negative { color: #F04452; }
+.strategy-pnl.positive { color: #F04452; }
+.strategy-pnl.negative { color: #3182F6; }
 .strategy-pnl.neutral  { color: var(--text-secondary); }
 
 .strategy-pnl-pct {
@@ -252,8 +379,8 @@
     margin-bottom: 16px;
 }
 
-.strategy-pnl-pct.positive { color: #3182F6; }
-.strategy-pnl-pct.negative { color: #F04452; }
+.strategy-pnl-pct.positive { color: #F04452; }
+.strategy-pnl-pct.negative { color: #3182F6; }
 
 .strategy-stats {
     display: grid;
@@ -347,8 +474,8 @@
     font-family: var(--font-mono);
 }
 
-.trade-pnl.positive { color: #3182F6; }
-.trade-pnl.negative { color: #F04452; }
+.trade-pnl.positive { color: #F04452; }
+.trade-pnl.negative { color: #3182F6; }
 .trade-pnl.neutral  { color: var(--text-dim); }
 
 .trade-reason {
@@ -359,8 +486,8 @@
     letter-spacing: 0.3px;
 }
 
-.trade-reason.tp    { background: rgba(49, 130, 246, 0.12); color: #3182F6; }
-.trade-reason.sl    { background: rgba(240, 68, 82, 0.12); color: #F04452; }
+.trade-reason.tp    { background: rgba(240, 68, 82, 0.12); color: #F04452; }
+.trade-reason.sl    { background: rgba(49, 130, 246, 0.12); color: #3182F6; }
 .trade-reason.trail { background: rgba(179, 136, 255, 0.12); color: var(--purple); }
 .trade-reason.time  { background: rgba(255, 214, 0, 0.12); color: var(--yellow); }
 .trade-reason.hold  { background: var(--black-bg); color: var(--text-secondary); }
@@ -636,8 +763,8 @@
     transition: width 0.3s ease;
 }
 
-.rt-pos-bar-fill.positive { background: #3182F6; }
-.rt-pos-bar-fill.negative { background: #F04452; }
+.rt-pos-bar-fill.positive { background: #F04452; }
+.rt-pos-bar-fill.negative { background: #3182F6; }
 
 .rt-pos-right {
     text-align: right;
@@ -650,8 +777,8 @@
     font-size: 13px;
 }
 
-.rt-pos-pnl.positive { color: #3182F6; }
-.rt-pos-pnl.negative { color: #F04452; }
+.rt-pos-pnl.positive { color: #F04452; }
+.rt-pos-pnl.negative { color: #3182F6; }
 .rt-pos-pnl.neutral  { color: var(--text-dim); }
 
 .rt-pos-pnl-pct {
@@ -671,12 +798,12 @@
 }
 
 .rt-trigger-tp {
-    color: #3182F6;
+    color: #F04452;
     font-weight: 600;
 }
 
 .rt-trigger-sl {
-    color: #F04452;
+    color: #3182F6;
     font-weight: 600;
 }
 
@@ -738,8 +865,8 @@
     font-size: 10px;
 }
 
-.rt-event-type.tp        { color: #3182F6; }
-.rt-event-type.sl        { color: #F04452; }
+.rt-event-type.tp        { color: #F04452; }
+.rt-event-type.sl        { color: #3182F6; }
 .rt-event-type.trail     { color: var(--purple, #B388FF); }
 .rt-event-type.sim_start { color: #00C471; }
 .rt-event-type.sim_stop  { color: var(--yellow, #FFD600); }

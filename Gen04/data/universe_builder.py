@@ -32,7 +32,9 @@ def build_universe_from_ohlcv(ohlcv_dir: Path,
                               min_close: int = 2000,
                               min_amount: float = 2e9,
                               min_history: int = 260,
-                              min_count: int = 500) -> List[str]:
+                              min_count: int = 500,
+                              allowed_markets: Optional[List[str]] = None,
+                              sector_map: Optional[dict] = None) -> List[str]:
     """
     Build universe from per-stock OHLCV CSV files.
 
@@ -57,6 +59,17 @@ def build_universe_from_ohlcv(ohlcv_dir: Path,
         if is_preferred_stock(code):
             filtered["preferred"] += 1
             continue
+
+        # Market filter (KOSPI only, etc.)
+        # sector_map format: {code: {"market": "KOSPI", ...}} or {code: "섹터명"}
+        # If sector_map has no "market" key (str values = sector names), skip filter
+        if allowed_markets and sector_map:
+            entry = sector_map.get(code)
+            if isinstance(entry, dict):
+                ticker_market = entry.get("market", "")
+                if ticker_market and ticker_market not in allowed_markets:
+                    continue
+            # str entries = sector name, not market → skip market filter
 
         try:
             df = pd.read_csv(f, parse_dates=["date"])
@@ -94,18 +107,25 @@ def build_universe_from_ohlcv(ohlcv_dir: Path,
 
 
 def build_universe_from_pykrx(min_close: int = 2000,
-                               min_amount: float = 2e9) -> List[str]:
+                               min_amount: float = 2e9,
+                               markets: Optional[List[str]] = None) -> List[str]:
     """
     Build universe using pykrx live data.
     For live/batch mode.
     """
+    if markets is None:
+        markets = ["KOSPI", "KOSDAQ"]
     try:
         from pykrx import stock as krx
         from datetime import datetime, timedelta
 
         today = datetime.today().strftime("%Y%m%d")
-        # Get all KOSPI tickers
-        tickers = krx.get_market_ticker_list(today, market="KOSPI")
+        tickers = []
+        for market in markets:
+            market_tickers = krx.get_market_ticker_list(today, market=market)
+            if market_tickers:
+                tickers.extend(market_tickers)
+                logger.info(f"pykrx {market}: {len(market_tickers)} tickers")
         if not tickers:
             logger.warning("pykrx returned 0 tickers, market may be closed")
             return []

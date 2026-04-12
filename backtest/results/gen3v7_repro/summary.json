@@ -1,0 +1,27 @@
+{
+  "period": "2019-10-25 ~ 2026-03-20",
+  "trading_days": 1569,
+  "total_return": "147.84%",
+  "cagr": "15.69%",
+  "mdd": "-25.10%",
+  "sharpe": "0.990",
+  "total_trades": 505,
+  "stage_a_trades": 0,
+  "stage_b_trades": 505,
+  "avg_hold_days": "28.0",
+  "exit_reason_dist": {
+    "STOP_LOSS": 311,
+    "MAX_HOLD": 119,
+    "HARD_STOP": 48,
+    "SOFT_STOP": 22,
+    "RS_EXIT": 4,
+    "RAL_CRASH": 1
+  },
+  "risk_gate_counts": {
+    "SOFT_STOP": 32,
+    "DAILY_KILL": 8,
+    "HARD_STOP": 5
+  },
+  "ltr_entry_tighten": 61,
+  "ltr_hold_tighten": 228
+}

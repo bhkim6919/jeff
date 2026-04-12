@@ -130,8 +130,8 @@ class SurgeSimulator:
         self._candidates: Dict[str, SurgeCandidate] = {}  # code → candidate
         self._seen_codes: set = set()
 
-        # WebSocket
-        self._original_price_cb = None
+        # WebSocket (event bus — no legacy callback overwrite)
+        self._listener_key = f"surge:{id(self)}"
         self._subscribed_codes: List[str] = []
 
         # Scan timer
@@ -207,15 +207,19 @@ class SurgeSimulator:
         if not codes:
             return {"error": "No valid codes after filtering"}
 
-        # Subscribe WebSocket
+        # Subscribe WebSocket via event bus (no legacy callback overwrite)
         try:
             ws = self.provider._ensure_ws()
-            self._original_price_cb = ws._on_price_tick
-            ws.set_on_price_tick(self._on_price_tick)
-            ws.subscribe(codes, "0B")
+            ws.add_price_listener(self._on_price_tick, key=self._listener_key)
+            ws.subscribe(codes, "0B", owner_key=self._listener_key)
             self._subscribed_codes = codes
-            logger.info(f"[SURGE] Subscribed to {len(codes)} codes")
+            logger.info(f"[SURGE] Subscribed to {len(codes)} codes (key={self._listener_key})")
         except Exception as e:
+            # Rollback: remove listener if subscribe failed
+            try:
+                ws.remove_price_listener(self._listener_key)
+            except Exception:
+                pass
             logger.error(f"[SURGE] WebSocket subscribe failed: {e}")
             return {"error": f"WebSocket subscribe failed: {e}"}
 
@@ -248,16 +252,16 @@ class SurgeSimulator:
                     snap = dict(self._price_cache.get(code, {}))
                     self._close_position(lane, code, snap, "FORCE_EXIT", now)
 
-        # Unsubscribe WebSocket
+        # Detach listener + owned subscriptions only (shared WS stays alive)
         try:
-            ws = self.provider._ensure_ws()
-            if self._subscribed_codes:
-                ws.unsubscribe(self._subscribed_codes, "0B")
-            if self._original_price_cb is not None:
-                ws.set_on_price_tick(self._original_price_cb)
-                self._original_price_cb = None
+            if hasattr(self.provider, '_ws') and self.provider._ws:
+                ws = self.provider._ws
+                ws.remove_price_listener(self._listener_key)
+                if self._subscribed_codes:
+                    ws.unsubscribe(self._subscribed_codes, "0B",
+                                   owner_key=self._listener_key)
         except Exception as e:
-            logger.warning(f"[SURGE] WebSocket unsubscribe: {e}")
+            logger.warning(f"[SURGE] WebSocket cleanup: {e}")
 
         # Save results per lane
         out_dir = get_output_dir()
@@ -285,18 +289,14 @@ class SurgeSimulator:
 
     def _on_price_tick(self, code: str, values: dict) -> None:
         """
-        Called from WebSocket thread.
+        Called from WebSocket event bus (WS thread).
         Evaluates ALL 3 lanes on the same tick snapshot.
         """
         if not self.running:
-            if self._original_price_cb:
-                self._original_price_cb(code, values)
             return
 
         parsed = self._parse_tick(code, values)
         if not parsed:
-            if self._original_price_cb:
-                self._original_price_cb(code, values)
             return
 
         with self._lock:
@@ -321,9 +321,6 @@ class SurgeSimulator:
                     pos.current_price = snap.get("price", 0)
                     pos.current_bid = snap.get("bid", 0)
                     pos.current_ask = snap.get("ask", 0)
-
-        if self._original_price_cb:
-            self._original_price_cb(code, values)
 
     def _parse_tick(self, code: str, values: dict) -> Optional[dict]:
         """Parse WebSocket 0B values into normalized dict."""
@@ -538,7 +535,7 @@ class SurgeSimulator:
 
             try:
                 ws = self.provider._ensure_ws()
-                ws.subscribe([c.code], "0B")
+                ws.subscribe([c.code], "0B", owner_key=self._listener_key)
                 self._subscribed_codes.append(c.code)
             except Exception as e:
                 logger.warning(f"[SURGE] WS subscribe {c.code}: {e}")
@@ -561,15 +558,16 @@ class SurgeSimulator:
             candidates = self._scanner.scan(self.provider, self.config)
             filtered = filter_candidates(candidates, self.config)
 
-            # Enrich for B/C lanes
             new_codes = [c for c in filtered if c.code and c.code not in self._seen_codes]
+
+            # Enrich new candidates for B/C lanes
             if new_codes:
                 try:
                     self._scanner.enrich_volume_surge(self.provider, new_codes)
                 except Exception:
                     pass
                 try:
-                    self._scanner.enrich_strength(self.provider, new_codes, 115.0)
+                    self._scanner.enrich_strength(self.provider, new_codes, min_strength=115.0)
                 except Exception:
                     pass
 

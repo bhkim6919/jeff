@@ -1,0 +1,22 @@
+{
+  "strategies": [
+    {
+      "total_trades": 0,
+      "strategy": "A",
+      "label": "기본 (등락률만)",
+      "cash": 10000000
+    },
+    {
+      "total_trades": 0,
+      "strategy": "B",
+      "label": "+ 거래량급증",
+      "cash": 10000000
+    },
+    {
+      "total_trades": 0,
+      "strategy": "C",
+      "label": "+ 거래량급증 + 체결강도",
+      "cash": 10000000
+    }
+  ]
+}

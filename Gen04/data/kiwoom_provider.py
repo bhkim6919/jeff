@@ -40,9 +40,21 @@ SCREEN_MAP = {
     "opt20006": "9004",   # Index daily candles (KOSPI/KOSDAQ)
     "opt10075": "9005",   # Open orders (unfilled)
     "opt20005": "9006",   # Index minute candles
+    "opt10027": "9010",   # Swing ranking (등락률 상위)
 }
 
 ORDER_TIMEOUT_SEC = 30
+
+# -- TR empty response policy -------------------------------------------------
+# ALLOW_EMPTY : callback received + 0 rows = valid empty result (return [])
+# FAIL_ON_EMPTY: callback received + 0 rows = unexpected, raise error
+TR_EMPTY_POLICY = {
+    "opw00018": "ALLOW_EMPTY",   # Account holdings: 0 holdings is valid
+    "opt10075": "ALLOW_EMPTY",   # Open orders: 0 unfilled is valid
+    "opt20006": "FAIL_ON_EMPTY", # Index daily candles: should always have data
+    "opt20005": "FAIL_ON_EMPTY", # Index minute candles: should have data during market
+    "opt10027": "ALLOW_EMPTY",   # Swing ranking: can be empty pre-market or low activity
+}
 
 
 # -- Logger -------------------------------------------------------------------
@@ -138,6 +150,7 @@ class Gen4KiwoomProvider:
         self._order_state: Dict = self._make_order_state()
         self._order_result: Optional[Dict] = None
         self._ghost_orders: List[Dict] = []
+        self._MAX_GHOST_ORDERS: int = 50
         self._completed_order_nos: set = set()  # terminal states only: FILLED/CANCELLED/REJECTED
         self._seen_chejan_events: Dict[str, set] = {}  # per-order dedup {order_no: set()}
         self._chejan_fallthrough_count: int = 0
@@ -155,6 +168,30 @@ class Gen4KiwoomProvider:
         self._k.OnReceiveRealData.connect(self._on_real_data)
         self._real_data_callback = None
         self._real_registered_codes: List[str] = []
+
+    # -- Ghost order list management ------------------------------------------
+
+    def _append_ghost(self, ghost: Dict) -> None:
+        """Append ghost order with size cap. Drop terminal entries first, then oldest."""
+        if len(self._ghost_orders) >= self._MAX_GHOST_ORDERS:
+            # Prefer dropping terminal (resolved) entries first
+            terminal_idx = next(
+                (i for i, g in enumerate(self._ghost_orders)
+                 if g.get("status") in ("GHOST_FILLED", "CANCELLED", "REJECTED")),
+                None)
+            if terminal_idx is not None:
+                dropped = self._ghost_orders.pop(terminal_idx)
+                drop_reason = "terminal_status"
+            else:
+                dropped = self._ghost_orders.pop(0)
+                drop_reason = "oldest"
+            logger.warning(
+                "[GHOST_OVERFLOW] size=%d cap=%d, drop_reason=%s "
+                "dropped: side=%s code=%s order_no=%s status=%s",
+                len(self._ghost_orders) + 1, self._MAX_GHOST_ORDERS, drop_reason,
+                dropped.get("side"), dropped.get("code"),
+                dropped.get("order_no"), dropped.get("status"))
+        self._ghost_orders.append(ghost)
 
     # -- Sector map -----------------------------------------------------------
 
@@ -340,6 +377,11 @@ class Gen4KiwoomProvider:
     # -- Real-time data (SetRealReg / OnReceiveRealData) ---------------------
 
     SCREEN_REAL = "8001"
+    SCREEN_SWING_REAL = "8002"   # ranking snapshot 종목 분봉
+    SCREEN_MICRO_REAL = "8003"   # microstructure 호가/체결
+
+    SWING_FIDS = "10;27"
+    MICRO_FIDS = "10;27;28;41;51;61;71;121;125;128"
 
     def register_real(self, codes: List[str], fids: str = "10;27") -> None:
         """Register for real-time price+volume ticks via SetRealReg."""
@@ -368,9 +410,85 @@ class Gen4KiwoomProvider:
         """Register external callback: callback(code, price, volume)."""
         self._real_data_callback = callback
 
+    def set_micro_callback(self, callback) -> None:
+        """Register microstructure callback: callback(code, fid_data)."""
+        self._micro_callback = callback
+
+    def register_real_append(self, codes: List[str], fids: str = "10;27",
+                              screen: str = None) -> int:
+        """Add codes to real-time feed on a separate screen (realType=1).
+        Returns number of registered codes."""
+        if not codes:
+            return 0
+        screen = screen or self.SCREEN_SWING_REAL
+        code_str = ";".join(codes)
+        try:
+            self._call(
+                "SetRealReg(QString,QString,QString,QString)",
+                screen, code_str, fids, "1")
+            logger.info("[SwingReal] +%d codes on screen=%s", len(codes), screen)
+            return len(codes)
+        except Exception as e:
+            logger.warning("[SwingReal] register failed: %s", e)
+            return 0
+
+    def unregister_real_screen(self, screen: str) -> None:
+        """Unregister all real-time feeds on a specific screen."""
+        try:
+            self._call("SetRealRemove(QString,QString)", screen, "ALL")
+            logger.info("[SwingReal] removed screen=%s", screen)
+        except Exception as e:
+            logger.warning("[SwingReal] unregister %s failed: %s", screen, e)
+
+    def query_realtime_ranking(self, top_n: int = 20) -> List[Dict]:
+        """Query top stocks by change rate (등락률 상위).
+        Returns list of {rank, code, name, price, change_pct}.
+        Returns [] on failure (no exception raised)."""
+        try:
+            def _setup():
+                self._call("SetInputValue(QString,QString)", "시장구분", "000")  # 전체
+                self._call("SetInputValue(QString,QString)", "정렬구분", "1")    # 상승률
+                self._call("SetInputValue(QString,QString)", "거래량조건", "0000")
+                self._call("SetInputValue(QString,QString)", "종목조건", "0")
+                self._call("SetInputValue(QString,QString)", "신용조건", "0")
+                self._call("SetInputValue(QString,QString)", "상하한포함", "0")
+                self._call("SetInputValue(QString,QString)", "가격조건", "0")
+                self._call("SetInputValue(QString,QString)", "거래대금조건", "0")
+            rows = self._request_tr_with_retry(
+                trcode="opt10027",
+                rqname="전일대비등락률상위요청",
+                days=100,
+                setup_func=_setup,
+            )
+            if rows is None:
+                return []
+            results = []
+            for i, row in enumerate(rows[:top_n]):
+                code = str(row.get("종목코드", "")).strip().lstrip("A")
+                name = str(row.get("종목명", "")).strip()
+                price = abs(self._to_int(row.get("현재가", "0")))
+                change = str(row.get("등락률", "0")).strip().replace("+", "")
+                try:
+                    change_pct = float(change)
+                except (ValueError, TypeError):
+                    change_pct = 0.0
+                if code:
+                    results.append({
+                        "rank": i + 1,
+                        "code": code,
+                        "name": name,
+                        "price": price,
+                        "change_pct": change_pct,
+                    })
+            return results
+        except Exception as e:
+            logger.warning("[SwingRanking] TR query failed: %s", e)
+            return []
+
     def _on_real_data(self, code: str, real_type: str, real_data: str) -> None:
-        """OnReceiveRealData handler — extract FID 10 (price), FID 27 (volume)."""
-        if not self._alive or self._real_data_callback is None:
+        """OnReceiveRealData handler — extract FID 10 (price), FID 27 (volume).
+        Also dispatches to micro callback if registered."""
+        if not self._alive:
             return
         code = code.strip()
         try:
@@ -378,11 +496,38 @@ class Gen4KiwoomProvider:
             vol_raw = self._call("GetCommRealData(QString,int)", code, 27)
             price = abs(float(str(price_raw).strip()))
             volume = abs(int(str(vol_raw).strip()))
-            if price > 0:
+            # Existing callback (intraday minute bars)
+            if price > 0 and self._real_data_callback:
                 self._real_data_callback(code, price, volume)
+            # Micro callback (orderbook + trade data, separate)
+            if price > 0 and hasattr(self, '_micro_callback') and self._micro_callback:
+                try:
+                    from datetime import datetime as _dt
+                    fid_data = {
+                        "timestamp": _dt.now().strftime("%H:%M:%S.%f")[:12],
+                        "price": price,
+                        "best_ask": abs(self._to_int(
+                            self._call("GetCommRealData(QString,int)", code, 27))),
+                        "best_bid": abs(self._to_int(
+                            self._call("GetCommRealData(QString,int)", code, 28))),
+                        "ask_qty_1": abs(self._to_int(
+                            self._call("GetCommRealData(QString,int)", code, 61))),
+                        "bid_qty_1": abs(self._to_int(
+                            self._call("GetCommRealData(QString,int)", code, 71))),
+                        "total_ask": abs(self._to_int(
+                            self._call("GetCommRealData(QString,int)", code, 121))),
+                        "total_bid": abs(self._to_int(
+                            self._call("GetCommRealData(QString,int)", code, 125))),
+                        "net_bid": self._to_int(
+                            self._call("GetCommRealData(QString,int)", code, 128)),
+                        "volume": abs(self._to_int(
+                            self._call("GetCommRealData(QString,int)", code, 13))),
+                    }
+                    self._micro_callback(code, fid_data)
+                except Exception:
+                    pass
         except (ValueError, TypeError) as e:
-            logger.debug("[REALDATA_PARSE_FAIL] code=%s price_raw=%s vol_raw=%s: %s",
-                         code, price_raw, vol_raw, e)
+            logger.debug("[REALDATA_PARSE_FAIL] code=%s: %s", code, e)
         except Exception as e:
             logger.warning("[REALDATA_PROCESS_FAIL] code=%s: %s", code, e)
 
@@ -658,7 +803,7 @@ class Gen4KiwoomProvider:
             self._order_state["status"] = "TIMEOUT_UNCERTAIN"
             ghost = self._order_state.copy()
             ghost["applied_qty"] = 0  # ghost callback으로 반영된 수량
-            self._ghost_orders.append(ghost)
+            self._append_ghost(ghost)
             # Do NOT add to _completed_order_nos — ghost must remain matchable
             # for late fills. Only terminal states (FILLED/CANCELLED/REJECTED)
             # should mark order_no as completed.
@@ -680,7 +825,7 @@ class Gen4KiwoomProvider:
             ghost["status"] = "PARTIAL_TIMEOUT"
             ghost["timeout_filled_qty"] = self._order_result["exec_qty"]
             ghost["applied_qty"] = self._order_result["exec_qty"]  # timeout 체결분은 main.py에서 직접 반영
-            self._ghost_orders.append(ghost)
+            self._append_ghost(ghost)
             # Mark active order as timed out so subsequent chejan routes to ghost path
             self._order_state["status"] = "PARTIAL_TIMEOUT"
             # Do NOT add to _completed_order_nos — ghost must remain matchable
@@ -748,13 +893,25 @@ class Gen4KiwoomProvider:
 
         # Fallback when decoding fails
         if order_status and not order_status.isascii() and order_status == _raw_status:
-            if exec_qty_raw and abs(int(exec_qty_raw)) > 0 and exec_price_raw and abs(float(exec_price_raw)) > 0:
-                order_status = "체결"
-            else:
+            try:
+                if exec_qty_raw and abs(int(exec_qty_raw)) > 0 and exec_price_raw and abs(float(exec_price_raw)) > 0:
+                    order_status = "체결"
+                else:
+                    order_status = "접수"
+            except (ValueError, TypeError):
                 order_status = "접수"
 
-        exec_qty   = abs(int(exec_qty_raw))   if exec_qty_raw   else 0
-        exec_price = abs(float(exec_price_raw)) if exec_price_raw else 0.0
+        # FIX-A4: try/except for non-numeric chejan data
+        try:
+            exec_qty = abs(int(exec_qty_raw)) if exec_qty_raw else 0
+        except (ValueError, TypeError):
+            logger.warning(f"[CHEJAN_PARSE_FAIL] exec_qty raw={exec_qty_raw!r}")
+            exec_qty = 0
+        try:
+            exec_price = abs(float(exec_price_raw)) if exec_price_raw else 0.0
+        except (ValueError, TypeError):
+            logger.warning(f"[CHEJAN_PARSE_FAIL] exec_price raw={exec_price_raw!r}")
+            exec_price = 0.0
 
         # -- Event delay detection --
         try:
@@ -889,6 +1046,15 @@ class Gen4KiwoomProvider:
                             p["exec_qty"], p["exec_price"], p["order_status"])
                 else:
                     # Not enough evidence — hold in pending
+                    MAX_PENDING_CHEJAN = 200
+                    if len(self._pending_chejan) >= MAX_PENDING_CHEJAN:
+                        dropped = self._pending_chejan.pop(0)
+                        logger.warning(
+                            "[PENDING_CHEJAN_OVERFLOW] size=%d, dropping oldest: "
+                            "order_no=%s code=%s ts=%s",
+                            len(self._pending_chejan) + 1,
+                            dropped.get("order_no"), dropped.get("code"),
+                            dropped.get("timestamp"))
                     self._pending_chejan.append({
                         "order_no": order_no, "code": code,
                         "exec_qty": exec_qty, "exec_price": exec_price,
@@ -958,12 +1124,14 @@ class Gen4KiwoomProvider:
                         ghost["filled_qty"] = requested
                         new_filled = requested
 
-                    # Terminal check
+                    # C2 FIX: Do NOT set terminal status here.
+                    # Terminal transition (GHOST_FILLED) happens only
+                    # AFTER successful callback in the dispatch block below.
+                    # This prevents permanent divergence when callback fails.
+                    ghost["status"] = "GHOST_FILLING"  # always non-terminal until callback confirms
                     if new_filled >= requested:
-                        ghost["status"] = "GHOST_FILLED"
                         delta = requested - prev_applied  # exact remainder
                     else:
-                        ghost["status"] = "GHOST_FILLING"
                         delta = new_filled - prev_applied
 
                     # Invariant check: delta must be non-negative
@@ -984,7 +1152,13 @@ class Gen4KiwoomProvider:
                         exec_price, order_no, ghost["status"])
 
                     # Dispatch delta to portfolio sync
-                    is_terminal = ghost["status"] == "GHOST_FILLED"
+                    # C2 FIX: filled_qty tracks broker observation,
+                    # applied_qty tracks engine reflection.
+                    # On callback failure: do NOT advance to terminal state.
+                    # Keep ghost in GHOST_FILLING so next chejan retries.
+                    # Delta is always computed from applied_qty (not filled_qty)
+                    # to ensure exactly-once delivery to portfolio.
+                    want_terminal = (new_filled >= requested)
                     if self._ghost_fill_callback and delta > 0:
                         try:
                             self._ghost_fill_callback({
@@ -995,10 +1169,12 @@ class Gen4KiwoomProvider:
                                 "exec_price": exec_price,
                                 "requested_qty": requested,
                                 "already_recorded_qty": prev_applied,
-                                "is_terminal": is_terminal,
+                                "is_terminal": want_terminal,
                             })
+                            # Callback succeeded — advance applied_qty
                             ghost["applied_qty"] = prev_applied + delta
-                            if is_terminal:
+                            if want_terminal:
+                                ghost["status"] = "GHOST_FILLED"
                                 self._completed_order_nos.add(order_no)
                                 logger.info(
                                     "[GHOST_FILL_FINALIZED] %s %s "
@@ -1006,9 +1182,19 @@ class Gen4KiwoomProvider:
                                     ghost["side"], code, new_filled, requested,
                                     ghost["applied_qty"], order_no)
                         except Exception as e:
-                            logger.error("[GHOST_FILL_CALLBACK_ERROR] %s: %s",
-                                         code, e, exc_info=True)
-                            # applied_qty NOT updated → next chejan will retry
+                            logger.error(
+                                "[GHOST_FILL_CALLBACK_ERROR] %s: %s "
+                                "(applied_qty=%d stays, status stays %s, "
+                                "will retry on next chejan)",
+                                code, e, prev_applied, ghost["status"],
+                                exc_info=True)
+                            # C2 FIX: revert filled_qty to match applied_qty
+                            # so next chejan recalculates delta correctly
+                            ghost["filled_qty"] = prev_applied
+                            # Force non-terminal — keep retryable
+                            ghost["status"] = "GHOST_FILLING"
+                            # C2 FIX: remove dedup key so retry is possible
+                            self._ghost_fill_dedup.discard(ghost_dedup_key)
                 return
 
     def _process_chejan_fill(self, code: str, order_no: str,
@@ -1340,6 +1526,11 @@ class Gen4KiwoomProvider:
         OnReceiveTrData event handler.
         Only handles opw00018 (account holdings).
         """
+        logger.info(
+            "[_on_tr_data ENTER] screen=%s rq=%s tr=%s rec=%s prev_next=%s alive=%s shutting=%s timedout=%s current_tr=%s",
+            screen_no, rqname, trcode, recordname, prev_next,
+            self._alive, self._shutting_down, self._timed_out, self._current_trcode,
+        )
         if not self._alive or self._shutting_down:
             return
         if self._timed_out:
@@ -1353,6 +1544,7 @@ class Gen4KiwoomProvider:
             return
 
         self._prev_next = prev_next
+        self._tr_data_received = True
 
         if trcode == "opw00018":
             self._parse_opw00018(trcode, rqname)
@@ -1360,6 +1552,8 @@ class Gen4KiwoomProvider:
             self._parse_opt20006(trcode, rqname)
         elif trcode == "opt10075":
             self._parse_opt10075(trcode, rqname)
+        elif trcode == "opt10027":
+            self._parse_opt10027(trcode, rqname)
 
         self._loop.quit()
 
@@ -1438,6 +1632,30 @@ class Gen4KiwoomProvider:
             status     = str(_get(i, "주문상태")).strip()
             rows.append([order_time, order_no, code, name, price,
                          side, qty, filled, remain, status])
+            i += 1
+        self._data.extend(rows)
+
+    def _parse_opt10027(self, trcode: str, rqname: str) -> None:
+        """opt10027: 전일대비등락률상위 ranking parse.
+        Returns list of dicts matching query_realtime_ranking() expectations."""
+        _get = lambda idx, field: self._call(
+            "GetCommData(QString,QString,int,QString)", trcode, rqname, idx, field,
+        )
+        rows = []
+        i = 0
+        while True:
+            code = str(_get(i, "종목코드")).strip()
+            if not code:
+                break
+            name       = self._decode_kiwoom_str(_get(i, "종목명"))
+            cur_price  = str(_get(i, "현재가")).strip()
+            change_pct = str(_get(i, "등락률")).strip()
+            rows.append({
+                "종목코드": code,
+                "종목명":   name,
+                "현재가":   cur_price,
+                "등락률":   change_pct,
+            })
             i += 1
         self._data.extend(rows)
 
@@ -1561,19 +1779,13 @@ class Gen4KiwoomProvider:
         logger.warning("[OnReceiveMsg] screen=%s rq=%s tr=%s msg=%s", screen_no, rqname_d, trcode, msg_d)
 
         # Order screen message handling
+        # DESIGN: _on_msg is INFORMATIONAL ONLY for order screens.
+        # State transitions come EXCLUSIVELY from chejan callbacks + timeout.
+        # Never set _order_result or quit _order_loop from here.
+        # (2026-04-03 bug: real server code [107066] was misclassified as error,
+        #  killing the chejan wait loop before fills arrived.)
         if str(screen_no) == "7001":
-            # [100000] = order accepted (success) -> wait for chejan fill
-            if "[100000]" in msg:
-                logger.info("[OnReceiveMsg] order accepted: %s", msg_d)
-                return
-            # Other ([800033], [RC4025] etc) = error -> immediate reject
-            if self._order_result is None:
-                self._order_result = {
-                    "order_no": "", "exec_price": 0.0, "exec_qty": 0,
-                    "error": f"order rejected: {msg_d}",
-                }
-                if self._order_loop.isRunning():
-                    self._order_loop.quit()
+            logger.info("[OnReceiveMsg] order screen msg: %s (informational only)", msg_d)
             return
 
         # TR message matching
@@ -1670,6 +1882,7 @@ class Gen4KiwoomProvider:
             self._prev_next       = "0"
             self._timed_out       = False
             self._msg_rejected    = False
+            self._tr_data_received = False
             self._current_rqname  = rqname
             self._current_trcode  = trcode
 
@@ -1737,6 +1950,24 @@ class Gen4KiwoomProvider:
                     break
 
         if not all_rows:
+            # Callback received but data is empty → check TR-level policy
+            if self._tr_data_received:
+                policy = TR_EMPTY_POLICY.get(trcode, "FAIL_ON_EMPTY")
+                if policy == "ALLOW_EMPTY":
+                    logger.info(
+                        "[TR empty OK] %s(%s) callback received, 0 rows — valid empty result",
+                        rqname, trcode,
+                    )
+                    return []
+                else:
+                    logger.error(
+                        "[TR empty FAIL] %s(%s) callback received but 0 rows unexpected "
+                        "(policy=%s)", rqname, trcode, policy,
+                    )
+                    raise TrTimeoutError(
+                        f"[TR empty FAIL] {rqname}({trcode}) callback received "
+                        f"but empty data unexpected (policy={policy})")
+
             msg = f"[TR final fail] {rqname}({trcode}) - {TR_MAX_RETRY}x retry all no response."
             logger.error(msg)
             with open(TR_ERROR_LOG, "a", encoding="utf-8") as f:

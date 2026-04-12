@@ -1,0 +1,347 @@
+{
+  "timestamp": "2026-04-10 23:17:48",
+  "initial_cash": 10000000,
+  "ranking_count": 20,
+  "params": {
+    "ranking_source": "실시간순위",
+    "top_n": 20,
+    "entry_threshold": 3,
+    "exit_target_a": 1,
+    "stop_loss_a": -0.5,
+    "exit_target_b": 2,
+    "stop_loss_b": -1,
+    "exit_target_c": 6,
+    "trail_max_c": 9,
+    "max_positions": 20,
+    "position_size_pct": 5,
+    "price_min": 20000
+  },
+  "strategies": [
+    {
+      "name": "A",
+      "label": "Conservative",
+      "trades": [
+        {
+          "code": "047040",
+          "name": "대우건설",
+          "strategy": "A",
+          "side": "BUY",
+          "price": 24300,
+          "qty": 20,
+          "pnl": 0.0,
+          "pnl_pct": 0.0,
+          "reason": "",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "006360",
+          "name": "GS건설",
+          "strategy": "A",
+          "side": "BUY",
+          "price": 38000,
+          "qty": 13,
+          "pnl": 0.0,
+          "pnl_pct": 0.0,
+          "reason": "",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "217590",
+          "name": "티엠씨",
+          "strategy": "A",
+          "side": "BUY",
+          "price": 25850,
+          "qty": 19,
+          "pnl": 0.0,
+          "pnl_pct": 0.0,
+          "reason": "",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "005290",
+          "name": "동진쎄미켐",
+          "strategy": "A",
+          "side": "BUY",
+          "price": 50500,
+          "qty": 9,
+          "pnl": 0.0,
+          "pnl_pct": 0.0,
+          "reason": "",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "047040",
+          "name": "대우건설",
+          "strategy": "A",
+          "side": "SELL",
+          "price": 24543,
+          "qty": 20,
+          "pnl": 4860,
+          "pnl_pct": 1.0,
+          "reason": "TP",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "006360",
+          "name": "GS건설",
+          "strategy": "A",
+          "side": "SELL",
+          "price": 38380,
+          "qty": 13,
+          "pnl": 4940,
+          "pnl_pct": 1.0,
+          "reason": "TP",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "217590",
+          "name": "티엠씨",
+          "strategy": "A",
+          "side": "SELL",
+          "price": 26108,
+          "qty": 19,
+          "pnl": 4902,
+          "pnl_pct": 1.0,
+          "reason": "TP",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "005290",
+          "name": "동진쎄미켐",
+          "strategy": "A",
+          "side": "SELL",
+          "price": 51005,
+          "qty": 9,
+          "pnl": 4545,
+          "pnl_pct": 1.0,
+          "reason": "TP",
+          "timestamp": "23:17:48"
+        }
+      ],
+      "positions": [],
+      "total_pnl": 19247,
+      "win_count": 4,
+      "loss_count": 0,
+      "win_rate": 100.0,
+      "cash": 10019247,
+      "total_value": 10019247
+    },
+    {
+      "name": "B",
+      "label": "Aggressive",
+      "trades": [
+        {
+          "code": "047040",
+          "name": "대우건설",
+          "strategy": "B",
+          "side": "BUY",
+          "price": 24300,
+          "qty": 10,
+          "pnl": 0.0,
+          "pnl_pct": 0.0,
+          "reason": "",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "006360",
+          "name": "GS건설",
+          "strategy": "B",
+          "side": "BUY",
+          "price": 38000,
+          "qty": 6,
+          "pnl": 0.0,
+          "pnl_pct": 0.0,
+          "reason": "",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "217590",
+          "name": "티엠씨",
+          "strategy": "B",
+          "side": "BUY",
+          "price": 25850,
+          "qty": 9,
+          "pnl": 0.0,
+          "pnl_pct": 0.0,
+          "reason": "",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "005290",
+          "name": "동진쎄미켐",
+          "strategy": "B",
+          "side": "BUY",
+          "price": 50500,
+          "qty": 4,
+          "pnl": 0.0,
+          "pnl_pct": 0.0,
+          "reason": "",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "047040",
+          "name": "대우건설",
+          "strategy": "B",
+          "side": "SELL",
+          "price": 24786,
+          "qty": 10,
+          "pnl": 4860,
+          "pnl_pct": 2.0,
+          "reason": "TP",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "006360",
+          "name": "GS건설",
+          "strategy": "B",
+          "side": "SELL",
+          "price": 38760,
+          "qty": 6,
+          "pnl": 4560,
+          "pnl_pct": 2.0,
+          "reason": "TP",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "217590",
+          "name": "티엠씨",
+          "strategy": "B",
+          "side": "SELL",
+          "price": 26367,
+          "qty": 9,
+          "pnl": 4653,
+          "pnl_pct": 2.0,
+          "reason": "TP",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "005290",
+          "name": "동진쎄미켐",
+          "strategy": "B",
+          "side": "SELL",
+          "price": 51242,
+          "qty": 4,
+          "pnl": 2968,
+          "pnl_pct": 1.47,
+          "reason": "TIME",
+          "timestamp": "23:17:48"
+        }
+      ],
+      "positions": [],
+      "total_pnl": 17041,
+      "win_count": 4,
+      "loss_count": 0,
+      "win_rate": 100.0,
+      "cash": 10017041,
+      "total_value": 10017041
+    },
+    {
+      "name": "C",
+      "label": "Dynamic",
+      "trades": [
+        {
+          "code": "047040",
+          "name": "대우건설",
+          "strategy": "C",
+          "side": "BUY",
+          "price": 24300,
+          "qty": 20,
+          "pnl": 0.0,
+          "pnl_pct": 0.0,
+          "reason": "",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "006360",
+          "name": "GS건설",
+          "strategy": "C",
+          "side": "BUY",
+          "price": 38000,
+          "qty": 13,
+          "pnl": 0.0,
+          "pnl_pct": 0.0,
+          "reason": "",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "217590",
+          "name": "티엠씨",
+          "strategy": "C",
+          "side": "BUY",
+          "price": 25850,
+          "qty": 19,
+          "pnl": 0.0,
+          "pnl_pct": 0.0,
+          "reason": "",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "005290",
+          "name": "동진쎄미켐",
+          "strategy": "C",
+          "side": "BUY",
+          "price": 50500,
+          "qty": 9,
+          "pnl": 0.0,
+          "pnl_pct": 0.0,
+          "reason": "",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "217590",
+          "name": "티엠씨",
+          "strategy": "C",
+          "side": "SELL",
+          "price": 27401,
+          "qty": 19,
+          "pnl": 29469,
+          "pnl_pct": 6.0,
+          "reason": "TP",
+          "timestamp": "23:17:48"
+        },
+        {
+          "code": "005290",
+          "name": "동진쎄미켐",
+          "strategy": "C",
+          "side": "SELL",
+          "price": 53530,
+          "qty": 9,
+          "pnl": 27270,
+          "pnl_pct": 6.0,
+          "reason": "TP",
+          "timestamp": "23:17:48"
+        }
+      ],
+      "positions": [
+        {
+          "code": "047040",
+          "name": "대우건설",
+          "entry_price": 24300,
+          "qty": 20,
+          "current_price": 25008,
+          "high_price": 25355,
+          "days_held": 0,
+          "unrealized_pnl": 14160,
+          "unrealized_pnl_pct": 2.91
+        },
+        {
+          "code": "006360",
+          "name": "GS건설",
+          "entry_price": 38000,
+          "qty": 13,
+          "current_price": 40140,
+          "high_price": 40540,
+          "days_held": 0,
+          "unrealized_pnl": 27820,
+          "unrealized_pnl_pct": 5.63
+        }
+      ],
+      "total_pnl": 98719,
+      "win_count": 2,
+      "loss_count": 0,
+      "win_rate": 100.0,
+      "cash": 9076739,
+      "total_value": 10098719
+    }
+  ]
+}

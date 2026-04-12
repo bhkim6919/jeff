@@ -25,6 +25,7 @@ class OrderStatus(Enum):
     PARTIAL_FILLED    = "PARTIAL_FILLED"
     FILLED            = "FILLED"
     TIMEOUT_UNCERTAIN = "TIMEOUT_UNCERTAIN"
+    PENDING_EXTERNAL  = "PENDING_EXTERNAL"
     CANCELLED         = "CANCELLED"
     REJECTED          = "REJECTED"
 
@@ -57,6 +58,7 @@ class OrderRecord:
     submitted_at:  Optional[datetime] = None
     filled_at:     Optional[datetime] = None
     reject_reason: str = ""
+    base_qty:      int = 0       # BUY 직전 보유 수량 (reconcile delta 계산용)
 
     @property
     def is_filled(self) -> bool:
@@ -65,7 +67,7 @@ class OrderRecord:
     @property
     def is_done(self) -> bool:
         return self.status in (OrderStatus.FILLED, OrderStatus.REJECTED,
-                               OrderStatus.CANCELLED, OrderStatus.TIMEOUT_UNCERTAIN)
+                               OrderStatus.CANCELLED)
 
 
 class OrderTracker:
@@ -100,8 +102,9 @@ class OrderTracker:
             }
             with open(self._journal_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
-        except Exception:
-            pass  # journal must never break trading
+        except Exception as e:
+            logging.getLogger("gen4.tracker").warning(
+                f"[JOURNAL_WRITE_FAIL] event={event}: {e}")  # never break trading
 
     def new_order_id(self) -> str:
         self._seq += 1
@@ -168,6 +171,56 @@ class OrderTracker:
                                 code=rec.code, side=rec.side,
                                 requested_qty=rec.quantity)
 
+    def mark_pending_external(self, order_id: str) -> None:
+        """Timeout with uncertain fill — order may be live on broker."""
+        rec = self._orders.get(order_id)
+        if rec:
+            self._transition(rec, OrderStatus.PENDING_EXTERNAL)
+            self._journal_write("PENDING_EXTERNAL", order_id=order_id,
+                                code=rec.code, side=rec.side,
+                                requested_qty=rec.quantity)
+
+    def mark_ghost_settled(self, order_id: str, cum_filled: int,
+                           avg_price: float) -> None:
+        """Ghost fill resolved — upgrade to FILLED only if cum >= requested."""
+        rec = self._orders.get(order_id)
+        if not rec:
+            return
+        if cum_filled >= rec.quantity:
+            rec.exec_price = avg_price
+            rec.exec_qty = cum_filled
+            rec.filled_at = datetime.now()
+            self._transition(rec, OrderStatus.FILLED,
+                             f"(ghost settled) qty={cum_filled} price={avg_price:,.0f}")
+            self._journal_write("GHOST_SETTLED", order_id=order_id,
+                                code=rec.code, side=rec.side,
+                                exec_qty=cum_filled, exec_price=avg_price)
+        else:
+            rec.exec_qty = cum_filled
+            rec.exec_price = avg_price
+            logger.info(f"[GHOST_PARTIAL] {order_id} cum={cum_filled}/{rec.quantity} "
+                        f"— still PENDING_EXTERNAL")
+
+    def mark_reconcile_settled(self, order_id: str, final_qty: int,
+                               avg_price: float,
+                               terminal: str = "FILLED") -> None:
+        """EOD reconcile — broker snapshot based final settlement."""
+        rec = self._orders.get(order_id)
+        if not rec:
+            return
+        rec.exec_qty = final_qty
+        rec.exec_price = avg_price
+        rec.filled_at = datetime.now()
+        if terminal == "FILLED":
+            self._transition(rec, OrderStatus.FILLED,
+                             f"(reconcile) qty={final_qty}")
+        elif terminal == "CANCELLED":
+            self._transition(rec, OrderStatus.CANCELLED,
+                             f"(reconcile) unfilled")
+        self._journal_write("RECONCILE_SETTLED", order_id=order_id,
+                            code=rec.code, side=rec.side,
+                            exec_qty=final_qty, terminal=terminal)
+
     def filled_today(self) -> List[OrderRecord]:
         return [r for r in self._orders.values() if r.is_filled]
 
@@ -208,7 +261,10 @@ class OrderTracker:
                        if r.status == OrderStatus.REJECTED)
         uncertain = sum(1 for r in self._orders.values()
                         if r.status == OrderStatus.TIMEOUT_UNCERTAIN)
+        pending_ext = sum(1 for r in self._orders.values()
+                          if r.status == OrderStatus.PENDING_EXTERNAL)
         return {
             "total": total, "filled": filled, "rejected": rejected,
-            "uncertain": uncertain, "fills_in_ledger": len(self._fill_ledger),
+            "uncertain": uncertain, "pending_external": pending_ext,
+            "fills_in_ledger": len(self._fill_ledger),
         }

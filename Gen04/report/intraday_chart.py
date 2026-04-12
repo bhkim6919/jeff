@@ -32,19 +32,34 @@ def _escape(s: str) -> str:
 
 # ── Portfolio Intraday Return Curve ──────────────────────────────────────────
 
+def _compute_index_returns(kospi_bars: List[dict]) -> List[float]:
+    """Compute return series from KOSPI minute bars [{time, close, ...}]."""
+    if not kospi_bars or len(kospi_bars) < 2:
+        return []
+    closes = [b.get("close", 0) for b in kospi_bars]
+    base = kospi_bars[0].get("open", closes[0])
+    if base <= 0:
+        base = closes[0]
+    if base <= 0:
+        return []
+    return [(c / base - 1) for c in closes]
+
+
 def render_portfolio_intraday_svg(
     bars_by_code: Dict[str, pd.DataFrame],
     weights: Dict[str, float],
     width: int = 720,
     height: int = 200,
+    kospi_bars: Optional[List[dict]] = None,
 ) -> str:
     """
-    Portfolio-level weighted intraday return curve.
+    Portfolio-level weighted intraday return curve with optional KOSPI overlay.
 
     Args:
         bars_by_code: {code: DataFrame with columns [datetime, open, high, low, close, volume]}
         weights: {code: weight} where weight = market_value / total_market_value
         width, height: SVG dimensions
+        kospi_bars: optional list of {time, open, high, low, close, volume} from opt20005
 
     Returns:
         Inline <svg> string, or "" if no data.
@@ -103,7 +118,10 @@ def render_portfolio_intraday_svg(
             else:
                 time_labels.append("")
 
-    # 4. Render SVG
+    # 4. KOSPI overlay returns
+    kospi_returns = _compute_index_returns(kospi_bars) if kospi_bars else []
+
+    # 5. Render SVG
     return _render_line_chart(
         values=portfolio_returns,
         time_labels=time_labels,
@@ -112,6 +130,8 @@ def render_portfolio_intraday_svg(
         y_format="pct",
         title="",
         fill_zero=True,
+        overlay_values=kospi_returns,
+        overlay_label="KOSPI",
     )
 
 
@@ -267,8 +287,10 @@ def _render_line_chart(
     y_format: str = "pct",
     title: str = "",
     fill_zero: bool = False,
+    overlay_values: Optional[List[float]] = None,
+    overlay_label: str = "",
 ) -> str:
-    """Render a simple line/area chart as SVG string."""
+    """Render a simple line/area chart as SVG string, with optional overlay line."""
     if not values:
         return ""
 
@@ -276,8 +298,12 @@ def _render_line_chart(
     plot_w = width - margin["left"] - margin["right"]
     plot_h = height - margin["top"] - margin["bottom"]
 
-    y_min = min(values)
-    y_max = max(values)
+    # Include overlay in y-range calculation
+    all_vals = list(values)
+    if overlay_values:
+        all_vals.extend(overlay_values)
+    y_min = min(all_vals)
+    y_max = max(all_vals)
     # Add padding
     y_range = y_max - y_min if y_max != y_min else abs(y_max) * 0.1 or 0.001
     y_min -= y_range * 0.1
@@ -380,6 +406,41 @@ def _render_line_chart(
     svg.append(f'<text x="{width-margin["right"]+4}" y="{y_pos(last_val)-6:.1f}" '
                f'font-size="10" font-weight="700" fill="{line_color}">'
                f'{val_label}</text>')
+
+    # Overlay line (KOSPI etc.)
+    if overlay_values and len(overlay_values) >= 2:
+        # Resample overlay to match portfolio length
+        ov_len = len(overlay_values)
+        main_len = len(values)
+        ov_points = []
+        for i in range(main_len):
+            # Map portfolio index to overlay index
+            ov_idx = int(i * (ov_len - 1) / max(main_len - 1, 1))
+            ov_idx = min(ov_idx, ov_len - 1)
+            ov_val = overlay_values[ov_idx]
+            ov_points.append(f"{x_pos(i):.1f},{y_pos(ov_val):.1f}")
+
+        ov_line = " ".join(ov_points)
+        ov_color = "#90a4ae"  # gray for KOSPI
+        svg.append(f'<polyline points="{ov_line}" '
+                   f'fill="none" stroke="{ov_color}" '
+                   f'stroke-width="1.2" stroke-dasharray="4,3" opacity="0.7"/>')
+
+        # Overlay end label
+        ov_last = overlay_values[-1]
+        if y_format == "pct":
+            ov_label = f"{ov_last*100:+.2f}%"
+        else:
+            ov_label = f"{ov_last:,.0f}"
+        ov_y = y_pos(ov_last)
+        # Avoid label collision with main line
+        main_y = y_pos(last_val)
+        if abs(ov_y - main_y) < 12:
+            ov_y = main_y + (12 if ov_y > main_y else -12)
+        ol_text = f"{overlay_label} {ov_label}" if overlay_label else ov_label
+        svg.append(f'<text x="{width-margin["right"]+4}" y="{ov_y+3:.1f}" '
+                   f'font-size="9" fill="{ov_color}">'
+                   f'{ol_text}</text>')
 
     svg.append("</svg>")
     return "".join(svg)

@@ -52,12 +52,13 @@ INITIAL_CASH = 10_000_000  # 1천만원
 
 # ── Ranking Fetcher ───────────────────────────────────────────
 
-# Kiwoom REST API IDs for ranking queries
+# Kiwoom REST API — ka10027/ka10030/ka10032 deprecated (1504 error).
+# All ranking via ka00198 + qry_tp: 1=실시간, 2=거래량, 3=거래대금, 5=등락률
 _RANKING_API_MAP = {
-    "실시간순위": ("ka00198", "/api/dostk/stkinfo"),  # 실시간종목조회순위 (키움빅데이터)
-    "등락률": ("ka10027", "/api/dostk/mrkcond"),       # 전일대비등락률상위
-    "거래량": ("ka10030", "/api/dostk/mrkcond"),       # 당일거래량상위
-    "거래대금": ("ka10032", "/api/dostk/mrkcond"),     # 거래대금상위
+    "실시간순위": ("ka00198", "/api/dostk/stkinfo", "1"),
+    "등락률":    ("ka00198", "/api/dostk/stkinfo", "5"),
+    "거래량":    ("ka00198", "/api/dostk/stkinfo", "2"),
+    "거래대금":  ("ka00198", "/api/dostk/stkinfo", "3"),
 }
 
 
@@ -69,20 +70,10 @@ def fetch_ranking(provider, source: str = "등락률", top_n: int = 20) -> List[
         [{"code": "005930", "name": "삼성전자", "price": 72000,
           "change_pct": 3.5, "volume": 12345678, "rank": 1}, ...]
     """
-    api_id, path = _RANKING_API_MAP.get(source, _RANKING_API_MAP["실시간순위"])
+    entry = _RANKING_API_MAP.get(source, _RANKING_API_MAP["실시간순위"])
+    api_id, path, qry_tp = entry
 
-    # ka00198 (실시간종목조회순위) has different body
-    if api_id == "ka00198":
-        body = {"qry_tp": "1"}  # 1:1분, 2:10분, 3:1시간, 4:당일누적, 5:30초
-    else:
-        body = {
-            "mkt_tp_cd": "0",       # 0=전체, 1=코스피, 2=코스닥
-            "vol_tp_cd": "0",       # 거래량 조건 없음
-            "prc_tp_cd": "0",       # 가격 조건 없음
-            "up_dn_tp": "1",        # 1=상승, 2=하락
-            "cont_yn": "N",
-            "cont_key": "",
-        }
+    body = {"qry_tp": qry_tp}
 
     try:
         resp = provider._request(api_id, path, body, related_code="LAB")
@@ -94,7 +85,6 @@ def fetch_ranking(provider, source: str = "등락률", top_n: int = 20) -> List[
         logger.warning(f"[LAB] Ranking API returned: {resp.get('return_msg', 'unknown')}")
         return _fallback_ranking(top_n)
 
-    # ka00198 returns "item_inq_rank", others return "output"
     output = resp.get("item_inq_rank", resp.get("output", []))
     if not output:
         return _fallback_ranking(top_n)
@@ -102,21 +92,13 @@ def fetch_ranking(provider, source: str = "등락률", top_n: int = 20) -> List[
     results = []
     for i, item in enumerate(output[:top_n]):
         try:
-            if api_id == "ka00198":
-                # 실시간종목조회순위 응답 형식
-                name = item.get("stk_nm", "").strip()
-                price = abs(int(item.get("past_curr_prc", "0").replace(",", "") or "0"))
-                change_pct = float(item.get("base_comp_chgr", "0") or "0")
-                rank_raw = item.get("bigd_rank", str(i + 1))
-                code = ""  # ka00198은 종목코드가 없을 수 있음 — name으로 조회 필요
-                # Try to extract code from name or use provider lookup
-                volume = 0
-            else:
-                code = str(item.get("stk_cd", item.get("shtn_pdno", ""))).strip()
-                name = item.get("stk_nm", item.get("hts_kor_isnm", "")).strip()
-                price = abs(int(item.get("cur_prc", item.get("stck_prpr", 0))))
-                change_pct = float(item.get("flu_rt", item.get("prdy_ctrt", 0)))
-                volume = int(item.get("acml_vol", item.get("acml_vol", 0)))
+            code = str(item.get("stk_cd", "")).strip()
+            name = item.get("stk_nm", "").strip()
+            price = abs(int(
+                str(item.get("past_curr_prc", "0")).replace(",", "").replace("+", "") or "0"
+            ))
+            change_pct = float(item.get("base_comp_chgr", "0") or "0")
+            volume = 0  # ka00198 doesn't return volume
 
             if name and price > 0:
                 results.append({

@@ -276,18 +276,42 @@ class ExposureGuard:
 
     def try_release_safe_mode(self, monthly_dd: float,
                               release_threshold: float = -0.20) -> bool:
-        """Try releasing safe mode. Returns True if released (→ notify)."""
+        """Try releasing safe mode. Returns True if released (→ notify).
+
+        Phase 1-A: DD 회복 외에 blocked_conditions도 재확인.
+        DD 외 원인(RECON/stale/pending_external)이 남아있으면 해제 금지.
+        """
         if self._safe_mode_level == 0:
             return False
         today_str = str(date.today())
         if today_str == self._safe_mode_entered_date:
             return False  # same-day release blocked
+
+        # Phase 1-A: DD 조건 + 외부 트리거 조건 모두 해소되어야 해제
+        # Note: safe_mode_level 자체는 제외 (해제 대상이므로 순환 참조 방지)
+        # ★ SYNC_POINT: 아래 조건은 _check_blocked_conditions()와 동기화 필수.
+        #   _check_blocked_conditions()에 새 조건 추가 시 여기도 반영할 것.
+        #   직접 호출하지 않는 이유: safe_mode_level >= 3 자기참조 순환 방지.
         if monthly_dd > release_threshold:
+            # 외부 blocked 조건: opt10075, pending_external (safe_mode_level 제외)
+            if self._opt10075_fail_streak >= 2:
+                logger.warning(f"[SAFE_MODE_HOLD] DD recovered but "
+                               f"opt10075 fail_streak={self._opt10075_fail_streak}")
+                return False
+            if self._has_critical_pending_external():
+                logger.warning(f"[SAFE_MODE_HOLD] DD recovered but "
+                               f"pending_external={len(self._pending_external_list)}")
+                return False
+            if not self._last_recon_ok:
+                logger.warning("[SAFE_MODE_HOLD] DD recovered but "
+                               "last RECON failed")
+                return False
             prev = self._safe_mode_level
             self._safe_mode_level = 0
             self._safe_mode_active = False
             self._safe_mode_reason = ""
-            logger.info(f"[SAFE_MODE] L{prev}→L0 RELEASED (DD={monthly_dd:.2%})")
+            logger.info(f"[SAFE_MODE] L{prev}→L0 RELEASED "
+                        f"(DD={monthly_dd:.2%}, all conditions clear)")
             return True
         return False
 
@@ -372,8 +396,10 @@ class ExposureGuard:
 
         if self._recovery_state == "RECOVERING":
             self._recovery_observation_sessions += 1
-            if self._recovery_observation_sessions >= 1:
-                self._transition_to("REDUCED", "관찰 완료")
+            if self._recovery_observation_sessions >= 2:  # Phase 1-A: 최소 2세션 관찰
+                self._transition_to("REDUCED", "관찰 완료 (2세션)")
+            else:
+                logger.info(f"[RECOVERING_OBSERVE] 세션 {self._recovery_observation_sessions}/2")
             return  # RECOVERING → REDUCED만
 
         if self._recovery_state == "REDUCED":

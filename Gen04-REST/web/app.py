@@ -1808,13 +1808,40 @@ def create_app() -> FastAPI:
         """Combined KR + US state. Partial success allowed."""
         from datetime import datetime
 
-        # KR (in-process, fast)
+        # KR (use portfolio cache from SSE, same source as KR dashboard)
         kr_data, kr_available = None, False
         kr_ts = ""
         try:
-            kr_data = tracker.snapshot()
-            kr_available = True
-            kr_ts = datetime.now().strftime("%H:%M:%S KST")
+            cached = _portfolio_cache.get("data")
+            if cached:
+                kr_data = dict(cached)
+                kr_available = True
+                cache_ts = _portfolio_cache.get("ts", 0)
+                if cache_ts:
+                    from datetime import datetime as _dt
+                    kr_ts = _dt.fromtimestamp(cache_ts).strftime("%H:%M:%S KST")
+                else:
+                    kr_ts = datetime.now().strftime("%H:%M:%S KST")
+            else:
+                # Cache empty — try direct query
+                try:
+                    provider = _get_global_provider()
+                    summary = provider.query_account_summary()
+                    if summary and summary.get("error") is None:
+                        kr_data = {
+                            "holdings_count": len(summary.get("holdings", [])),
+                            "cash": summary.get("available_cash", 0),
+                            "total_asset": summary.get("\ucd94\uc815\uc608\ud0c1\uc790\uc0b0", 0),
+                            "total_buy": summary.get("\ucd1d\ub9e4\uc785\uae08\uc561", 0),
+                            "total_eval": summary.get("\ucd1d\ud3c9\uac00\uae08\uc561", 0),
+                            "total_pnl": summary.get("\ucd1d\ud3c9\uac00\uc190\uc775\uae08\uc561", 0),
+                            "pnl_pct": round(summary.get("\ucd1d\ud3c9\uac00\uc190\uc775\uae08\uc561", 0) / max(summary.get("\ucd1d\ub9e4\uc785\uae08\uc561", 1), 1) * 100, 2),
+                            "holdings": summary.get("holdings", []),
+                        }
+                        kr_available = True
+                        kr_ts = datetime.now().strftime("%H:%M:%S KST")
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -1844,6 +1871,43 @@ def create_app() -> FastAPI:
                 "available": us_available,
             },
         }
+
+    # ── API: Telegram (Dashboard → Mobile) ──────────────
+
+    @application.post("/api/notify/telegram")
+    async def send_telegram_text(request: Request):
+        """Send text message to Telegram from dashboard."""
+        try:
+            body = await request.json()
+            text = body.get("text", "").strip()
+            if not text or len(text) > 2000:
+                return {"ok": False, "error": "Message empty or too long"}
+
+            from notify.telegram_bot import send
+            ok = send(f"[Dashboard] {text}", "INFO")
+            return {"ok": ok}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    @application.post("/api/notify/telegram/photo")
+    async def send_telegram_photo(request: Request):
+        """Send photo + caption to Telegram from dashboard."""
+        try:
+            form = await request.form()
+            caption = form.get("caption", "")
+            file = form.get("photo")
+            if not file:
+                return {"ok": False, "error": "No photo"}
+
+            photo_bytes = await file.read()
+            if len(photo_bytes) > 10 * 1024 * 1024:
+                return {"ok": False, "error": "File too large (max 10MB)"}
+
+            from notify.telegram_bot import send_photo
+            ok = send_photo(photo_bytes, caption=f"[Dashboard] {caption}", filename=file.filename or "image.png")
+            return {"ok": ok}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
 
     return application
 

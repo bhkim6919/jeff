@@ -1,0 +1,9 @@
+{
+  "snapshot_hash": "f16ae2338de0e241",
+  "advisor_version": "1.0.0",
+  "strategy_version": "4.0",
+  "mode": "paper_test",
+  "elapsed_sec": 0.02,
+  "deterministic": true,
+  "llm_used": false
+}

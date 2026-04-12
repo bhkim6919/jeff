@@ -73,7 +73,18 @@ class LabLiveConfig:
 
     @property
     def state_file(self) -> Path:
+        """Legacy monolithic state (migration source)."""
         return self.state_dir / "state.json"
+
+    @property
+    def states_dir(self) -> Path:
+        """Per-strategy state files directory."""
+        return self.state_dir / "states"
+
+    @property
+    def head_file(self) -> Path:
+        """Committed version pointer."""
+        return self.state_dir / "head.json"
 
     @property
     def trades_file(self) -> Path:
@@ -81,4 +92,15 @@ class LabLiveConfig:
 
     @property
     def equity_file(self) -> Path:
+        """Legacy CSV equity (migration source)."""
         return self.state_dir / "equity_history.csv"
+
+    @property
+    def equity_json_file(self) -> Path:
+        """Versioned equity JSON."""
+        return self.state_dir / "equity.json"
+
+    @property
+    def state_io_lock_file(self) -> Path:
+        """File-level lock for cross-process safety."""
+        return self.state_dir / ".state_io.lock"

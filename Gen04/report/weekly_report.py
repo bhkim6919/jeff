@@ -208,14 +208,14 @@ def compute_verdict_weekly(weekly_ret: float, win_rate: float,
                             monitor_only_days: int = 0) -> Tuple[str, str, str]:
     # No-trade week: not a failure
     if n_trades == 0 and end_positions == 0 and sys_errors == 0 and monitor_only_days == 0:
-        return ("STANDBY", "대기", "#1565c0")
+        return ("STANDBY", "대기", "#3B82F6")
     if sys_errors > 0 or monitor_only_days > 0:
-        return ("WATCH", "관찰 필요", "#f57f17")
+        return ("WATCH", "관찰 필요", "#F59E0B")
     if weekly_ret <= -0.05 or (n_trades > 0 and win_rate < 0.30):
-        return ("REVIEW", "전략 점검", "#d32f2f")
+        return ("REVIEW", "전략 점검", "#EF4444")
     if weekly_ret <= -0.03 or (n_trades > 0 and 0.30 <= win_rate < 0.40):
-        return ("WATCH", "관찰 필요", "#f57f17")
-    return ("MAINTAIN", "정상 유지", "#2e7d32")
+        return ("WATCH", "관찰 필요", "#F59E0B")
+    return ("MAINTAIN", "정상 유지", "#10B981")
 
 
 def compute_system_stats(data: dict) -> dict:
@@ -277,21 +277,53 @@ def _fp(val) -> str:
     return f"{sign}{v:.2f}%"
 
 def _color(val) -> str:
+    """Korean convention: red for profit, blue for loss."""
     v = float(val)
-    return "#2e7d32" if v > 0 else "#d32f2f" if v < 0 else "#78909c"
+    if v > 0:
+        return "#FF4757"   # vivid red = profit (Korean convention)
+    if v < 0:
+        return "#3B82F6"   # blue = loss (Korean convention)
+    return "#94A3B8"
 
-def _card(title, value, color="#333", sub=""):
-    return f"""<div style="flex:1;min-width:140px;background:#fff;border-radius:8px;
-        padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center;">
-        <div style="font-size:12px;color:#78909c;margin-bottom:4px;">{title}</div>
-        <div style="font-size:22px;font-weight:700;color:{color};">{value}</div>
-        {f'<div style="font-size:11px;color:#aaa;margin-top:2px;">{sub}</div>' if sub else ''}
+def _card(title, value, color="#1E293B", sub=""):
+    # Determine gradient border color based on value color
+    grad_map = {
+        "#FF4757": "linear-gradient(135deg, #FF4757, #FF6B81)",
+        "#3B82F6": "linear-gradient(135deg, #3B82F6, #60A5FA)",
+        "#10B981": "linear-gradient(135deg, #10B981, #34D399)",
+        "#F59E0B": "linear-gradient(135deg, #F59E0B, #FBBF24)",
+        "#EF4444": "linear-gradient(135deg, #EF4444, #F87171)",
+        "#94A3B8": "linear-gradient(135deg, #94A3B8, #CBD5E1)",
+    }
+    grad = grad_map.get(color, f"linear-gradient(135deg, {color}, {color})")
+    # Trend arrow based on value text
+    arrow = ""
+    try:
+        v_str = value.replace("%", "").replace(",", "").replace("+", "").replace("원", "").strip()
+        v_num = float(v_str)
+        if v_num > 0:
+            arrow = '<span style="font-size:14px;margin-left:4px;opacity:0.7;">&#9650;</span>'
+        elif v_num < 0:
+            arrow = '<span style="font-size:14px;margin-left:4px;opacity:0.7;">&#9660;</span>'
+    except (ValueError, TypeError):
+        pass
+    return f"""<div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:{grad};
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">{title}</div>
+        <div style="font-size:28px;font-weight:700;color:{color};line-height:1.2;">{value}{arrow}</div>
+        {f'<div style="font-size:11px;color:#94A3B8;margin-top:4px;">{sub}</div>' if sub else ''}
     </div>"""
 
 def _section(title, content):
-    return f"""<div style="margin-bottom:24px;">
-        <h2 style="font-size:16px;color:#1a237e;border-bottom:2px solid #1565c0;
-            padding-bottom:6px;margin-bottom:12px;">{title}</h2>
+    return f"""<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">{title}</h2>
         {content}
     </div>"""
 
@@ -299,6 +331,239 @@ def _section(title, content):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Section Builders
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def build_basis_line_weekly(data: dict) -> str:
+    """기준 시각 / 계산 기준 (주간)."""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+    ws, we = data["week_start"], data["week_end"]
+    return (f'<div style="font-size:11px;color:#94A3B8;margin-bottom:12px;padding:0 4px;">'
+            f'생성: {ts} KST | '
+            f'주간 수익률 = (주말 EOD 총자산 / 주초 전일 종가 총자산) - 1 | '
+            f'구간: {ws} ~ {we}</div>')
+
+
+def build_weekly_verdict_summary(data, config, wret, verdict_kr, stats, sys_stats, weekly_dd):
+    """주간 판단 5줄 요약."""
+    _, end_eq, start_eq = compute_weekly_return(data)
+
+    # Line 1: 주간 수익률
+    line1 = f"주간 수익률: <b>{_fp(wret)}</b> (자산 {_fk(end_eq)}원)"
+    # Line 2: MDD
+    line2 = f"주간 MDD: <b>{_fp(weekly_dd)}</b>"
+    # Line 3: 전략 상태
+    line3 = f"전략 상태: <b>{verdict_kr}</b>"
+    # Line 4: 핵심 특징
+    features = []
+    if stats["n_trades"] > 0:
+        features.append(f"청산 {stats['n_trades']}건 (승률 {stats['win_rate']*100:.0f}%)")
+    if sys_stats["rebalance_count"] > 0:
+        features.append(f"리밸 {sys_stats['rebalance_count']}회")
+    trail = compute_trail_stats(data)
+    if trail["trail_count"] > 0:
+        features.append(f"Trail {trail['trail_count']}건")
+    line4 = f"핵심 특징: {', '.join(features)}" if features else "핵심 특징: 특이사항 없음"
+    # Line 5: 운영 안정성
+    errors = sys_stats["total_errors"]
+    mo = sys_stats["monitor_only_days"]
+    stab = "안정" if errors == 0 and mo == 0 else f"점검 필요 (에러 {errors}, MO {mo}일)"
+    line5 = f"운영 안정성: {stab}"
+
+    lines = [line1, line2, line3, line4, line5]
+    has_issue = errors > 0 or mo > 0 or wret <= -0.03
+    bg = "rgba(245,158,11,0.06)" if has_issue else "rgba(16,185,129,0.06)"
+    border = "#F59E0B" if has_issue else "#10B981"
+
+    items = "".join(f'<div style="padding:2px 0;font-size:12px;">{l}</div>' for l in lines)
+    return (f'<div class="g4-alert" style="background:{bg};border-left:4px solid {border};'
+            f'border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:16px;">'
+            f'<div style="font-size:11px;font-weight:700;color:#1E293B;margin-bottom:4px;'
+            f'text-transform:uppercase;letter-spacing:0.5px;">'
+            f'주간 판단</div>'
+            f'{items}</div>')
+
+
+def build_risk_weekly(data, wret, weekly_dd):
+    """주간 리스크 분석 (MDD, avg DD, intraday DD 평균 포함)."""
+    # Overall MDD
+    eq_all = data["equity_all"]
+    mdd = 0.0
+    if not eq_all.empty and "equity" in eq_all.columns:
+        eqs = pd.to_numeric(eq_all["equity"], errors="coerce").dropna()
+        if len(eqs) > 0:
+            peak = eqs.cummax()
+            mdd = float(((eqs - peak) / peak).min())
+
+    # Average daily DD during the week
+    eq = data["equity_week"]
+    avg_dd = 0.0
+    if not eq.empty and "daily_pnl_pct" in eq.columns:
+        pnls = pd.to_numeric(eq["daily_pnl_pct"], errors="coerce").dropna()
+        neg = pnls[pnls < 0]
+        avg_dd = float(neg.mean()) if len(neg) > 0 else 0.0
+
+    # Recovery check
+    _, end_eq, start_eq = compute_weekly_return(data)
+    recovered = "회복" if end_eq >= start_eq else "미회복"
+    rec_color = "#10B981" if end_eq >= start_eq else "#EF4444"
+
+    cards = (
+        _card("주간 MDD", _fp(weekly_dd), _color(weekly_dd), "peak→trough") +
+        _card("전체 MDD", _fp(mdd), _color(mdd)) +
+        _card("평균 하락일 DD", _fp(avg_dd) if avg_dd != 0 else "N/A",
+              _color(avg_dd) if avg_dd != 0 else "#94A3B8") +
+        _card("DD 회복", recovered, rec_color)
+    )
+    return _section("리스크 분석",
+        f'<div style="display:flex;gap:12px;flex-wrap:wrap;">{cards}</div>')
+
+
+def build_position_analysis(data, stats):
+    """포지션 분석: 평균 보유기간, 청산 사유 분포, 신규 vs 청산."""
+    start = data["pos_start_codes"]
+    end = data["pos_end_codes"]
+    added = len(end - start)
+    removed = len(start - end)
+
+    # Exit reason breakdown
+    closes = data["closes"]
+    reason_counts = {}
+    if not closes.empty and "exit_reason" in closes.columns:
+        for reason in closes["exit_reason"]:
+            reason_counts[str(reason)] = reason_counts.get(str(reason), 0) + 1
+
+    items = [
+        f'<div style="font-size:13px;padding:3px 0;">주초 {len(start)}종목 → '
+        f'주말 {len(end)}종목 (편입 +{added}, 제거 -{removed})</div>',
+    ]
+
+    if stats["n_trades"] > 0:
+        items.append(f'<div style="font-size:13px;padding:3px 0;">'
+                     f'평균 보유기간: <b>{stats["avg_hold"]:.0f}일</b></div>')
+
+    if reason_counts:
+        parts = [f'{k}: {v}건' for k, v in sorted(reason_counts.items(),
+                                                    key=lambda x: -x[1])]
+        items.append(f'<div style="font-size:13px;padding:3px 0;">'
+                     f'청산 사유: {", ".join(parts)}</div>')
+
+    return _section("포지션 분석", "\n".join(items))
+
+
+def build_anomaly_weekly(data, sys_stats):
+    """주간 이상 탐지."""
+    alerts = []
+    wret, _, _ = compute_weekly_return(data)
+    weekly_dd = compute_weekly_dd(data)
+
+    if weekly_dd <= -0.05:
+        alerts.append(("HIGH", f"주간 MDD {_fp(weekly_dd)} — 대폭 낙폭"))
+    elif weekly_dd <= -0.03:
+        alerts.append(("MED", f"주간 MDD {_fp(weekly_dd)} — 주의"))
+    if wret <= -0.05:
+        alerts.append(("HIGH", f"주간 수익률 {_fp(wret)} — 전략 점검 필요"))
+    if sys_stats["price_fail_total"] > 3:
+        alerts.append(("MED", f"가격 실패 누적 {sys_stats['price_fail_total']}건"))
+    if sys_stats["monitor_only_days"] > 0:
+        alerts.append(("MED", f"Monitor-only {sys_stats['monitor_only_days']}일"))
+    if sys_stats["reconcile_total"] > 3:
+        alerts.append(("MED", f"RECON 보정 {sys_stats['reconcile_total']}건"))
+
+    if not alerts:
+        return _section("이상 탐지",
+            '<div style="color:#10B981;padding:8px;font-size:13px;">이상 없음</div>')
+
+    items = ""
+    for severity, msg in alerts:
+        if severity == "HIGH":
+            bg, border, icon = "rgba(239,68,68,0.06)", "#EF4444", "!!"
+        else:
+            bg, border, icon = "rgba(245,158,11,0.06)", "#F59E0B", "!"
+        items += (f'<div class="g4-alert" style="background:{bg};border-left:4px solid {border};'
+                  f'padding:8px 12px;margin-bottom:6px;font-size:13px;'
+                  f'border-radius:0 8px 8px 0;">'
+                  f'<span style="font-weight:700;color:{border};margin-right:6px;">'
+                  f'{icon}</span>{msg}</div>')
+
+    return _section("이상 탐지", items)
+
+
+def build_strategy_eval(data, wret, stats, sys_stats):
+    """전략 평가 (자동 문장)."""
+    lines = []
+
+    # 시장 대응
+    if wret > 0.02:
+        lines.append("주간 수익률 양호 — 전략이 시장 환경에 적절히 대응")
+    elif wret > -0.02:
+        lines.append("주간 수익률 보합 — 전략 방어적 운용 상태")
+    else:
+        lines.append("주간 수익률 부진 — 시장 환경 또는 전략 적합성 점검 필요")
+
+    # 전략 일관성
+    if stats["n_trades"] > 0 and stats["win_rate"] >= 0.5:
+        lines.append(f"승률 {stats['win_rate']*100:.0f}% — 전략 일관성 유지")
+    elif stats["n_trades"] > 0 and stats["win_rate"] >= 0.3:
+        lines.append(f"승률 {stats['win_rate']*100:.0f}% — 전략 약세, 관찰 필요")
+    elif stats["n_trades"] > 0:
+        lines.append(f"승률 {stats['win_rate']*100:.0f}% — 전략 부진, 점검 필요")
+    else:
+        lines.append("청산 없음 — 보유 유지 상태")
+
+    # 운영 안정성
+    if sys_stats["total_errors"] == 0:
+        lines.append("운영 안정 — 시스템 오류 없음")
+    else:
+        lines.append(f"운영 주의 — 에러 {sys_stats['total_errors']}건 발생")
+
+    items = "".join(f'<div style="padding:3px 0;font-size:13px;">{l}</div>' for l in lines)
+    return _section("전략 평가", f"""
+        <div class="g4-alert" style="background:rgba(0,180,216,0.06);border-left:4px solid #00B4D8;
+            border-radius:0 8px 8px 0;padding:14px 18px;">
+            {items}
+        </div>""")
+
+
+def build_next_week_action(data, verdict, verdict_kr, wret, stats, sys_stats):
+    """다음 주 액션 섹션."""
+    actions = []
+
+    if verdict == "REVIEW":
+        actions.append("전략 파라미터 재검토 (모멘텀 윈도우, 변동성 필터)")
+        actions.append("리밸런싱 결과 면밀히 모니터링")
+    elif verdict == "WATCH":
+        actions.append("일별 DD 추이 집중 관찰")
+        if sys_stats["total_errors"] > 0:
+            actions.append("시스템 로그 점검 및 에러 원인 파악")
+    elif verdict == "MAINTAIN":
+        actions.append("현행 전략 유지")
+    else:  # STANDBY
+        actions.append("전략 활성화 조건 확인")
+
+    if stats["n_trades"] > 0 and stats["win_rate"] < 0.4:
+        actions.append("청산 종목 패턴 분석 (trail 비중 vs rebal 비중)")
+
+    trail = compute_trail_stats(data)
+    if trail["trail_count"] >= 3:
+        actions.append("Trail stop 빈도 확인 — 종목 수 감소 위험")
+
+    items = "".join(
+        f'<div style="padding:3px 0;font-size:13px;">'
+        f'<span style="color:#00B4D8;margin-right:6px;">→</span>{a}</div>'
+        for a in actions
+    )
+
+    color_map = {"MAINTAIN": "#10B981", "WATCH": "#F59E0B",
+                 "REVIEW": "#EF4444", "STANDBY": "#3B82F6"}
+    badge_bg = color_map.get(verdict, "#94A3B8")
+    badge = (f'<span style="display:inline-block;padding:6px 16px;border-radius:12px;'
+             f'font-size:14px;font-weight:700;color:#fff;'
+             f'background:{badge_bg};">'
+             f'{verdict_kr}</span>')
+
+    return _section("다음 주 액션",
+        f'<div style="text-align:center;margin-bottom:12px;">{badge}</div>'
+        + items)
+
 
 def build_summary(data, config, wret, verdict, verdict_kr, vcolor, stats):
     _, end_eq, start_eq = compute_weekly_return(data)
@@ -312,16 +577,17 @@ def build_summary(data, config, wret, verdict, verdict_kr, vcolor, stats):
         f"거래 {stats['n_trades']}건 (승률 {stats['win_rate']*100:.0f}%)",
     ]
 
-    bg_map = {"MAINTAIN": "#c8e6c9", "WATCH": "#fff9c4", "REVIEW": "#ffcdd2",
-              "STANDBY": "#e3f2fd"}
+    bg_map = {"MAINTAIN": "rgba(16,185,129,0.1)", "WATCH": "rgba(245,158,11,0.1)",
+              "REVIEW": "rgba(239,68,68,0.1)", "STANDBY": "rgba(59,130,246,0.1)"}
     badge = (f'<span style="display:inline-block;padding:4px 14px;border-radius:12px;'
              f'font-size:14px;font-weight:700;color:{vcolor};'
-             f'background:{bg_map.get(verdict, "#f5f5f5")};">'
+             f'background:{bg_map.get(verdict, "#F8FAFC")};">'
              f'{verdict_kr}</span>')
 
     return f"""<div style="display:flex;justify-content:space-between;align-items:flex-start;
-        background:#f5f5f5;border-radius:8px;padding:16px;margin-bottom:20px;">
-        <div style="font-size:14px;line-height:1.7;">{"<br>".join(lines)}</div>
+        background:#F8FAFC;border-radius:12px;padding:20px;margin-bottom:20px;
+        box-shadow:0 1px 4px rgba(0,0,0,0.04);">
+        <div style="font-size:14px;line-height:1.7;color:#1E293B;">{"<br>".join(lines)}</div>
         <div>{badge}</div>
     </div>"""
 
@@ -332,10 +598,10 @@ def build_performance(data, config, wret, vol):
 
     cards = (
         _card("주간 수익률", _fp(wret), _color(wret)) +
-        _card("주간 변동성", f"{vol*100:.2f}%", "#333", "일별 수익률 std") +
+        _card("주간 변동성", f"{vol*100:.2f}%", "#1E293B", "일별 수익률 std") +
         _card("누적 수익률", _fp(cum), _color(cum),
               f"기준 {_fk(data['initial_cash'])}") +
-        _card("총 자산", _fk(end_eq), "#333")
+        _card("총 자산", _fk(end_eq), "#1E293B")
     )
 
     # Daily returns list
@@ -345,9 +611,10 @@ def build_performance(data, config, wret, vol):
         rows = ""
         for _, r in eq.iterrows():
             p = float(r.get("daily_pnl_pct", 0))
-            rows += (f'<span style="display:inline-block;margin:2px 4px;padding:2px 8px;'
-                     f'border-radius:4px;font-size:12px;'
-                     f'background:{"#e8f5e9" if p>=0 else "#ffebee"};'
+            chip_bg = "rgba(255,71,87,0.08)" if p >= 0 else "rgba(59,130,246,0.08)"
+            rows += (f'<span style="display:inline-block;margin:2px 4px;padding:3px 10px;'
+                     f'border-radius:6px;font-size:12px;font-weight:500;'
+                     f'background:{chip_bg};'
                      f'color:{_color(p)};">'
                      f'{r["date"][-5:]} {_fp(p)}</span>')
         daily_list = f'<div style="margin-top:8px;">{rows}</div>'
@@ -359,10 +626,10 @@ def build_performance(data, config, wret, vol):
 def build_trade_stats(stats):
     if stats["n_trades"] == 0 and stats["n_buys"] == 0:
         return _section("거래 통계",
-            '<div style="color:#aaa;padding:12px;">주간 거래 없음</div>')
+            '<div style="color:#94A3B8;padding:12px;">주간 거래 없음</div>')
 
-    th = 'style="text-align:left;padding:8px;border-bottom:1px solid #e0e0e0;font-size:12px;color:#78909c;"'
-    td = 'style="padding:8px;text-align:right;font-size:14px;font-weight:600;"'
+    th = 'style="text-align:left;padding:10px 12px;font-size:12px;color:#64748B;font-weight:500;"'
+    td = 'style="padding:10px 12px;text-align:right;font-size:14px;font-weight:600;"'
 
     nt = stats["n_trades"]
     wr_str = f'{stats["win_rate"]*100:.0f}%' if nt > 0 else "평가 불가"
@@ -385,7 +652,8 @@ def build_trade_stats(stats):
         trs += f'<tr><td {th}>{label}</td><td {td}>{val}</td></tr>'
 
     return _section("거래 통계",
-        f'<table style="width:100%;border-collapse:collapse;">{trs}</table>')
+        f'<div style="border-radius:8px;overflow:hidden;border:1px solid #E2E8F0;">'
+        f'<table style="width:100%;border-collapse:collapse;">{trs}</table></div>')
 
 
 def build_portfolio_changes(data):
@@ -402,11 +670,11 @@ def build_portfolio_changes(data):
 
     if kept:
         parts.append(f'<div style="margin-top:6px;font-size:13px;">'
-                     f'<span style="color:#78909c;">유지:</span> '
+                     f'<span style="color:#94A3B8;">유지:</span> '
                      f'{", ".join(kept)}</div>')
     if added:
         parts.append(f'<div style="margin-top:6px;font-size:13px;">'
-                     f'<span style="color:#1565c0;">신규 편입:</span> '
+                     f'<span style="color:#3B82F6;">신규 편입:</span> '
                      f'{", ".join(added)}</div>')
     if removed:
         reasons = {}
@@ -420,12 +688,12 @@ def build_portfolio_changes(data):
             r = reasons.get(c, "")
             reason_parts.append(f'{c}({r})' if r else c)
         parts.append(f'<div style="margin-top:4px;font-size:13px;">'
-                     f'<span style="color:#d32f2f;">제거:</span> '
+                     f'<span style="color:#EF4444;">제거:</span> '
                      f'{", ".join(reason_parts)}</div>')
 
     # Closed positions (from close_log, may include mid-week closes not in position diff)
     if not closes.empty and "code" in closes.columns:
-        th = 'style="text-align:left;padding:5px 8px;border-bottom:1px solid #e0e0e0;font-size:11px;color:#78909c;"'
+        th = 'style="text-align:left;padding:8px;font-size:11px;color:#64748B;font-weight:600;"'
         rows = ""
         for _, r in closes.iterrows():
             pnl = float(r.get("pnl_pct", 0))
@@ -434,15 +702,16 @@ def build_portfolio_changes(data):
                      f'<td style="padding:4px 8px;text-align:right;color:{_color(pnl)};">'
                      f'{_fp(pnl)}</td>'
                      f'<td style="padding:4px 8px;text-align:right;">{r.get("hold_days",0)}일</td></tr>')
-        parts.append(f'<div style="margin-top:10px;font-size:12px;color:#78909c;">주간 청산 종목</div>'
+        parts.append(f'<div style="margin-top:10px;font-size:12px;color:#64748B;">주간 청산 종목</div>'
+                     f'<div style="border-radius:8px;overflow:hidden;border:1px solid #E2E8F0;">'
                      f'<table style="width:100%;border-collapse:collapse;font-size:13px;">'
                      f'<tr><th {th}>종목</th><th {th}>사유</th>'
                      f'<th {th} style="text-align:right;">손익률</th>'
                      f'<th {th} style="text-align:right;">보유</th></tr>'
-                     f'{rows}</table>')
+                     f'{rows}</table></div>')
 
     if not start and not end and closes.empty:
-        parts = ['<div style="color:#aaa;padding:12px;">포지션 데이터 없음</div>']
+        parts = ['<div style="color:#94A3B8;padding:12px;">포지션 데이터 없음</div>']
 
     return _section("포트폴리오 변화", "\n".join(parts))
 
@@ -460,7 +729,7 @@ def build_risk(data, wret, weekly_dd):
     # Recovery check
     _, end_eq, start_eq = compute_weekly_return(data)
     recovered = "회복" if end_eq >= start_eq else "미회복"
-    rec_color = "#2e7d32" if end_eq >= start_eq else "#d32f2f"
+    rec_color = "#10B981" if end_eq >= start_eq else "#EF4444"
 
     cards = (
         _card("주간 최대 낙폭", _fp(weekly_dd), _color(weekly_dd), "주간 내 peak→trough") +
@@ -514,12 +783,12 @@ def build_system_section(data):
 
     cards = (
         _card("가격 실패", f'{sys["price_fail_total"]}건',
-              "#d32f2f" if sys["price_fail_total"] > 0 else "#2e7d32") +
+              "#EF4444" if sys["price_fail_total"] > 0 else "#10B981") +
         _card("Broker 보정", f'{sys["reconcile_total"]}건',
-              "#d32f2f" if sys["reconcile_total"] > 0 else "#2e7d32") +
+              "#EF4444" if sys["reconcile_total"] > 0 else "#10B981") +
         _card("Monitor Only", f'{sys["monitor_only_days"]}일',
-              "#d32f2f" if sys["monitor_only_days"] > 0 else "#2e7d32") +
-        _card("리밸런스", f'{sys["rebalance_count"]}회', "#333")
+              "#EF4444" if sys["monitor_only_days"] > 0 else "#10B981") +
+        _card("리밸런스", f'{sys["rebalance_count"]}회', "#1E293B")
     )
     return _section("시스템 분석",
         f'<div style="display:flex;gap:12px;flex-wrap:wrap;">{cards}</div>')
@@ -533,20 +802,24 @@ def build_market_comparison_weekly(data, config, wret) -> str:
     k_ret = get_kospi_period_return(kospi, ws, we)
     if k_ret is None:
         return _section("시장 대비 성과",
-            '<div style="color:#aaa;padding:12px;">KOSPI 데이터 없음</div>')
+            '<div style="padding:12px;">'
+            '<div style="color:#94A3B8;font-size:13px;">시장 비교 데이터 부재</div>'
+            '<div style="color:#64748B;font-size:12px;margin-top:4px;">'
+            '상대성과 평가 보류 — 절대수익/내부 리스크 기준으로만 해석 필요</div>'
+            '</div>')
 
     excess, label = compute_excess_return(wret, k_ret)
     out_days, total_days = count_outperform_days(data["equity_week"], kospi)
     hit = f"{out_days}/{total_days}" if total_days > 0 else "N/A"
 
-    lc = {"Outperform": "#2e7d32", "Underperform": "#d32f2f"}.get(label, "#78909c")
+    lc = {"Outperform": "#10B981", "Underperform": "#EF4444"}.get(label, "#94A3B8")
 
     cards = (
         _card("포트폴리오", _fp(wret), _color(wret)) +
         _card("KOSPI", _fp(k_ret), _color(k_ret)) +
         _card("초과 수익", _fp(excess), _color(excess),
               f'<span style="color:{lc};font-weight:600;">{label}</span>') +
-        _card("Outperform 일수", hit, "#333", "일별 KOSPI 대비")
+        _card("Outperform 일수", hit, "#1E293B", "일별 KOSPI 대비")
     )
     return _section("시장 대비 성과",
         f'<div style="display:flex;gap:12px;flex-wrap:wrap;">{cards}</div>')
@@ -557,7 +830,7 @@ def build_cost_weekly(data, config) -> str:
     trades = data["trades"]
     if trades.empty or "cost" not in trades.columns:
         return _section("비용 분석",
-            '<div style="color:#aaa;padding:12px;">주간 거래 비용 없음</div>')
+            '<div style="color:#94A3B8;padding:12px;">주간 거래 비용 없음</div>')
 
     week_cost = float(pd.to_numeric(trades["cost"], errors="coerce").fillna(0).sum())
 
@@ -575,10 +848,10 @@ def build_cost_weekly(data, config) -> str:
     ratio = (week_cost / abs(week_pnl) * 100) if week_pnl != 0 else 0
 
     cards = (
-        _card("주간 비용", _fk(week_cost) + "원", "#333") +
-        _card("누적 비용", _fk(cum_cost) + "원", "#333") +
+        _card("주간 비용", _fk(week_cost) + "원", "#1E293B") +
+        _card("누적 비용", _fk(cum_cost) + "원", "#1E293B") +
         _card("비용/손익", f"{ratio:.1f}%",
-              "#d32f2f" if ratio > 50 else "#333", "주간 비용 잠식률")
+              "#EF4444" if ratio > 50 else "#1E293B", "주간 비용 잠식률")
     )
     return _section("비용 분석",
         f'<div style="display:flex;gap:12px;flex-wrap:wrap;">{cards}</div>')
@@ -608,11 +881,11 @@ def build_conclusion(verdict, verdict_kr, vcolor, wret, stats, sys_stats):
         if stats["n_trades"] > 0 and stats["win_rate"] < 0.30:
             reasons.append(f"승률 부진 ({stats['win_rate']*100:.0f}%)")
 
-    bg_map = {"MAINTAIN": "#c8e6c9", "WATCH": "#fff9c4", "REVIEW": "#ffcdd2",
-              "STANDBY": "#e3f2fd"}
+    bg_map = {"MAINTAIN": "rgba(16,185,129,0.1)", "WATCH": "rgba(245,158,11,0.1)",
+              "REVIEW": "rgba(239,68,68,0.1)", "STANDBY": "rgba(59,130,246,0.1)"}
     badge = (f'<span style="display:inline-block;padding:6px 20px;border-radius:12px;'
              f'font-size:16px;font-weight:700;color:{vcolor};'
-             f'background:{bg_map.get(verdict, "#f5f5f5")};">'
+             f'background:{bg_map.get(verdict, "#F8FAFC")};">'
              f'{verdict_kr}</span>')
 
     reason_html = "<br>".join(f"- {r}" for r in reasons) if reasons else "특이사항 없음"
@@ -644,14 +917,20 @@ def generate_weekly_html(data, config) -> str:
 
     sections = [
         build_summary(data, config, wret, verdict, verdict_kr, vcolor, stats),
+        build_basis_line_weekly(data),                   # 기준 시각/계산 기준
+        build_weekly_verdict_summary(data, config, wret, verdict_kr, stats, sys_stats, weekly_dd),  # 주간 판단 5줄
         build_performance(data, config, wret, vol),
+        build_risk_weekly(data, wret, weekly_dd),        # 리스크 분석 (보강)
         build_market_comparison_weekly(data, config, wret),
         build_cost_weekly(data, config),
         build_trade_stats(stats),
+        build_position_analysis(data, stats),            # 포지션 분석 (신규)
         build_portfolio_changes(data),
-        build_risk(data, wret, weekly_dd),
-        build_strategy(data, trail, sys_stats),
         build_system_section(data),
+        build_anomaly_weekly(data, sys_stats),            # 이상 탐지 (신규)
+        build_strategy(data, trail, sys_stats),
+        build_strategy_eval(data, wret, stats, sys_stats),  # 전략 평가 (신규)
+        build_next_week_action(data, verdict, verdict_kr, wret, stats, sys_stats),  # 다음 주 액션 (신규)
         build_conclusion(verdict, verdict_kr, vcolor, wret, stats, sys_stats),
     ]
 
@@ -660,26 +939,49 @@ def generate_weekly_html(data, config) -> str:
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     body = "\n".join(s for s in sections if s)
 
+    # ── Premium Design System (v2 — Design Studio A) ──
+    try:
+        from report.premium_style import get_premium_css, get_premium_js
+        _css = get_premium_css()
+        _js = get_premium_js()
+    except ImportError:
+        try:
+            from premium_style import get_premium_css, get_premium_js
+            _css = get_premium_css()
+            _js = get_premium_js()
+        except ImportError:
+            _css = ":root {{ --text: #1E293B; }}"
+            _js = ""
+
     return f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Gen4 Weekly Report — {ws} ~ {we}</title>
+<title>Q-TRON Gen4 Weekly Report — {ws} ~ {we}</title>
 <style>
-body {{ font-family: 'Malgun Gothic','Segoe UI',sans-serif; background:#f0f2f5;
-       margin:0; padding:20px; color:#333; }}
-.container {{ max-width:800px; margin:0 auto; }}
-h1 {{ font-size:20px; color:#1a237e; margin-bottom:16px; }}
+{_css}
+/* Weekly-specific overrides */
+.g4-card div:nth-child(2) {{ font-size: 28px; }}
+td.g4-profit-cell {{ background: rgba(220,38,38,0.06); }}
+td.g4-loss-cell {{ background: rgba(37,99,235,0.06); }}
 </style>
+<script>
+{_js}
+</script>
 </head>
 <body>
+<div class="g4-header">
+    <div class="g4-brand">Q-TRON GEN4 WEEKLY REPORT</div>
+    <h1>Weekly Performance Report</h1>
+    <div class="g4-date">{ws} ~ {we}</div>
+    <div class="g4-subtitle">Initial Capital: {_fk(data['initial_cash'])}</div>
+</div>
 <div class="container">
-<h1>Gen4 주간 보고서 — {ws} ~ {we}</h1>
 {body}
-<div style="text-align:center;font-size:11px;color:#bbb;margin-top:24px;padding-top:12px;
-    border-top:1px solid #e0e0e0;">
-    Generated: {ts} | Q-TRON Gen4 v4.0 | Initial: {_fk(data['initial_cash'])}
+<div class="g4-footer">
+    <div>Generated: {ts} | Q-TRON Gen4 Automated Trading System</div>
+    <div class="g4-footer-brand">Confidential &mdash; Internal Use Only</div>
 </div>
 </div>
 </body>

@@ -1042,6 +1042,170 @@ if not saved:
 
 ---
 
+---
+
+## 2026-03-26 안정화 세션 — 리밸 사이클 검증 + Ghost Fill 수정
+
+### 개요
+- **목표**: 리밸런스 → 매도 → 매수 풀 사이클을 PAPER_TEST 환경에서 검증하고, ghost fill / partial timeout 상태기계 결함을 수정
+- **결과**: 풀 사이클 완주 성공 (리밸 → 매도 4건 → 5분 대기 → 매수 4건 → EOD 리포트)
+
+---
+
+### FIX-1: 거래일 카운팅 오류 (KOSPI.csv 의존)
+
+**근거**: 리밸 조건이 21거래일인데, `_count_trading_days()`가 KOSPI.csv를 캘린더로 사용. 이 파일이 EOD에서만 업데이트되어 장 시작 시점에 항상 1일 이상 부족. 실제 23거래일인데 19일로 오판 → 리밸 미트리거.
+
+**조치**: `_count_trading_days()`에 pykrx 캘린더 fallback 추가. KOSPI.csv 부족 시 `pykrx.stock.get_market_trading_days()` 호출.
+
+**결과**: `[TRADING_DAYS] pykrx: 23 days` 정상 인식 → 리밸 트리거 성공.
+
+---
+
+### FIX-2: collector NameError (리밸 경로에서만 크래시)
+
+**근거**: `IntradayCollector`가 리밸 이후(line 632)에 초기화되는데, trail pre-check 코드(line 543)가 리밸 내부에서 `collector.get_last_prices()` 호출. 비리밸 날에는 이 경로를 안 타서 미발견 → 리밸 날에만 `UnboundLocalError`.
+
+**조치**: `try/except NameError`로 collector 미초기화 시 빈 dict 반환.
+
+**결과**: 리밸 경로에서 크래시 없이 정상 진행.
+
+---
+
+### FIX-3: PARTIAL_TIMEOUT 후 ghost fill 미반영 (핵심 버그)
+
+**근거**: PARTIAL_TIMEOUT 발생 시 `_order_state["status"]`가 `"PARTIAL"`로 남아있어, 이후 chejan 이벤트가 active path에서 처리됨. ghost path를 우회하여 portfolio에 반영 안 됨. 결과: engine holdings ≠ broker holdings.
+
+로그 증거 (069960):
+```
+timeout: applied=17/271
+이후 chejan: cum_filled=271 remain=0 → 하지만 [GHOST_FILL] 로그 없음
+재시작 시: [RECON] ENGINE_ONLY 069960: 201 → 0
+```
+
+**조치**:
+1. `kiwoom_provider.py`: PARTIAL_TIMEOUT 시 `_order_state["status"] = "PARTIAL_TIMEOUT"` 설정 → active matching 조건(`"REQUESTED", "ACCEPTED", "PARTIAL"`) 통과 불가 → 이후 chejan은 ghost path로만 라우팅
+2. Ghost path에 `GHOST_FILLING` → `GHOST_FILLED` 상태 추가, delta 기반 portfolio 반영
+3. `applied_qty` 추적으로 중복 반영 방지
+4. Terminal 시 `[GHOST_FILL_FINALIZED]` 로그 + `is_terminal` 플래그 callback 전달
+
+**결과**:
+```
+[GHOST_FILL] SELL 003690 delta=140 applied=157 status=GHOST_FILLING
+[GHOST_FILL] SELL 003690 delta=267 applied=424 status=GHOST_FILLING
+...
+[GHOST_FILL_FINALIZED] SELL 003690 filled=1893/1893
+```
+
+---
+
+### FIX-4: sell_status PARTIAL → COMPLETE 자동 승격
+
+**근거**: ghost fill이 전량 완료되어도 `rebal_sell_status`가 `PARTIAL`로 저장됨 → 다음 세션에서 pending buy가 영구 블로킹.
+
+로그 증거:
+```
+[PENDING_BUY_BLOCKED_UNSETTLED_REBAL] sell_status=PARTIAL, 7 buys blocked
+```
+
+**조치**:
+1. `order_executor.py`: ghost terminal 시 `_try_upgrade_sell_status()` 호출
+2. 모든 ghost가 `GHOST_FILLED` → runtime state에 `rebal_sell_status = COMPLETE` 저장
+3. pending_buys 파일의 sell_status도 동기화 (`_reconcile_sell_status_on_load`)
+
+**결과**: `[PENDING_BUY_LOAD] 7 buys, sell_status=COMPLETE` → 매수 정상 실행.
+
+---
+
+### FIX-5: logging 포맷 에러
+
+**근거**: `logger.critical('[RECON_CASH_SPIKE] %,.0f -> %,.0f')` — Python logging의 `%` 포매팅은 콤마 구분자 미지원 → `ValueError: unsupported format character ','`.
+
+**조치**: f-string으로 변경.
+
+**결과**: 로그 에러 제거.
+
+---
+
+### ADD-1: PAPER_TEST 모드 + Fast Reentry (테스트 인프라)
+
+**근거**: 리밸 → 매도 → T+1 매수 사이클을 테스트하려면 최소 2일 필요. 개발 속도를 위해 동일 세션 내 5분 후 매수 실행 필요.
+
+**조치**:
+1. `--paper-test` 모드: test CSV + test state 파일 사용
+2. `--cycle full/sell_only/buy_only`: 매도/매수 레이어 분리
+3. `--fresh`: state 파일 자동 삭제 → broker sync clean start
+4. `PAPER_TEST_FAST_REENTRY`: 매도 완료 후 300초 대기 → 모니터 루프에서 매수 실행
+5. `force_rebalance`: 같은 날 리밸 dedup 스킵 (paper_test 전용)
+6. LIVE 보호 가드: test 잔재 감지 시 `[LIVE_BLOCKED_TEST_RESIDUE]` → 즉시 종료
+
+**결과**: 풀 사이클 10분 내 완주.
+```
+13:11:02 매도 시작 → 13:11:57 매도 완료 (COMPLETE)
+13:16:59 5분 후 매수 시작 → 13:17:41 매수 완료
+13:17:41 [PENDING_BUY_COMPLETE] cash_remaining=490,511
+15:30:10 EOD complete. Daily report generated.
+```
+
+---
+
+### ADD-2: EOD 가격 Prefetch (fb 종목 trail skip 방지)
+
+**근거**: fast reentry로 추가된 종목은 실시간 tick 미등록 → fb(fallback) → `TRAIL_SKIP_1D`. 오늘 로그에서 4종목 trail 평가 스킵됨.
+
+**조치**:
+1. EOD 직전 fb 종목을 `GetMasterLastPrice`로 재조회
+2. 장 마감 후 조회 = 당일 종가 → `eod_master_close` source로 승격
+3. trail 평가에서 verified source로 인정 (skip 리스트에 미포함)
+
+**결과**: `TRAIL_SKIP_1D` → 0건 예상 (다음 실행에서 검증).
+
+---
+
+### ADD-3: 로그 품질 개선
+
+**근거**: ghost fill 로그가 `CRITICAL` → 정상 동작이므로 과도. Chejan fallthrough 로그가 매 이벤트마다 출력 → spam.
+
+**조치**:
+1. Ghost fill 로그: `CRITICAL → WARNING`
+2. RECON BROKER_ONLY 로그: `CRITICAL → WARNING`
+3. Chejan fallthrough 카운터: 첫 5회 + 이후 20회마다만 출력, 50회 도달 시 `[CHEJAN_FALLTHROUGH_ALERT]`
+
+**결과**: 로그 가독성 향상, 핵심 이벤트 식별 용이.
+
+---
+
+### ADD-4: 리포트 EOD 가격 소스 품질 섹션
+
+**근거**: EOD 가격이 어느 source에서 왔는지 리포트에서 확인 불가.
+
+**조치**: daily report에 `EOD 가격 소스 품질` 카드 추가 — verified %, 소스별 종목 수 테이블.
+
+**결과**: 리포트에서 데이터 품질 즉시 확인 가능.
+
+---
+
+### 운영 영향 평가
+
+| 구분 | 변경 | live/paper 영향 |
+|------|------|-----------------|
+| FIX-1 | pykrx 캘린더 fallback | 개선 (거래일 정확도 향상) |
+| FIX-2 | collector NameError 방어 | 개선 (리밸 날 크래시 방지) |
+| FIX-3 | ghost fill 상태기계 | 개선 (holdings 정합성 보장) |
+| FIX-4 | sell_status 자동 승격 | 개선 (pending buy 영구 블로킹 방지) |
+| FIX-5 | logging 포맷 | 버그픽스 |
+| ADD-1 | PAPER_TEST 모드 | 격리됨 (paper_test 가드) |
+| ADD-2 | EOD prefetch | 개선 (trail skip 감소) |
+| ADD-3 | 로그 레벨 조정 | 개선 (가독성) |
+| ADD-4 | 리포트 source 품질 | 추가 기능 |
+
+### 남은 리스크
+
+1. **PARTIAL_TIMEOUT → ghost → FINALIZED 전체 경로**: 오늘 풀 사이클에서는 전량 체결되어 ghost 미발생. 저유동성 종목에서의 실전 검증 필요.
+2. **RECON 정합성**: fresh start 시 21 corrections는 정상이지만, 일반 재시작 시 correction 2건 이하 유지 확인 필요.
+
+---
+
 > **이 문서는 Q-TRON Gen4의 실전 운영 과정에서 발견된 문제들의 원인, 수정, 교훈을 기록한 것입니다.
 > 미국주식/코인 시장 확장 시 섹션 14의 범시장 적용 가이드와 부록 B의 코드 관례를 기반으로
 > 시장별 Provider만 교체하고, 동일한 안전장치 패턴을 적용하면 됩니다.**

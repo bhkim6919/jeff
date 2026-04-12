@@ -31,6 +31,10 @@ class StateManager:
       portfolio_state_mock.json   — mock mode only
       portfolio_state_paper.json  — paper mode only
       portfolio_state_live.json   — live mode only (no suffix = legacy live)
+
+    Every write includes:
+      write_origin: "engine" — identifies writer (REST write attempt → reject)
+      version_seq: monotonic counter — detects out-of-order writes
     """
 
     # Valid trading modes
@@ -62,6 +66,7 @@ class StateManager:
         self.trading_mode = trading_mode
         self._lock = threading.RLock()  # Phase 1-A: reentrant lock (JUG 권고)
         self._lock_contention_threshold = 0.1  # 100ms
+        self._version_seq = 0  # monotonic write counter (세션 내)
         suffix = f"_{trading_mode}"
         self._portfolio_file = self.state_dir / f"portfolio_state{suffix}.json"
         self._runtime_file = self.state_dir / f"runtime_state{suffix}.json"
@@ -71,6 +76,23 @@ class StateManager:
 
         logger.info(f"StateManager: mode={trading_mode.upper()}, "
                      f"file={self._portfolio_file.name}")
+
+        # Restore version_seq from last saved state (세션 간 연속성)
+        self._restore_version_seq()
+
+    def _restore_version_seq(self) -> None:
+        """기존 state 파일에서 version_seq 복원."""
+        try:
+            for path in (self._portfolio_file, self._runtime_file):
+                if path.exists():
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                    seq = raw.get("_version_seq", 0)
+                    if seq > self._version_seq:
+                        self._version_seq = seq
+            if self._version_seq > 0:
+                logger.info(f"[VERSION_SEQ] Restored: {self._version_seq}")
+        except Exception as e:
+            logger.warning(f"[VERSION_SEQ] Restore failed: {e}")
 
     def _migrate_legacy_state(self) -> None:
         """Migrate from legacy file naming if new mode-specific file doesn't exist."""
@@ -236,6 +258,24 @@ class StateManager:
             return self._atomic_write(self._runtime_file,
                                       {"timestamp": datetime.now().isoformat(), **rt})
 
+    # ── Recovery State (exposure_guard 영속화) ──────────────────
+
+    def save_guard_state(self, guard_state: dict) -> bool:
+        """ExposureGuard recovery state를 runtime에 영속화."""
+        with self._timed_lock():
+            rt = self._atomic_read(self._runtime_file) or {}
+            rt["guard_state"] = {
+                "timestamp": datetime.now().isoformat(),
+                **guard_state,
+            }
+            return self._atomic_write(self._runtime_file,
+                                      {"timestamp": datetime.now().isoformat(), **rt})
+
+    def load_guard_state(self) -> dict:
+        """ExposureGuard recovery state 복원. 없으면 빈 dict."""
+        rt = self.load_runtime()
+        return rt.get("guard_state", {})
+
     # ── Shutdown Reason (dirty exit detection) ──────────────────
 
     def mark_startup(self) -> bool:
@@ -272,11 +312,19 @@ class StateManager:
         """
         Atomic write: tmp -> verify -> backup -> rename.
         Prevents corruption on crash/power loss.
+
+        Automatically injects write_origin="engine" and version_seq.
         """
         tmp = path.with_suffix(".tmp")
         bak = path.with_suffix(".bak")
 
         try:
+            # Provenance: every write is stamped
+            self._version_seq += 1
+            data["_write_origin"] = "engine"
+            data["_version_seq"] = self._version_seq
+            data["_write_ts"] = datetime.now().isoformat()
+
             # 1. Write to temp
             content = json.dumps(data, indent=2, ensure_ascii=False, default=str)
             tmp.write_text(content, encoding="utf-8")

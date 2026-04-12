@@ -1124,8 +1124,21 @@ class HeroChartWidget(QWidget):
 
         # Convert to % change
         first_eq = eq_series[0] if eq_series else (prev_close or 1)
-        # Use first nonzero KOSPI value as base (pre-market bars have 0)
-        first_kospi = next((k for k in kospi_series if k > 0), 1)
+        # KOSPI 전일 종가 기준 (포트폴리오와 동일 기준)
+        # 분봉 CSV에서 오늘 이전 마지막 close를 전일 종가로 사용
+        prev_kospi_close = 0
+        if kospi_path.exists():
+            try:
+                with open(kospi_path, "r", encoding="utf-8-sig") as f:
+                    for row in csv.DictReader(f):
+                        dt = row.get("datetime", "")
+                        if not dt.startswith(today_str):
+                            val = float(row.get("close", 0))
+                            if val > 0:
+                                prev_kospi_close = val
+            except Exception:
+                pass
+        first_kospi = prev_kospi_close if prev_kospi_close > 0 else next((k for k in kospi_series if k > 0), 1)
 
         sell_cost = sum(
             pos.get("quantity", 0) * pos.get("avg_price", 0)
@@ -1387,19 +1400,23 @@ class PositionTile(QFrame):
         self.setStyleSheet(
             f"background-color: {bg}; border: {border_w} solid {border_clr}; border-radius: 8px;")
 
-        # Tooltip
+        # Tooltip — rich HTML so Qt keeps it visible while hovered
         sector = data.get("sector", "")
         entry = data.get("entry_price", "")
         current = data.get("current_price", "")
         hwm = data.get("hwm", "")
         trail = data.get("trail_stop", "")
         code = data.get("code", "")
-        tip = f"{data.get('name', code)} ({code})\n"
-        tip += f"Sector: {sector}\n" if sector else ""
-        tip += f"Entry: {fmt_krw(entry)}  Current: {fmt_krw(current)}\n" if entry else ""
-        tip += f"HWM: {fmt_krw(hwm)}  Trail: {fmt_krw(trail)}\n" if hwm else ""
-        tip += f"PnL: {pnl:+.2f}%  Hold: {hold}d  Gap: {gap:.1f}%"
-        self.setToolTip(tip)
+        tip_lines = [f"<b>{data.get('name', code)} ({code})</b>"]
+        if sector:
+            tip_lines.append(f"Sector: {sector}")
+        if entry:
+            tip_lines.append(f"Entry: {fmt_krw(entry)}&nbsp;&nbsp;Current: {fmt_krw(current)}")
+        if hwm:
+            tip_lines.append(f"HWM: {fmt_krw(hwm)}&nbsp;&nbsp;Trail: {fmt_krw(trail)}")
+        tip_lines.append(f"PnL: {pnl:+.2f}%&nbsp;&nbsp;Hold: {hold}d&nbsp;&nbsp;Gap: {gap:.1f}%")
+        self.setToolTip("<br>".join(tip_lines))
+        self.setToolTipDuration(0)  # 0 = stay until mouse leaves
 
 
 # =========================================================================

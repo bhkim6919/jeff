@@ -33,9 +33,11 @@ from notify.helpers import (
 
 logger = logging.getLogger("gen4.live")
 
-# Kakao notifier (optional — failure never blocks trading)
+# Telegram notifier (failure never blocks trading)
 try:
-    from notify.kakao_notify import notify_safe_mode as _kakao_safe_mode
+    from notify.telegram_bot import send as _tg_send
+    def _kakao_safe_mode(level, reason=""):
+        _tg_send(f"<b>SAFE MODE L{level}</b>\n{reason}", "CRITICAL")
     _KAKAO_OK = True
 except Exception:
     _KAKAO_OK = False
@@ -140,8 +142,20 @@ def run_startup(config) -> LiveContext:
         config.INITIAL_CASH, config.DAILY_DD_LIMIT,
         config.MONTHLY_DD_LIMIT, config.N_STOCKS)
     guard = ExposureGuard(config.DAILY_DD_LIMIT, config.MONTHLY_DD_LIMIT)
-    logger.info("[RECOVERY_STATE_INIT] session-local, starts at NORMAL "
-                "(stateless — re-evaluated each session from live signals)")
+
+    # Recovery state 복원 (이전 세션에서 BLOCKED → 재시작 시 유지)
+    _saved_guard = state_mgr.load_guard_state()
+    if _saved_guard and _saved_guard.get("recovery_state", "NORMAL") != "NORMAL":
+        guard.restore_guard_state(_saved_guard)
+        logger.warning(
+            f"[GUARD_RESTORED] Loaded persisted state: "
+            f"recovery={_saved_guard.get('recovery_state')} "
+            f"safe_mode_level={_saved_guard.get('safe_mode_level', 0)}")
+    else:
+        logger.info("[RECOVERY_STATE_INIT] starts at NORMAL (no persisted state)")
+
+    # Guard 상태 변경 시 자동 영속화 콜백 등록
+    guard.set_state_change_callback(state_mgr.save_guard_state)
 
     saved = state_mgr.load_portfolio()
     if saved:
@@ -309,7 +323,7 @@ def run_startup(config) -> LiveContext:
 
     # Broker reconciliation
     recon = _reconcile_with_broker(portfolio, provider, logger, trade_logger,
-                                    buy_cost=config.BUY_COST)
+                                    buy_cost=config.BUY_COST, guard=guard)
     reconcile_corrections = recon.get("corrections", 0) if recon else 0
     if recon and reconcile_corrections > 0:
         if trading_mode != "shadow_test":
@@ -434,6 +448,12 @@ def run_startup(config) -> LiveContext:
             rt["recon_unreliable"] = False
             state_mgr.save_runtime(rt)
 
+    # ── XVAL Observer (P2: observer-only, no state writes) ──────
+    from web.cross_validator import CrossValidationObserver
+    xval_log_dir = config.BASE_DIR / "data" / "xval"
+    xval_observer = CrossValidationObserver(log_dir=xval_log_dir)
+    logger.info(f"[XVAL_INIT] CrossValidationObserver created, log_dir={xval_log_dir}")
+
     # ── Build LiveContext ─────────────────────────────────────────
     ctx = LiveContext(
         config=config,
@@ -455,6 +475,7 @@ def run_startup(config) -> LiveContext:
         monitor_only=session_monitor_only,
         reconcile_corrections=reconcile_corrections,
         dirty_exit=_dirty,
+        xval_observer=xval_observer,
         current_phase=Phase.RECON.value,
         recon_complete=True,
     )

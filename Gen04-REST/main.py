@@ -21,14 +21,18 @@ import time
 from datetime import date, datetime
 from pathlib import Path
 
-# ── Kakao notifier (optional — failure never blocks trading) ─────────────────
+# ── Telegram notifier (failure never blocks trading) ─────────────────────────
 try:
-    from notify.kakao_notify import notify_buy as _kakao_buy
-    from notify.kakao_notify import notify_sell as _kakao_sell
-    from notify.kakao_notify import notify_trail_stop as _kakao_trail
-    from notify.kakao_notify import notify as _kakao_notify
-    from notify.kakao_notify import notify_safe_mode as _kakao_safe_mode
-    from notify.kakao_notify import notify_buy_blocked as _kakao_buy_blocked
+    from notify.telegram_bot import send as _tg_send
+    from notify.telegram_bot import notify_buy as _kakao_buy
+    from notify.telegram_bot import notify_sell as _kakao_sell
+    from notify.telegram_bot import notify_trail_triggered as _kakao_trail
+    from notify.telegram_bot import notify_dd_warning as _kakao_safe_mode_raw
+    from notify.telegram_bot import send as _kakao_notify
+    def _kakao_safe_mode(level, reason=""):
+        _tg_send(f"<b>SAFE MODE L{level}</b>\n{reason}", "CRITICAL")
+    def _kakao_buy_blocked(reason):
+        _tg_send(f"<b>BUY BLOCKED</b>\n{reason}", "WARN")
     _KAKAO_OK = True
 except Exception:
     _KAKAO_OK = False
@@ -629,6 +633,8 @@ def main():
                        help="Paper test: separate state + test signals")
     group.add_argument("--shadow-test", action="store_true",
                        help="Shadow test: compute only, no orders (dry run)")
+    group.add_argument("--server", action="store_true",
+                       help="Start REST dashboard server (background-friendly)")
     parser.add_argument("--start", default="2019-01-02")
     parser.add_argument("--end", default=str(date.today()))
     parser.add_argument("--cycle", choices=["full", "sell_only", "buy_only"],
@@ -726,11 +732,38 @@ def main():
     elif args.mock:
         setup_logging(config.LOG_DIR, "mock")
         run_mock(config)
+    elif args.server:
+        setup_logging(config.LOG_DIR, "server")
+        _run_server(config)
     elif args.rebalance:
         print("[DEPRECATED] --rebalance is deprecated and unsafe.")
         print("  Use: --paper-test --force-rebalance --confirm-force-rebalance --fresh")
         print("   Or: --shadow-test --force-rebalance --confirm-force-rebalance --fresh")
         sys.exit(1)
+
+
+def _run_server(config):
+    """Start REST dashboard server (uvicorn).
+
+    Background-friendly: can be launched via bat, nssm, or pythonw.
+    Logs go to gen4_server_YYYYMMDD.log (daily rotation, 30-day retention).
+    """
+    import uvicorn
+
+    logger = logging.getLogger("gen4.live")
+    port = getattr(config, "DASHBOARD_PORT", 8080)
+
+    logger.info("=" * 50)
+    logger.info(f"  REST Dashboard Server starting on :{port}")
+    logger.info("=" * 50)
+
+    uvicorn.run(
+        "web.app:app",
+        host="0.0.0.0",
+        port=port,
+        log_level="info",
+        access_log=False,  # uvicorn access log off (gen4 logger handles it)
+    )
 
 
 if __name__ == "__main__":

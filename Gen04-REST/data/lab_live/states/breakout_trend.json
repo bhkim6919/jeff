@@ -1,0 +1,196 @@
+{
+  "version_seq": 1,
+  "strategy": "breakout_trend",
+  "cash": 360656.3765000077,
+  "positions": {
+    "035460": {
+      "code": "035460",
+      "name": "기산텔레콤",
+      "qty": 1743,
+      "entry_price": 3820.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 4645.0,
+      "buy_cost_total": 7656.999,
+      "current_price": 4645.0,
+      "entry_day_idx": 1783
+    },
+    "088800": {
+      "code": "088800",
+      "name": "에이스테크",
+      "qty": 1503,
+      "entry_price": 4430.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 5590.0,
+      "buy_cost_total": 7657.0335,
+      "current_price": 5590.0,
+      "entry_day_idx": 1783
+    },
+    "095270": {
+      "code": "095270",
+      "name": "웨이브일렉트로",
+      "qty": 1056,
+      "entry_price": 6300.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 7810.0,
+      "buy_cost_total": 7650.72,
+      "current_price": 7810.0,
+      "entry_day_idx": 1783
+    },
+    "072950": {
+      "code": "072950",
+      "name": "빛샘전자",
+      "qty": 778,
+      "entry_price": 8550.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 10790.0,
+      "buy_cost_total": 7649.6849999999995,
+      "current_price": 10790.0,
+      "entry_day_idx": 1783
+    },
+    "052710": {
+      "code": "052710",
+      "name": "아모텍",
+      "qty": 403,
+      "entry_price": 16490.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 19700.0,
+      "buy_cost_total": 7642.2905,
+      "current_price": 19700.0,
+      "entry_day_idx": 1783
+    },
+    "010170": {
+      "code": "010170",
+      "name": "대한광통신",
+      "qty": 459,
+      "entry_price": 14490.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 17770.0,
+      "buy_cost_total": 7648.5464999999995,
+      "current_price": 17770.0,
+      "entry_day_idx": 1783
+    },
+    "084850": {
+      "code": "084850",
+      "name": "아이티엠반도체",
+      "qty": 354,
+      "entry_price": 18770.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 18770.0,
+      "buy_cost_total": 7641.267,
+      "current_price": 18050.0,
+      "entry_day_idx": 1783
+    },
+    "327260": {
+      "code": "327260",
+      "name": "RF머트리얼즈",
+      "qty": 87,
+      "entry_price": 76300.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 92700.0,
+      "buy_cost_total": 7633.815,
+      "current_price": 92700.0,
+      "entry_day_idx": 1783
+    },
+    "010820": {
+      "code": "010820",
+      "name": "퍼스텍",
+      "qty": 629,
+      "entry_price": 10570.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 11390.0,
+      "buy_cost_total": 7645.8095,
+      "current_price": 11390.0,
+      "entry_day_idx": 1783
+    },
+    "069540": {
+      "code": "069540",
+      "name": "빛과전자",
+      "qty": 1473,
+      "entry_price": 4520.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 4920.0,
+      "buy_cost_total": 7656.6539999999995,
+      "current_price": 4920.0,
+      "entry_day_idx": 1783
+    },
+    "382800": {
+      "code": "382800",
+      "name": "지앤비에스 에코",
+      "qty": 1093,
+      "entry_price": 6090.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 7090.0,
+      "buy_cost_total": 7654.8255,
+      "current_price": 7090.0,
+      "entry_day_idx": 1783
+    },
+    "006110": {
+      "code": "006110",
+      "name": "삼아알미늄",
+      "qty": 135,
+      "entry_price": 49250.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 55200.0,
+      "buy_cost_total": 7646.0625,
+      "current_price": 55200.0,
+      "entry_day_idx": 1783
+    },
+    "064850": {
+      "code": "064850",
+      "name": "에프앤가이드",
+      "qty": 301,
+      "entry_price": 22100.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 25000.0,
+      "buy_cost_total": 7649.915,
+      "current_price": 25000.0,
+      "entry_day_idx": 1783
+    },
+    "228670": {
+      "code": "228670",
+      "name": "레이",
+      "qty": 941,
+      "entry_price": 7070.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 7250.0,
+      "buy_cost_total": 7650.8005,
+      "current_price": 7250.0,
+      "entry_day_idx": 1783
+    },
+    "033640": {
+      "code": "033640",
+      "name": "네패스",
+      "qty": 288,
+      "entry_price": 22250.0,
+      "entry_date": "2026-04-10",
+      "high_wm": 25150.0,
+      "buy_cost_total": 7369.2,
+      "current_price": 25150.0,
+      "entry_day_idx": 1783
+    }
+  },
+  "pending_buys": [],
+  "last_rebal_idx": -999,
+  "equity_history": [
+    {
+      "date": "2026-04-10",
+      "equity": 100000000.0,
+      "n_positions": 0
+    },
+    {
+      "date": "2026-04-10",
+      "equity": 115254061.37650001,
+      "n_positions": 15
+    },
+    {
+      "date": "2026-04-10",
+      "equity": 115254061.37650001,
+      "n_positions": 15
+    },
+    {
+      "date": "2026-04-10",
+      "equity": 115254061.37650001,
+      "n_positions": 15
+    }
+  ]
+}

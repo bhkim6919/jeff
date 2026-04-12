@@ -9,5 +9,9 @@ echo  %DATE% %TIME%
 echo ============================================================
 echo.
 
+:: Launch GUI monitor in separate window
+start "" /B "%PYTHON%" -u monitor_gui_v2.py --mode paper_test
+
+:: Start Mock engine (foreground)
 "%PYTHON%" -u main.py --mock
 pause

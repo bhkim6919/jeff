@@ -8,11 +8,14 @@ Phase 1: WebSocket 실시간 (0B 가격, 00 주문체결, 04 잔고).
 """
 from __future__ import annotations
 
+import enum
 import logging
 import threading
 import time
+import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import requests
 from dotenv import load_dotenv
@@ -40,6 +43,19 @@ def _decode_name(raw: str) -> str:
         except Exception:
             pass
     return raw
+
+
+@dataclass
+class _FillSlot:
+    """단일 주문의 WebSocket fill 매칭 슬롯."""
+    order_no: str
+    code: str
+    side: str
+    requested_qty: int
+    exec_price: int = 0
+    exec_qty: int = 0          # 누적 체결 수량
+    filled: threading.Event = field(default_factory=threading.Event)
+    created_at: float = field(default_factory=time.time)
 
 
 class KiwoomRestProvider(BrokerProvider):
@@ -87,12 +103,22 @@ class KiwoomRestProvider(BrokerProvider):
         self._ws: Optional[KiwoomWebSocket] = None
         self._ws_started = False
 
-        # Pending order tracking (for WebSocket fill matching)
-        self._pending_lock = threading.Lock()
-        self._pending_order_no: str = ""
-        self._pending_exec_price: int = 0
-        self._pending_exec_qty: int = 0
-        self._pending_filled = threading.Event()
+        # Fill queue: order_no → FillSlot (다중 주문 동시 매칭 지원)
+        self._fill_lock = threading.Lock()
+        self._fill_slots: Dict[str, "_FillSlot"] = {}  # order_no → slot
+        # Dedup: 동일 order_no + exec event 중복 방지
+        self._fill_dedup: set = set()  # (order_no, cumulative_qty) tuples
+
+        # WS 04(잔고변동) 이벤트 버퍼 — 상위에서 consume (portfolio 직접 수정 안 함)
+        self._balance_lock = threading.Lock()
+        self._balance_events: List[Dict] = []
+        self._balance_seq = 0
+
+        # Batch snapshot consistency tracking
+        # batch 진행 중 WS 00(주문체결)/04(잔고변동) 이벤트 카운터
+        self._batch_lock = threading.Lock()
+        self._batch_active = False
+        self._batch_ws_event_count = 0
 
         # Sector map
         self._sector_map: Dict[str, str] = {}
@@ -193,6 +219,254 @@ class KiwoomRestProvider(BrokerProvider):
                 req_id, status="error", latency_ms=latency, error=str(e)[:200])
             return {"return_code": -1, "return_msg": str(e)}
 
+    # ── Paginated Request (연속조회) ────────────────────────────
+
+    class SnapshotStatus(enum.Enum):
+        """Paginated batch 결과 상태."""
+        COMPLETE = "COMPLETE"    # 모든 페이지 성공
+        PARTIAL = "PARTIAL"      # 일부 페이지 실패 (부분 데이터)
+        FAILED = "FAILED"        # 첫 페이지 실패 (데이터 없음)
+
+    class SnapshotConsistency(enum.Enum):
+        """Snapshot 기준시점 일관성."""
+        CLEAN = "CLEAN"          # batch 중 WS 이벤트 개입 없음
+        DEGRADED = "DEGRADED"    # batch 중 WS 00/04 이벤트 개입 감지
+
+    @dataclass
+    class PaginatedResult:
+        """_request_all() 반환 객체. snapshot 메타데이터 포함."""
+        data: Dict = field(default_factory=dict)
+        snapshot_ts: float = 0.0
+        batch_end_ts: float = 0.0
+        request_batch_id: str = ""
+        pages_fetched: int = 0
+        total_rows: int = 0
+        elapsed_ms: float = 0.0
+        ok: bool = False
+        status: str = "FAILED"              # COMPLETE | PARTIAL | FAILED
+        consistency: str = "CLEAN"           # CLEAN | DEGRADED
+        ws_events_during_batch: int = 0      # batch 중 수신된 WS 00/04 이벤트 수
+
+    def _request_all(
+        self,
+        api_id: str,
+        path: str,
+        body: dict,
+        *,
+        list_key: str,
+        max_pages: int = 100,
+        related_code: str = "",
+    ) -> "KiwoomRestProvider.PaginatedResult":
+        """연속조회(cont-yn/next-key) 자동 처리 wrapper.
+
+        Args:
+            list_key: JSON 응답에서 리스트 데이터가 담긴 키 (예: "acnt_evlt_remn_indv_tot", "oso")
+            max_pages: 무한 루프 방지 최대 페이지 수
+        Returns:
+            PaginatedResult with merged list data + snapshot metadata
+        """
+        batch_id = uuid.uuid4().hex[:12]
+        snapshot_ts = time.time()
+        t0 = snapshot_ts
+
+        # Batch consistency: WS 이벤트 카운터 초기화 + batch 활성화
+        with self._batch_lock:
+            self._batch_active = True
+            self._batch_ws_event_count = 0
+
+        merged_list: List[Dict] = []
+        first_page_data: Dict = {}
+        summary_fields: Dict[str, Any] = {}  # list_key 외 scalar 필드 (first page 기준)
+        next_key: Optional[str] = None
+        page = 0
+        expected_pages_complete = True  # 모든 예상 페이지를 받았는지
+
+        while page < max_pages:
+            if not self._alive:
+                expected_pages_complete = False
+                break
+
+            # Rate limit
+            elapsed = time.time() - self._last_request_time
+            if elapsed < _MIN_REQUEST_INTERVAL:
+                time.sleep(_MIN_REQUEST_INTERVAL - elapsed)
+
+            headers = self._token_mgr.auth_headers()
+            headers["api-id"] = api_id
+            if next_key:
+                headers["cont-yn"] = "Y"
+                headers["next-key"] = next_key
+
+            url = f"{self._base_url}{path}"
+            self._last_request_time = time.time()
+
+            req_id = api_tracker.record_request_start(
+                path, api_id, related_code=related_code,
+            )
+            pt0 = time.time()
+
+            try:
+                resp = requests.post(url, json=body, headers=headers, timeout=15)
+                latency = (time.time() - pt0) * 1000
+            except requests.Timeout:
+                latency = (time.time() - pt0) * 1000
+                logger.error(f"[REST_PAGE] {api_id} page={page} TIMEOUT")
+                api_tracker.record_request_end(
+                    req_id, status="timeout", latency_ms=latency, error="HTTP timeout")
+                expected_pages_complete = False
+                break
+            except Exception as e:
+                latency = (time.time() - pt0) * 1000
+                logger.error(f"[REST_PAGE] {api_id} page={page} ERROR: {e}")
+                api_tracker.record_request_end(
+                    req_id, status="error", latency_ms=latency, error=str(e)[:200])
+                expected_pages_complete = False
+                break
+
+            if resp.status_code >= 500:
+                logger.error(f"[REST_PAGE] {api_id} page={page} HTTP {resp.status_code}")
+                api_tracker.record_request_end(
+                    req_id, status="error", http_status=resp.status_code, latency_ms=latency,
+                    error=f"HTTP {resp.status_code}")
+                expected_pages_complete = False
+                break
+
+            data = resp.json()
+
+            # Token expired → refresh once, restart this page
+            if data.get("return_code") == 1 and page == 0:
+                msg = data.get("return_msg", "")
+                if "토큰" in msg or "token" in msg.lower() or "401" in msg:
+                    logger.warning(f"[REST_PAGE] Token expired on page 0, refreshing")
+                    self._token_mgr.invalidate()
+                    api_tracker.record_request_end(
+                        req_id, status="retry", latency_ms=latency, error="token_expired")
+                    continue  # retry same page with new token
+
+            rc = data.get("return_code", -1)
+            if rc not in (0, None):
+                logger.warning(f"[REST_PAGE] {api_id} page={page} rc={rc} msg={data.get('return_msg', '')[:80]}")
+                api_tracker.record_request_end(
+                    req_id, status="error", http_status=resp.status_code, latency_ms=latency,
+                    error=data.get("return_msg", "")[:200])
+                if page == 0:
+                    # 첫 페이지 실패 → 전체 실패 (batch 해제 필수)
+                    with self._batch_lock:
+                        self._batch_active = False
+                    return self.PaginatedResult(
+                        data=data, snapshot_ts=snapshot_ts, request_batch_id=batch_id,
+                        pages_fetched=0, total_rows=0,
+                        elapsed_ms=(time.time() - t0) * 1000, ok=False,
+                        status="FAILED",
+                    )
+                expected_pages_complete = False
+                break  # 후속 페이지 실패 → 지금까지 수집한 것으로 진행
+
+            api_tracker.record_request_end(
+                req_id, status="ok", http_status=resp.status_code, latency_ms=latency)
+
+            # 첫 페이지: summary scalar 필드 보존
+            if page == 0:
+                first_page_data = data
+                for k, v in data.items():
+                    if k != list_key and k not in ("return_code", "return_msg"):
+                        summary_fields[k] = v
+
+            # 후속 페이지: summary 필드 변화 감지
+            if page > 0:
+                for k, v in data.items():
+                    if k != list_key and k not in ("return_code", "return_msg"):
+                        if k in summary_fields and summary_fields[k] != v:
+                            logger.warning(
+                                f"[REST_PAGE_WARNING] {api_id} summary field '{k}' changed: "
+                                f"page0={summary_fields[k]} → page{page}={v}"
+                            )
+
+            # list 데이터 merge (append)
+            page_rows = data.get(list_key, [])
+            merged_list.extend(page_rows)
+
+            row_count = len(page_rows)
+            logger.info(
+                f"[REST_PAGE] {api_id} batch={batch_id} page={page} "
+                f"rows={row_count} total={len(merged_list)} "
+                f"next_key={resp.headers.get('next-key', 'N/A')!r} "
+                f"elapsed={latency:.0f}ms"
+            )
+
+            page += 1
+
+            # 연속조회 판단: Response Header의 cont-yn
+            resp_cont = resp.headers.get("cont-yn", "N")
+            resp_next_key = resp.headers.get("next-key", "")
+
+            if resp_cont == "Y" and resp_next_key:
+                next_key = resp_next_key
+            else:
+                break
+
+        # Batch 종료: WS 이벤트 카운터 수확 + batch 비활성화
+        batch_end_ts = time.time()
+        total_elapsed = (batch_end_ts - t0) * 1000
+
+        with self._batch_lock:
+            ws_events = self._batch_ws_event_count
+            self._batch_active = False
+
+        # ── Status 판정 ──
+        has_data = page > 0
+        if not has_data:
+            status = self.SnapshotStatus.FAILED.value
+        elif not expected_pages_complete:
+            status = self.SnapshotStatus.PARTIAL.value
+        else:
+            status = self.SnapshotStatus.COMPLETE.value
+
+        # ── Consistency 판정 ──
+        if ws_events > 0:
+            consistency = self.SnapshotConsistency.DEGRADED.value
+            logger.warning(
+                f"[SNAPSHOT_DEGRADED] {api_id} batch={batch_id} "
+                f"ws_events={ws_events} during {total_elapsed:.0f}ms batch window"
+            )
+        else:
+            consistency = self.SnapshotConsistency.CLEAN.value
+
+        # 최종 결과 구성: first page summary + merged list
+        result_data = dict(first_page_data) if first_page_data else {}
+        result_data[list_key] = merged_list
+        if has_data:
+            result_data["return_code"] = 0
+
+        # Status-specific 로그
+        if status == self.SnapshotStatus.PARTIAL.value:
+            logger.warning(
+                f"[REST_BATCH_PARTIAL] {api_id} batch={batch_id} "
+                f"pages={page} total_rows={len(merged_list)} "
+                f"(some pages failed - data incomplete)"
+            )
+
+        logger.info(
+            f"[REST_BATCH_DONE] {api_id} batch={batch_id} "
+            f"pages={page} total_rows={len(merged_list)} "
+            f"status={status} consistency={consistency} "
+            f"ws_events={ws_events} elapsed={total_elapsed:.0f}ms"
+        )
+
+        return self.PaginatedResult(
+            data=result_data,
+            snapshot_ts=snapshot_ts,
+            batch_end_ts=batch_end_ts,
+            request_batch_id=batch_id,
+            pages_fetched=page,
+            total_rows=len(merged_list),
+            elapsed_ms=total_elapsed,
+            ok=has_data,
+            status=status,
+            consistency=consistency,
+            ws_events_during_batch=ws_events,
+        )
+
     # ── Lifecycle ─────────────────────────────────────────────
 
     def shutdown(self) -> None:
@@ -215,6 +489,11 @@ class KiwoomRestProvider(BrokerProvider):
             return bool(tok)
         except Exception:
             return False
+
+    @property
+    def ws_down(self) -> bool:
+        """True if WebSocket permanently failed (MAX_RECONNECT exceeded)."""
+        return self._ws is not None and self._ws.permanently_down
 
     def ensure_connected(self) -> bool:
         if not self._alive:
@@ -265,16 +544,17 @@ class KiwoomRestProvider(BrokerProvider):
     # ── Account Queries ───────────────────────────────────────
 
     def query_account_holdings(self) -> List[Dict]:
-        data = self._request(
+        result = self._request_all(
             "kt00018",
             "/api/dostk/acnt",
-            {"qry_tp": "2", "dmst_stex_tp": "KRX"},  # 2=개별
+            {"qry_tp": "2", "dmst_stex_tp": "NXT"},  # 2=개별
+            list_key="acnt_evlt_remn_indv_tot",
         )
-        if data.get("return_code") != 0:
+        if not result.ok:
             return []
 
         holdings = []
-        for item in data.get("acnt_evlt_remn_indv_tot", []):
+        for item in result.data.get("acnt_evlt_remn_indv_tot", []):
             code = item.get("stk_cd", "").replace("A", "")
             name = _decode_name(item.get("stk_nm", ""))
 
@@ -286,18 +566,30 @@ class KiwoomRestProvider(BrokerProvider):
                 "avg_price": int(item.get("pur_pric", "0")),
                 "cur_price": int(item.get("cur_prc", "0")),
                 "pnl": int(item.get("evltv_prft", "0")),
+                "_snapshot_ts": result.snapshot_ts,
+                "_batch_id": result.request_batch_id,
             })
+
+        logger.info(
+            f"[REST_PAGE_MERGE] holdings: {len(holdings)} items, "
+            f"pages={result.pages_fetched}, batch={result.request_batch_id}"
+        )
         return holdings
 
     def query_account_summary(self) -> Dict:
-        data = self._request(
+        result = self._request_all(
             "kt00018",
             "/api/dostk/acnt",
-            {"qry_tp": "1", "dmst_stex_tp": "KRX"},  # 1=합산
+            {"qry_tp": "1", "dmst_stex_tp": "NXT"},  # 1=합산
+            list_key="acnt_evlt_remn_indv_tot",
         )
-        if data.get("return_code") != 0:
-            return {"error": data.get("return_msg", "query failed"), "holdings_reliable": False}
+        if not result.ok:
+            msg = result.data.get("return_msg", "query failed") if result.data else "query failed"
+            return {"error": msg, "holdings_reliable": False}
 
+        data = result.data
+
+        # Summary 필드는 first page 기준 (summary_fields 보존됨)
         tot_eval = int(data.get("tot_evlt_amt", "0"))
         prsm_asset = int(data.get("prsm_dpst_aset_amt", "0"))
         available_cash = prsm_asset - tot_eval
@@ -317,6 +609,23 @@ class KiwoomRestProvider(BrokerProvider):
                 "pnl_rate": item.get("prft_rt", "0"),
             })
 
+        # PARTIAL → holdings_reliable=False (RECON이 truth로 승격 금지)
+        is_partial = result.status == self.SnapshotStatus.PARTIAL.value
+        is_degraded = result.consistency == self.SnapshotConsistency.DEGRADED.value
+        holdings_reliable = not is_partial
+
+        if is_partial:
+            logger.warning(
+                f"[REST_BATCH_UNSAFE] account_summary PARTIAL - "
+                f"holdings_reliable=False, RECON truth promotion blocked"
+            )
+
+        logger.info(
+            f"[REST_PAGE_MERGE] account_summary: {len(holdings)} holdings, "
+            f"pages={result.pages_fetched}, status={result.status}, "
+            f"consistency={result.consistency}, batch={result.request_batch_id}"
+        )
+
         api_tracker.update_freshness("account_summary")
         api_tracker.update_freshness("holdings")
         return {
@@ -327,7 +636,14 @@ class KiwoomRestProvider(BrokerProvider):
             "holdings": holdings,
             "available_cash": available_cash,
             "error": None,
-            "holdings_reliable": True,
+            "holdings_reliable": holdings_reliable,
+            "_snapshot_ts": result.snapshot_ts,
+            "_batch_end_ts": result.batch_end_ts,
+            "_batch_id": result.request_batch_id,
+            "_pages_fetched": result.pages_fetched,
+            "_status": result.status,
+            "_consistency": result.consistency,
+            "_ws_events_during_batch": result.ws_events_during_batch,
         }
 
     def query_sellable_qty(self, code: str) -> Dict:
@@ -366,7 +682,7 @@ class KiwoomRestProvider(BrokerProvider):
         trde_tp = trde_tp_map.get(hoga_type, "3")
 
         body: dict = {
-            "dmst_stex_tp": "KRX",
+            "dmst_stex_tp": "SOR",  # 주문은 SOR (최적 집행)
             "stk_cd": code,
             "ord_qty": str(quantity),
             "trde_tp": trde_tp,
@@ -374,48 +690,48 @@ class KiwoomRestProvider(BrokerProvider):
         if price > 0 and trde_tp == "0":
             body["ord_uv"] = str(price)
 
-        # Reset pending order state for WebSocket fill matching
-        with self._pending_lock:
-            self._pending_order_no = ""
-            self._pending_exec_price = 0
-            self._pending_exec_qty = 0
-            self._pending_filled.clear()
-
         data = self._request(api_id, "/api/dostk/ordr", body)
 
         if data.get("return_code") == 0:
             order_no = data.get("ord_no", "")
-            with self._pending_lock:
-                self._pending_order_no = order_no
             logger.info(
-                f"[REST_ORDER] {side} {code} qty={quantity} → order_no={order_no}"
+                f"[REST_ORDER] {side} {code} qty={quantity} order_no={order_no}"
             )
+
+            # Fill slot 등록 (WS 00 이벤트에서 매칭)
+            slot = _FillSlot(
+                order_no=order_no, code=code, side=side.upper(),
+                requested_qty=quantity,
+            )
+            with self._fill_lock:
+                self._fill_slots[order_no] = slot
 
             # Wait for WebSocket fill (if WS connected, max 30s)
             exec_price = 0
             exec_qty = 0
             if self._ws_started and self._ws and self._ws.connected:
-                filled = self._pending_filled.wait(timeout=30)
-                with self._pending_lock:
-                    exec_price = self._pending_exec_price
-                    exec_qty = self._pending_exec_qty
+                filled = slot.filled.wait(timeout=30)
+                exec_price = slot.exec_price
+                exec_qty = slot.exec_qty
                 if filled and exec_qty > 0:
                     logger.info(
                         f"[REST_ORDER_FILLED] {order_no}: {exec_qty}@{exec_price}"
                     )
                 else:
                     logger.warning(
-                        f"[REST_ORDER_TIMEOUT] {order_no}: no fill in 30s"
+                        f"[REST_ORDER_TIMEOUT] {order_no}: no fill in 30s "
+                        f"(partial={exec_qty}/{quantity})"
                     )
 
-            with self._pending_lock:
-                self._pending_order_no = ""
+            # Slot 정리 (ghost callback이 나중에 쓸 수 있으므로 즉시 삭제하지 않음)
+            # 60초 이상 된 slot은 _cleanup_stale_slots()에서 제거
             return {
                 "order_no": order_no,
                 "exec_price": exec_price,
                 "exec_qty": exec_qty,
                 "error": None,
-                "status": "FILLED" if exec_qty > 0 else "SUBMITTED",
+                "status": "FILLED" if exec_qty >= quantity else (
+                    "PARTIAL" if exec_qty > 0 else "SUBMITTED"),
             }
         else:
             error_msg = data.get("return_msg", "order failed")
@@ -428,7 +744,7 @@ class KiwoomRestProvider(BrokerProvider):
             }
 
     def query_open_orders(self) -> Optional[List[Dict]]:
-        data = self._request(
+        result = self._request_all(
             "ka10075",
             "/api/dostk/acnt",
             {
@@ -437,25 +753,68 @@ class KiwoomRestProvider(BrokerProvider):
                 "sell_tp": "0",
                 "sort_tp": "1",
                 "trde_tp": "0",
-                "stex_tp": "KRX",
-                "dmst_stex_tp": "KRX",
+                "stex_tp": "SOR",
+                "dmst_stex_tp": "NXT",
             },
+            list_key="oso",
         )
-        if data.get("return_code") != 0:
+        if not result.ok:
+            return None
+
+        # PARTIAL → 미체결 누락 위험 → None 반환으로 안전장치 유지
+        # (상위: None이면 opt10075_fail_streak 증가 → BLOCKED 전환)
+        if result.status == self.SnapshotStatus.PARTIAL.value:
+            logger.warning(
+                f"[REST_BATCH_UNSAFE] open_orders PARTIAL - "
+                f"returning None to trigger safety guard. "
+                f"pages={result.pages_fetched}, batch={result.request_batch_id}"
+            )
             return None
 
         orders = []
-        for item in data.get("oso", []):
+        _field_check_logged = False
+        for item in result.data.get("oso", []):
+            ord_qty = int(item.get("ord_qty", "0"))
+            cntr_qty = int(item.get("cntr_qty", "0"))
+            # noncntr_qty: 문서 필드 목록에 있으나 JSON 예시에 없음
+            # fallback: oso_qty 또는 ord_qty - cntr_qty
+            raw_noncntr = item.get("noncntr_qty")
+            has_noncntr = raw_noncntr is not None and raw_noncntr != ""
+            if has_noncntr:
+                remaining = int(raw_noncntr)
+            else:
+                oso_qty_raw = item.get("oso_qty")
+                if oso_qty_raw is not None and oso_qty_raw != "":
+                    remaining = int(oso_qty_raw)
+                else:
+                    remaining = max(0, ord_qty - cntr_qty)
+
+            if not _field_check_logged:
+                logger.info(
+                    f"[OPEN_ORDERS_FIELD_CHECK] has_noncntr_qty={has_noncntr} "
+                    f"oso_qty={item.get('oso_qty', 'N/A')} "
+                    f"cntr_qty={cntr_qty} computed_open_qty={remaining}"
+                )
+                _field_check_logged = True
+
             orders.append({
                 "order_no": item.get("ord_no", ""),
                 "code": item.get("stk_cd", "").replace("A", ""),
                 "side": "SELL" if item.get("sell_tp", "") == "1" else "BUY",
-                "qty": int(item.get("ord_qty", "0")),
-                "filled_qty": int(item.get("cntr_qty", "0")),
-                "remaining": int(item.get("noncntr_qty", "0")),
+                "qty": ord_qty,
+                "filled_qty": cntr_qty,
+                "remaining": remaining,
                 "order_time": item.get("ord_tm", ""),
                 "status_raw": item.get("ord_stt", ""),
+                "_snapshot_ts": result.snapshot_ts,
+                "_batch_id": result.request_batch_id,
             })
+
+        logger.info(
+            f"[REST_PAGE_MERGE] open_orders: {len(orders)} items, "
+            f"pages={result.pages_fetched}, status={result.status}, "
+            f"consistency={result.consistency}, batch={result.request_batch_id}"
+        )
         api_tracker.update_freshness("open_orders")
         return orders
 
@@ -463,7 +822,7 @@ class KiwoomRestProvider(BrokerProvider):
         self, code: str, order_no: str, qty: int, side: str = "BUY"
     ) -> Dict:
         body = {
-            "dmst_stex_tp": "KRX",
+            "dmst_stex_tp": "NXT",
             "stk_cd": code,
             "orig_ord_no": order_no,
             "cncl_qty": str(qty) if qty > 0 else "0",
@@ -496,6 +855,25 @@ class KiwoomRestProvider(BrokerProvider):
     def get_ghost_orders(self) -> List[Dict]:
         return list(self._ghost_orders_list)
 
+    def cleanup_stale_fill_slots(self, max_age_s: float = 120.0) -> int:
+        """120초 이상 된 fill slot 정리. 반환: 제거 건수."""
+        now = time.time()
+        removed = 0
+        with self._fill_lock:
+            stale_keys = [
+                k for k, s in self._fill_slots.items()
+                if (now - s.created_at) > max_age_s
+            ]
+            for k in stale_keys:
+                del self._fill_slots[k]
+                removed += 1
+            # dedup set도 주기적 정리 (1000건 초과 시 전체 리셋)
+            if len(self._fill_dedup) > 1000:
+                self._fill_dedup.clear()
+        if removed:
+            logger.info(f"[FILL_CLEANUP] Removed {removed} stale fill slots")
+        return removed
+
     def clear_ghost_orders(self) -> None:
         self._ghost_orders_list.clear()
 
@@ -515,16 +893,18 @@ class KiwoomRestProvider(BrokerProvider):
         if not self._ws_started:
             self._ws.start()
             self._ws_started = True
-            # Wait briefly for connection
-            for _ in range(20):
-                if self._ws.connected:
+            # Wait for connection + auth settle (2s delay inside WS)
+            import time as _t
+            for _ in range(16):  # up to 4 seconds
+                if self._ws.connected and self._ws.authenticated:
                     break
-                import time as _t
                 _t.sleep(0.25)
-            if self._ws.connected:
+            if self._ws.authenticated:
                 logger.info("[WS] Connected and ready")
+            elif self._ws.connected:
+                logger.warning("[WS] Connected, auth settling...")
             else:
-                logger.warning("[WS] Connection pending (may connect later)")
+                logger.warning("[WS] Connection pending")
         return self._ws
 
     def _on_ws_price(self, code: str, values: dict) -> None:
@@ -559,6 +939,11 @@ class KiwoomRestProvider(BrokerProvider):
     def _on_ws_order(self, values: dict) -> None:
         """Handle Type 00 (주문체결) WebSocket message."""
         try:
+            # Batch consistency: batch 진행 중 WS 00 이벤트 카운트
+            with self._batch_lock:
+                if self._batch_active:
+                    self._batch_ws_event_count += 1
+
             order_no = values.get("9203", "")
             code = values.get("9001", "").replace("A", "")
             exec_qty = abs(int(values.get("911", "0") or "0"))
@@ -572,16 +957,43 @@ class KiwoomRestProvider(BrokerProvider):
                 f"status={order_status} exec={exec_qty}@{exec_price}"
             )
 
-            # Update pending order if we have one (thread-safe)
-            with self._pending_lock:
-                if order_no and self._pending_order_no == order_no:
-                    if exec_qty > 0 and exec_price > 0:
-                        self._pending_exec_price = exec_price
-                        self._pending_exec_qty += exec_qty
-                        if order_status in ("체결", "확인"):
-                            self._pending_filled.set()
+            # Fill queue 매칭 (다중 주문 동시 지원)
+            matched_slot = False
+            if order_no and exec_qty > 0 and exec_price > 0:
+                with self._fill_lock:
+                    slot = self._fill_slots.get(order_no)
+                    if slot:
+                        # Dedup: (order_no, cumulative_qty) 기준
+                        new_cumulative = slot.exec_qty + exec_qty
+                        dedup_key = (order_no, new_cumulative)
+                        if dedup_key in self._fill_dedup:
+                            logger.warning(
+                                f"[WS_FILL_DEDUP] {order_no} cumulative={new_cumulative} "
+                                f"already processed, skipping"
+                            )
+                        else:
+                            self._fill_dedup.add(dedup_key)
+                            slot.exec_qty = new_cumulative
+                            slot.exec_price = exec_price  # 최신 체결가
+                            # Clamp: requested 초과 방지
+                            if slot.exec_qty > slot.requested_qty:
+                                logger.warning(
+                                    f"[WS_FILL_CLAMP] {order_no}: "
+                                    f"cumulative={slot.exec_qty} > requested={slot.requested_qty}, "
+                                    f"clamping to {slot.requested_qty}"
+                                )
+                                slot.exec_qty = slot.requested_qty
+                            # 전부 체결 or 서버에서 체결 확인 시 signal
+                            if (slot.exec_qty >= slot.requested_qty
+                                    or order_status in ("체결", "확인")):
+                                slot.filled.set()
+                            matched_slot = True
+                            logger.info(
+                                f"[WS_FILL_MATCH] {order_no}: "
+                                f"+{exec_qty} -> {slot.exec_qty}/{slot.requested_qty}"
+                            )
 
-            # Ghost fill callback
+            # Ghost fill callback (slot 유무 관계없이 항상 전달)
             if self._ghost_fill_callback and order_no:
                 self._ghost_fill_callback({
                     "order_no": order_no,
@@ -590,24 +1002,74 @@ class KiwoomRestProvider(BrokerProvider):
                     "exec_qty": exec_qty,
                     "exec_price": exec_price,
                     "status": order_status,
+                    "_matched_slot": matched_slot,
                 })
 
         except Exception as e:
             logger.error(f"[WS_ORDER_ERR] {e}")
 
     def _on_ws_balance(self, values: dict) -> None:
-        """Handle Type 04 (잔고) WebSocket message."""
-        code = values.get("9001", "").replace("A", "")
-        qty = abs(int(values.get("930", "0") or "0"))
-        logger.info(f"[WS_BALANCE] {code} qty={qty}")
+        """Handle Type 04 (잔고변동) WebSocket message.
+
+        Portfolio를 직접 수정하지 않고 이벤트 버퍼에 적재.
+        상위에서 drain_balance_events()로 소비.
+        """
+        # Batch consistency: batch 진행 중 WS 04 이벤트 카운트
+        with self._batch_lock:
+            if self._batch_active:
+                self._batch_ws_event_count += 1
+
+        try:
+            code = values.get("9001", "").replace("A", "")
+            qty = abs(int(values.get("930", "0") or "0"))
+            avg_price = abs(int(values.get("931", "0") or "0"))
+            total_cost = abs(int(values.get("932", "0") or "0"))
+            orderable_qty = abs(int(values.get("933", "0") or "0"))
+            cur_price_raw = values.get("10", "0")
+            cur_price = abs(int(cur_price_raw.replace("+", "").replace("-", "") or "0"))
+
+            event = {
+                "code": code,
+                "qty": qty,
+                "avg_price": avg_price,
+                "total_cost": total_cost,
+                "orderable_qty": orderable_qty,
+                "cur_price": cur_price,
+                "event_ts": time.time(),
+            }
+
+            with self._balance_lock:
+                self._balance_seq += 1
+                event["_seq"] = self._balance_seq
+                self._balance_events.append(event)
+
+            logger.info(
+                f"[WS_BALANCE] {code} qty={qty} avg={avg_price} "
+                f"cur={cur_price} seq={event['_seq']}"
+            )
+        except Exception as e:
+            logger.error(f"[WS_BALANCE_ERR] {e}")
+
+    def drain_balance_events(self) -> List[Dict]:
+        """WS 04 이벤트 버퍼에서 꺼내기. 호출 후 버퍼 비워짐."""
+        with self._balance_lock:
+            events = list(self._balance_events)
+            self._balance_events.clear()
+        return events
+
+    @property
+    def balance_event_count(self) -> int:
+        """현재 버퍼에 쌓인 잔고 이벤트 수."""
+        with self._balance_lock:
+            return len(self._balance_events)
 
     # ── Real-time Data ────────────────────────────────────────
 
     def register_real(self, codes: List[str], fids: str = "10;27") -> None:
         ws = self._ensure_ws()
-        ws.subscribe(codes, "0B")
+        ws.subscribe(codes, "0B", owner_key="provider")
         # Also subscribe to order execution for this session
-        ws.subscribe([""], "00")
+        ws.subscribe([""], "00", owner_key="provider")
         logger.info(f"[REST] register_real: {len(codes)} codes via WebSocket")
 
     def unregister_real(self) -> None:
@@ -619,7 +1081,7 @@ class KiwoomRestProvider(BrokerProvider):
         self, codes: List[str], fids: str = "10;27", screen: Optional[str] = None
     ) -> int:
         ws = self._ensure_ws()
-        ws.subscribe(codes, "0B")
+        ws.subscribe(codes, "0B", owner_key="provider")
         return len(codes)
 
     def unregister_real_screen(self, screen: str) -> None:
@@ -657,6 +1119,86 @@ class KiwoomRestProvider(BrokerProvider):
         raw = data.get("cur_prc", "0")
         val = float(raw.replace("+", "").replace("-", ""))
         return val
+
+    # ── Theme APIs (ka90001, ka90002) ──────────────────────────────────────
+
+    def get_theme_groups(self, date_range: int = 1) -> List[dict]:
+        """ka90001 테마그룹조회 — 전체 테마 목록 + 등락률.
+
+        Args:
+            date_range: 기간 (1=당일, 5=5일, 20=20일 등)
+
+        Returns:
+            [{"code": "000001", "name": "2차전지", "count": 15,
+              "change_pct": 2.3}, ...]
+        """
+        data = self._request(
+            "ka90001", "/api/dostk/thme",
+            {
+                "qry_tp": "0",       # 전체 조회
+                "date_tp": str(date_range),
+                "flu_pl_amt_tp": "3", # 전체 (상승+하락)
+                "stex_tp": "1",       # KRX
+            },
+            related_code="THEME",
+        )
+        if data.get("return_code") != 0:
+            logger.warning(f"[THEME] ka90001 failed: {data.get('return_msg', '?')}")
+            return []
+
+        raw_list = data.get("thema_grp", [])
+        results = []
+        for t in raw_list:
+            try:
+                code = t.get("thema_grp_cd", "")
+                name = t.get("thema_nm", "")
+                count = int(t.get("stk_num", 0))
+                flu_rt = float(str(t.get("flu_rt", "0")).replace("+", ""))
+                results.append({
+                    "code": code, "name": name, "count": count,
+                    "change_pct": flu_rt,
+                })
+            except (ValueError, TypeError):
+                continue
+        return results
+
+    def get_theme_stocks(self, theme_code: str, date_range: int = 1) -> dict:
+        """ka90002 테마종목조회 — 특정 테마의 종목 상세.
+
+        Returns:
+            {"change_pct": 2.3, "period_pct": 5.1,
+             "stocks": [{"code": "005930", "name": "삼성전자",
+                         "price": 75000, "change_pct": 1.5}, ...]}
+        """
+        data = self._request(
+            "ka90002", "/api/dostk/thme",
+            {
+                "thema_grp_cd": theme_code,
+                "date_tp": str(date_range),
+                "stex_tp": "1",
+            },
+            related_code="THEME",
+        )
+        if data.get("return_code") != 0:
+            logger.warning(f"[THEME] ka90002 failed: {data.get('return_msg', '?')}")
+            return {}
+
+        flu_rt = float(str(data.get("flu_rt", "0")).replace("+", ""))
+        dt_prft = float(str(data.get("dt_prft_rt", "0")).replace("+", ""))
+
+        stocks = []
+        for s in data.get("thema_comp_stk", []):
+            try:
+                stocks.append({
+                    "code": s.get("stk_cd", ""),
+                    "name": s.get("stk_nm", ""),
+                    "price": abs(float(str(s.get("cur_prc", "0")).replace("+", "").replace(",", ""))),
+                    "change_pct": float(str(s.get("flu_rt", "0")).replace("+", "")),
+                })
+            except (ValueError, TypeError):
+                continue
+
+        return {"change_pct": flu_rt, "period_pct": dt_prft, "stocks": stocks}
 
     def get_index_minute_bars(
         self,

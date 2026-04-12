@@ -8,7 +8,33 @@
       "WebFetch",
       "Glob",
       "Grep",
-      "WebSearch"
-    ]
+      "WebSearch",
+      "mcp__Claude_Preview__preview_start",
+      "mcp__Claude_Preview__preview_stop",
+      "mcp__Claude_Preview__preview_screenshot",
+      "mcp__Claude_Preview__preview_snapshot",
+      "mcp__Claude_Preview__preview_eval",
+      "mcp__Claude_Preview__preview_click",
+      "mcp__Claude_Preview__preview_fill",
+      "mcp__Claude_Preview__preview_inspect",
+      "mcp__Claude_Preview__preview_logs",
+      "mcp__Claude_Preview__preview_console_logs",
+      "mcp__Claude_Preview__preview_network",
+      "mcp__Claude_Preview__preview_resize",
+      "mcp__Claude_Preview__preview_list",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Skill(anthropic-skills:*)",
+      "Agent",
+      "TodoWrite",
+      "NotebookEdit",
+      "WebSearch",
+      "mcp__mcp-registry__search_mcp_registry",
+      "mcp__mcp-registry__suggest_connectors",
+      "mcp__scheduled-tasks__create_scheduled_task",
+      "mcp__scheduled-tasks__list_scheduled_tasks",
+      "mcp__scheduled-tasks__update_scheduled_task"
+    ],
+    "defaultMode": "bypassPermissions"
   }
 }

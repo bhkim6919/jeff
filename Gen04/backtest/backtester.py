@@ -202,10 +202,10 @@ def run_backtest(close, opn, high, low, vol, idx_close, dates,
             p = float(close[tk].iloc[i])
             if p <= 0 or pd.isna(p):
                 continue
-            if p > pos["high_wm"]:
-                pos["high_wm"] = p
-            dd = (p - pos["high_wm"]) / pos["high_wm"] if pos["high_wm"] > 0 else 0
-            if dd <= -config.TRAIL_PCT:
+            triggered, new_hwm, _ = check_trail_stop(
+                pos["high_wm"], p, config.TRAIL_PCT)
+            pos["high_wm"] = new_hwm
+            if triggered:
                 net = pos["qty"] * p * (1 - config.SELL_COST)
                 invested = pos["qty"] * pos["entry_price"] + pos["buy_cost_total"]
                 pnl = (net - invested) / invested if invested > 0 else 0
@@ -362,19 +362,31 @@ def print_results(m: dict, label: str = "Gen4 Core"):
 def main():
     parser = argparse.ArgumentParser(description="Gen4 Core Backtester")
     parser.add_argument("--start", default="2019-01-02", help="Start date (YYYY-MM-DD)")
-    parser.add_argument("--end", default="2026-03-20", help="End date (YYYY-MM-DD)")
+    parser.add_argument("--end", default="", help="End date (YYYY-MM-DD, default: today)")
+    parser.add_argument("--ohlcv-dir", default="", help="Override OHLCV directory path")
+    parser.add_argument("--label", default="", help="Result label suffix (e.g. 'expanded')")
     args = parser.parse_args()
 
     config = Gen4Config()
 
+    # --ohlcv-dir override
+    ohlcv_dir = Path(args.ohlcv_dir) if args.ohlcv_dir else config.OHLCV_DIR
+
+    # --end default: today
+    if not args.end:
+        args.end = datetime.today().strftime("%Y-%m-%d")
+
+    label = args.label or ohlcv_dir.name  # e.g. "ohlcv_expanded" or "ohlcv"
+
     print("=" * 70)
     print("  Gen4 Core Backtester (SHARED scoring.py + trail_stop.py)")
-    print("  Stabilized: T+1 entry, universe filter, no ffill on O/H/V")
+    print(f"  OHLCV : {ohlcv_dir}")
+    print(f"  Period: {args.start} ~ {args.end}")
     print("=" * 70)
 
     t0 = time.time()
-    print(f"\n[1/3] Loading OHLCV from {config.OHLCV_DIR}...")
-    all_data = load_ohlcv(config.OHLCV_DIR, config.UNIV_MIN_HISTORY)
+    print(f"\n[1/3] Loading OHLCV from {ohlcv_dir}...")
+    all_data = load_ohlcv(ohlcv_dir, config.UNIV_MIN_HISTORY)
 
     idx_df = pd.read_csv(config.INDEX_FILE)
     # Handle both column naming conventions
@@ -415,8 +427,8 @@ def main():
     print(f"\n  KOSPI Buy&Hold: {kospi_ret*100:+.1f}%")
     print(f"  Elapsed: {elapsed:.0f}s")
 
-    # Save results to strategy folder
-    out_dir = config.BASE_DIR.parent / "backtest" / "results" / "gen4_core"
+    # Save results to strategy folder (label-separated)
+    out_dir = config.BASE_DIR.parent / "backtest" / "results" / f"gen4_{label}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     eq_df = eq.reset_index()
@@ -426,13 +438,7 @@ def main():
     pd.DataFrame(trades).to_csv(out_dir / "trades.csv",
                                 index=False, encoding="utf-8-sig")
 
-    # Also save to legacy report/output for compatibility
-    config.ensure_dirs()
-    eq.to_csv(config.REPORT_DIR / "backtest_equity.csv", header=["equity"])
-    pd.DataFrame(trades).to_csv(config.REPORT_DIR / "backtest_trades.csv",
-                                index=False, encoding="utf-8-sig")
-
-    print(f"\n[3/3] Saved to {out_dir}/ and {config.REPORT_DIR}/")
+    print(f"\n[3/3] Saved to {out_dir}/")
 
 
 if __name__ == "__main__":

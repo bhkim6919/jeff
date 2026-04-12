@@ -1,0 +1,187 @@
+{
+  "date": "20260401",
+  "mode": "paper_test",
+  "status": "OK",
+  "errors": [],
+  "snapshot_hash": "a199f91600776ff0",
+  "operational_flags": [
+    "RECON_SAFETY",
+    "RECON_SAFE_MODE_DETECTED",
+    "SAFE_MODE"
+  ],
+  "validation_errors": [],
+  "pnl_summary": {
+    "date": "20260401",
+    "daily_pnl_pct": -0.0186,
+    "monthly_dd_pct": -0.0622,
+    "risk_mode": "NORMAL",
+    "equity": 468918191.98,
+    "cash": 49905091.98,
+    "n_positions": 20,
+    "n_buys": 1,
+    "n_sells": 0,
+    "n_closes": 2,
+    "total_cost": 102306.0,
+    "top_contributors": [
+      {
+        "code": "009150",
+        "pnl_pct": -0.059084
+      },
+      {
+        "code": "009150",
+        "pnl_pct": -0.059716
+      }
+    ],
+    "bottom_contributors": [
+      {
+        "code": "009150",
+        "pnl_pct": -0.059084
+      },
+      {
+        "code": "009150",
+        "pnl_pct": -0.059716
+      }
+    ],
+    "realized_trades": [
+      {
+        "code": "009150",
+        "pnl_pct": -0.059084
+      },
+      {
+        "code": "009150",
+        "pnl_pct": -0.059716
+      }
+    ]
+  },
+  "mdd_contributors": {
+    "date": "20260401",
+    "contributors": [
+      {
+        "code": "055550",
+        "invested": 24745360.0,
+        "dd_from_hwm_pct": -0.1200000000000001,
+        "hwm": 92333.4328358209,
+        "trail_stop": 81253.42089552239
+      },
+      {
+        "code": "005930",
+        "invested": 15664734,
+        "dd_from_hwm_pct": -0.12,
+        "hwm": 190700.0,
+        "trail_stop": 167816.0
+      },
+      {
+        "code": "037460",
+        "invested": 16143388,
+        "dd_from_hwm_pct": -0.12,
+        "hwm": 27450.0,
+        "trail_stop": 24156.0
+      },
+      {
+        "code": "032830",
+        "invested": 15878025,
+        "dd_from_hwm_pct": -0.12,
+        "hwm": 228750.0,
+        "trail_stop": 201300.0
+      },
+      {
+        "code": "009970",
+        "invested": 16547510,
+        "dd_from_hwm_pct": -0.12,
+        "hwm": 227000.0,
+        "trail_stop": 199760.0
+      }
+    ]
+  },
+  "alerts": [
+    {
+      "priority": "HIGH",
+      "category": "ALERT",
+      "message": "RECON safety triggered (0 corrections)",
+      "detail": "Large number of reconciliation corrections detected"
+    },
+    {
+      "priority": "HIGH",
+      "category": "ALERT",
+      "message": "SAFE_MODE active - trading restricted",
+      "detail": "Engine entered safe mode due to DD or operational issues"
+    },
+    {
+      "priority": "HIGH",
+      "category": "ALERT",
+      "message": "Data latency: portfolio state 8.4h old",
+      "detail": "Engine may not be running or state save is failing"
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "ALERT",
+      "message": "Market regime SIDEWAYS (KOSPI=5,480)",
+      "detail": "Neutral market - monitor for direction"
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "ALERT",
+      "message": "Sector concentration: UNKNOWN = 100%",
+      "detail": "Single sector holds 100% of portfolio"
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "ALERT",
+      "message": "Snapshot incomplete: missing config",
+      "detail": "Required data files not found or empty"
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "ALERT",
+      "message": "Timestamp gap: 930min between data sources",
+      "detail": "Earliest: equity_log Latest: portfolio_state"
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "ALERT",
+      "message": "Pending external orders: 6 events",
+      "detail": "Orders awaiting ghost fill settlement"
+    }
+  ],
+  "alerts_total_before_filter": 13,
+  "recommendations": [],
+  "drift_warnings": [],
+  "intraday_alerts": [
+    {
+      "priority": "HIGH",
+      "category": "INTRADAY",
+      "message": "Volume anomaly: 108 3x-spikes across portfolio",
+      "detail": "Abnormally high volume activity detected",
+      "debug_hint": "Market-wide event or sector rotation possible. Check news for policy/earnings surprises"
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "INTRADAY",
+      "message": "Volume anomaly: 003540 max ratio 38x",
+      "detail": "23 bars with 3x+ volume",
+      "debug_hint": "003540: extreme volume concentration. Possible block trade or forced liquidation"
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "INTRADAY",
+      "message": "Volume anomaly: 037460 max ratio 40x",
+      "detail": "18 bars with 3x+ volume",
+      "debug_hint": "037460: extreme volume concentration. Possible block trade or forced liquidation"
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "INTRADAY",
+      "message": "Deep intraday DD: 009970 -6.2%",
+      "detail": "close vs VWAP +0.8%",
+      "debug_hint": "009970 large intraday swing but not near trail. Check if HWM updated today - may widen gap"
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "INTRADAY",
+      "message": "Deep intraday DD: 037460 -4.3%",
+      "detail": "close vs VWAP +0.2%",
+      "debug_hint": "037460 large intraday swing but not near trail. Check if HWM updated today - may widen gap"
+    }
+  ],
+  "elapsed_sec": 0.01
+}

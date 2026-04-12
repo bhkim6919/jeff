@@ -1,0 +1,1 @@
+trade_id,code,name,entry_time,exit_time,entry_fill_price,exit_fill_price,raw_ask_at_entry,raw_bid_at_exit,qty,gross_pnl_pct,net_pnl_pct,gross_pnl_krw,net_pnl_krw,entry_reason,exit_reason,entry_slippage_pct,exit_slippage_pct,fee_entry,fee_exit,tax,holding_seconds

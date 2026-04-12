@@ -1,0 +1,126 @@
+{
+  "date": "20260327",
+  "mode": "paper_test",
+  "status": "OK",
+  "errors": [],
+  "snapshot_hash": "2157b05916ce0e29",
+  "operational_flags": [
+    "RECON_SAFETY",
+    "RECON_SAFE_MODE_DETECTED",
+    "SAFE_MODE"
+  ],
+  "validation_errors": [],
+  "pnl_summary": {
+    "date": "20260327",
+    "daily_pnl_pct": 0.020819,
+    "monthly_dd_pct": -0.022414,
+    "risk_mode": "NORMAL",
+    "equity": 491711072.0,
+    "cash": 49171107.0,
+    "n_positions": 16,
+    "n_buys": 1,
+    "n_sells": 1,
+    "n_closes": 1,
+    "total_cost": 440032.0,
+    "top_contributors": [
+      {
+        "code": "000270",
+        "pnl_pct": 0.043484
+      }
+    ],
+    "bottom_contributors": [
+      {
+        "code": "000270",
+        "pnl_pct": 0.043484
+      }
+    ],
+    "realized_trades": [
+      {
+        "code": "000270",
+        "pnl_pct": 0.043484
+      }
+    ]
+  },
+  "mdd_contributors": {
+    "date": "20260327",
+    "contributors": [
+      {
+        "code": "055550",
+        "invested": 24745360.0,
+        "dd_from_hwm_pct": -0.1200000000000001,
+        "hwm": 92333.4328358209,
+        "trail_stop": 81253.42089552239
+      },
+      {
+        "code": "005930",
+        "invested": 15664734,
+        "dd_from_hwm_pct": -0.12,
+        "hwm": 189200.0,
+        "trail_stop": 166496.0
+      },
+      {
+        "code": "037460",
+        "invested": 16143388,
+        "dd_from_hwm_pct": -0.12,
+        "hwm": 27450.0,
+        "trail_stop": 24156.0
+      },
+      {
+        "code": "032830",
+        "invested": 15878025,
+        "dd_from_hwm_pct": -0.12,
+        "hwm": 228000.0,
+        "trail_stop": 200640.0
+      },
+      {
+        "code": "009970",
+        "invested": 16547510,
+        "dd_from_hwm_pct": -0.12,
+        "hwm": 227000.0,
+        "trail_stop": 199760.0
+      }
+    ]
+  },
+  "alerts": [
+    {
+      "priority": "HIGH",
+      "category": "ALERT",
+      "message": "RECON safety triggered (0 corrections)",
+      "detail": "Large number of reconciliation corrections detected"
+    },
+    {
+      "priority": "HIGH",
+      "category": "ALERT",
+      "message": "SAFE_MODE active - trading restricted",
+      "detail": "Engine entered safe mode due to DD or operational issues"
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "ALERT",
+      "message": "Sector concentration: UNKNOWN = 100%",
+      "detail": "Single sector holds 100% of portfolio"
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "ALERT",
+      "message": "Snapshot incomplete: missing config",
+      "detail": "Required data files not found or empty"
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "ALERT",
+      "message": "Timestamp gap: 8068min between data sources",
+      "detail": "Earliest: equity_log Latest: portfolio_state"
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "ALERT",
+      "message": "Pending external orders: 6 events",
+      "detail": "Orders awaiting ghost fill settlement"
+    }
+  ],
+  "alerts_total_before_filter": 6,
+  "recommendations": [],
+  "drift_warnings": [],
+  "elapsed_sec": 0.02
+}

@@ -1,0 +1,37 @@
+[
+  {
+    "priority": "HIGH",
+    "category": "INTRADAY",
+    "message": "Volume anomaly: 108 3x-spikes across portfolio",
+    "detail": "Abnormally high volume activity detected",
+    "debug_hint": "Market-wide event or sector rotation possible. Check news for policy/earnings surprises"
+  },
+  {
+    "priority": "MEDIUM",
+    "category": "INTRADAY",
+    "message": "Volume anomaly: 003540 max ratio 38x",
+    "detail": "23 bars with 3x+ volume",
+    "debug_hint": "003540: extreme volume concentration. Possible block trade or forced liquidation"
+  },
+  {
+    "priority": "MEDIUM",
+    "category": "INTRADAY",
+    "message": "Volume anomaly: 037460 max ratio 40x",
+    "detail": "18 bars with 3x+ volume",
+    "debug_hint": "037460: extreme volume concentration. Possible block trade or forced liquidation"
+  },
+  {
+    "priority": "MEDIUM",
+    "category": "INTRADAY",
+    "message": "Deep intraday DD: 009970 -6.2%",
+    "detail": "close vs VWAP +0.8%",
+    "debug_hint": "009970 large intraday swing but not near trail. Check if HWM updated today - may widen gap"
+  },
+  {
+    "priority": "MEDIUM",
+    "category": "INTRADAY",
+    "message": "Deep intraday DD: 037460 -4.3%",
+    "detail": "close vs VWAP +0.2%",
+    "debug_hint": "037460 large intraday swing but not near trail. Check if HWM updated today - may widen gap"
+  }
+]

@@ -1,0 +1,68 @@
+[
+  {
+    "strategy": "Gen4_Core",
+    "universe": "KOSPI",
+    "cagr": "24.11%",
+    "mdd": "-20.54%",
+    "sharpe": "1.504",
+    "calmar": "1.174",
+    "trades": 640,
+    "win_rate": "45.9%",
+    "final_equity": "362,989,772"
+  },
+  {
+    "strategy": "Pure_Mom12-1",
+    "universe": "KOSPI",
+    "cagr": "-14.36%",
+    "mdd": "-69.46%",
+    "sharpe": "-0.559",
+    "calmar": "0.207",
+    "trades": 1145,
+    "win_rate": "30.0%",
+    "final_equity": "39,635,767"
+  },
+  {
+    "strategy": "Hybrid_LowVol+RS",
+    "universe": "KOSPI",
+    "cagr": "0.52%",
+    "mdd": "-43.32%",
+    "sharpe": "0.105",
+    "calmar": "0.012",
+    "trades": 1113,
+    "win_rate": "35.6%",
+    "final_equity": "103,134,475"
+  },
+  {
+    "strategy": "Gen4_Core",
+    "universe": "ALL",
+    "cagr": "15.79%",
+    "mdd": "-31.36%",
+    "sharpe": "0.947",
+    "calmar": "0.503",
+    "trades": 784,
+    "win_rate": "43.9%",
+    "final_equity": "239,851,150"
+  },
+  {
+    "strategy": "Pure_Mom12-1",
+    "universe": "ALL",
+    "cagr": "-20.55%",
+    "mdd": "-78.98%",
+    "sharpe": "-0.910",
+    "calmar": "0.260",
+    "trades": 1229,
+    "win_rate": "28.5%",
+    "final_equity": "25,326,878"
+  },
+  {
+    "strategy": "Hybrid_LowVol+RS",
+    "universe": "ALL",
+    "cagr": "-3.10%",
+    "mdd": "-48.77%",
+    "sharpe": "-0.074",
+    "calmar": "0.064",
+    "trades": 1229,
+    "win_rate": "36.0%",
+    "final_equity": "82,879,404"
+  }
+]

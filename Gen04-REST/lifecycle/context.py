@@ -71,6 +71,9 @@ class LiveContext:
     swing_collector: Any = None
     micro_collector: Any = None
 
+    # ── Cross Validation (P2 observer-only) ─────────────────────────
+    xval_observer: Any = None   # CrossValidationObserver (observer-only, no state writes)
+
     # ── Phase gate ────────────────────────────────────────────────────
     current_phase: str = "INIT"  # INIT/STARTUP/RECON/PENDING_BUY/REBALANCE/MONITOR/EOD
     recon_complete: bool = False  # True after RECON — orders allowed only after this

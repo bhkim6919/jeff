@@ -1,0 +1,6 @@
+{
+  "label": "STRONG_BULL",
+  "score": 2.5,
+  "feature_date": "2026-04-10",
+  "saved_at": "2026-04-10T13:20:58"
+}

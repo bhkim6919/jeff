@@ -29,6 +29,11 @@ class Position:
     sector: str = ""
     current_price: float = 0.0
     last_price_ts: Optional[datetime] = None  # stale price detection
+    invested_total: float = 0.0   # cumulative buy cost (qty * price * (1+fee))
+    trail_skip_days: int = 0      # consecutive EOD trail skip count
+    # ── Entry-time metadata (observation only, not used in trading logic) ──
+    entry_rank: int = 0            # momentum rank at entry (1~20, 0=unrecorded)
+    score_mom: float = 0.0         # momentum score at entry
 
     @property
     def market_value(self) -> float:
@@ -50,19 +55,32 @@ class Position:
             "trail_stop_price": self.trail_stop_price,
             "sector": self.sector,
             "current_price": self.current_price,
+            "invested_total": self.invested_total,
+            "trail_skip_days": self.trail_skip_days,
+            "entry_rank": self.entry_rank,
+            "score_mom": self.score_mom,
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Position":
+    def from_dict(cls, d: dict, buy_cost: float = 0.00115) -> "Position":
+        qty = d.get("quantity", d.get("qty", 0))
+        avg = d.get("avg_price", d.get("entry_price", 0))
+        # Fallback: if invested_total not stored, estimate from qty * avg * (1 + buy_cost).
+        # buy_cost is injected from config — do NOT hard-code 1.00115 here.
+        invested = d.get("invested_total", qty * avg * (1 + buy_cost))
         return cls(
             code=d["code"],
-            quantity=d.get("quantity", d.get("qty", 0)),
-            avg_price=d.get("avg_price", d.get("entry_price", 0)),
+            quantity=qty,
+            avg_price=avg,
             entry_date=str(d.get("entry_date", "")),
             high_watermark=d.get("high_watermark", d.get("high_wm", 0)),
             trail_stop_price=d.get("trail_stop_price", 0),
             sector=d.get("sector", ""),
             current_price=d.get("current_price", 0.0),
+            invested_total=invested,
+            trail_skip_days=d.get("trail_skip_days", 0),
+            entry_rank=d.get("entry_rank", 0),
+            score_mom=d.get("score_mom", 0.0),
         )
 
 
@@ -158,6 +176,7 @@ class PortfolioManager:
             high_watermark=price,
             sector=sector,
             current_price=price,
+            invested_total=total_cost,
         )
         logger.info(f"BUY {code}: qty={qty}, price={price:,.0f}, cost={total_cost:,.0f} (fee incl)")
         return True
@@ -190,8 +209,11 @@ class PortfolioManager:
                                f"clamped to {pos.quantity}")
 
         proceeds = sell_qty * price * (1 - sell_cost)
-        cost_basis = sell_qty * pos.avg_price
-        pnl_pct = (proceeds - cost_basis) / cost_basis if cost_basis > 0 else 0
+
+        # Invested basis: proportional allocation for partial sells
+        sell_ratio = sell_qty / pos.quantity  # ratio before quantity reduction
+        invested_for_sell = pos.invested_total * sell_ratio
+        pnl_pct = (proceeds - invested_for_sell) / invested_for_sell if invested_for_sell > 0 else 0
 
         self.cash += proceeds
 
@@ -203,7 +225,8 @@ class PortfolioManager:
             "exit_price": price,
             "quantity": sell_qty,
             "pnl_pct": pnl_pct,
-            "pnl_amount": proceeds - cost_basis,
+            "pnl_amount": proceeds - invested_for_sell,
+            "invested": invested_for_sell,
         }
 
         if sell_qty >= pos.quantity:
@@ -212,6 +235,7 @@ class PortfolioManager:
                         f"price={price:,.0f}, pnl={pnl_pct:+.2%}")
         else:
             pos.quantity -= sell_qty
+            pos.invested_total -= invested_for_sell
             logger.info(f"[PARTIAL SELL APPLIED] {code}: sold={sell_qty}, "
                         f"remaining={pos.quantity}, price={price:,.0f}, "
                         f"pnl={pnl_pct:+.2%}")
@@ -264,8 +288,15 @@ class PortfolioManager:
             "positions": {code: pos.to_dict() for code, pos in self.positions.items()},
         }
 
-    def restore_from_dict(self, data: dict) -> None:
-        """Restore from saved state."""
+    def restore_from_dict(self, data: dict, buy_cost: float = 0.00115) -> None:
+        """Restore from saved state.
+
+        Args:
+            data: Portfolio state dict from StateManager.
+            buy_cost: Buy transaction cost rate from config.
+                      Used to reconstruct invested_total for legacy positions
+                      that predate explicit invested_total storage.
+        """
         self.cash = data.get("cash", self.cash)
         self.prev_close_equity = data.get("prev_close_equity", self.cash)
         self.peak_equity = data.get("peak_equity", self.cash)
@@ -273,7 +304,7 @@ class PortfolioManager:
 
         self.positions = {}
         for code, pos_data in data.get("positions", {}).items():
-            self.positions[code] = Position.from_dict(pos_data)
+            self.positions[code] = Position.from_dict(pos_data, buy_cost=buy_cost)
 
         logger.info(f"Restored: {len(self.positions)} positions, cash={self.cash:,.0f}")
 

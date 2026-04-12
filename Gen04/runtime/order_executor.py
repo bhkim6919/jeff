@@ -182,6 +182,14 @@ class OrderExecutor:
             return {"order_no": "", "exec_price": 0.0, "exec_qty": 0,
                     "error": f"broker holds 0 shares of {code}"}
 
+        # base_qty: broker holdings BEFORE this sell order.
+        # Used by EOD settle to compute delta:
+        #   BUY:  delta = broker_qty_after - base_qty  (increase = filled)
+        #   SELL: delta = base_qty - broker_qty_after   (decrease = sold)
+        # Both sides use the same formula direction: base_qty is the
+        # pre-order snapshot, broker_qty is the post-settle observation.
+        rec.base_qty = broker_hold
+
         actual_qty = min(qty, broker_hold)
         if actual_qty < qty:
             logger.warning(f"Sell qty adjusted: {qty} -> {actual_qty} (broker_hold={broker_hold})")
@@ -206,16 +214,41 @@ class OrderExecutor:
         else:
             exec_qty = result["exec_qty"]
             req_qty = result.get("requested_qty", actual_qty)
-            self.tracker.mark_filled(rec.order_id, result["exec_price"], exec_qty)
-            self.tracker.record_fill(
-                result["order_no"], "SELL", code,
-                exec_qty, result["exec_price"],
-                exec_qty, "CHEJAN")
-            self.trade_logger.log_trade(
-                code, "SELL", exec_qty, result["exec_price"], mode="LIVE")
-            logger.info(
-                f"[EXEC] SELL {code} requested_qty={req_qty} exec_qty={exec_qty} "
-                f"price={result['exec_price']:,.0f} order_no={result.get('order_no','')}")
+
+            # C3 FIX: PARTIAL_TIMEOUT with 0 fills — KRX accepted but
+            # no chejan arrived before timeout.  Treat as PENDING_EXTERNAL
+            # instead of FILLED(0) to let ghost/reconcile catch the fill.
+            if exec_qty == 0 and req_qty > 0:
+                self.tracker.mark_pending_external(rec.order_id)
+                logger.warning(
+                    f"[SELL_PARTIAL_TIMEOUT_ZERO] {code} req={req_qty} exec=0 — "
+                    f"KRX may have filled, routing to PENDING_EXTERNAL "
+                    f"(order_no={result.get('order_no', '')})")
+                self._persist_pending_external(rec)
+            elif 0 < exec_qty < req_qty:
+                # Partial fill: record what we got, remainder to PENDING_EXTERNAL
+                self.tracker.mark_filled(rec.order_id, result["exec_price"], exec_qty)
+                self.tracker.record_fill(
+                    result["order_no"], "SELL", code,
+                    exec_qty, result["exec_price"],
+                    exec_qty, "CHEJAN")
+                self.trade_logger.log_trade(
+                    code, "SELL", exec_qty, result["exec_price"], mode="LIVE")
+                logger.warning(
+                    f"[SELL_PARTIAL_TIMEOUT] {code} req={req_qty} exec={exec_qty} "
+                    f"— partial filled, remainder {req_qty - exec_qty} tracked via ghost "
+                    f"(order_no={result.get('order_no', '')})")
+            else:
+                self.tracker.mark_filled(rec.order_id, result["exec_price"], exec_qty)
+                self.tracker.record_fill(
+                    result["order_no"], "SELL", code,
+                    exec_qty, result["exec_price"],
+                    exec_qty, "CHEJAN")
+                self.trade_logger.log_trade(
+                    code, "SELL", exec_qty, result["exec_price"], mode="LIVE")
+                logger.info(
+                    f"[EXEC] SELL {code} requested_qty={req_qty} exec_qty={exec_qty} "
+                    f"price={result['exec_price']:,.0f} order_no={result.get('order_no','')}")
 
         return result
 
@@ -270,25 +303,55 @@ class OrderExecutor:
             exec_qty = result["exec_qty"]
             req_qty = result.get("requested_qty", qty)
 
-            # Slippage check
-            decision_price = self.get_live_price(code)
-            if decision_price > 0 and result["exec_price"] > 0:
-                slip = abs(result["exec_price"] - decision_price) / decision_price
-                if slip > MAX_SLIPPAGE_CAP:
-                    logger.warning(
-                        f"HIGH SLIPPAGE {code}: {slip:.1%} "
-                        f"(decision={decision_price:,.0f}, fill={result['exec_price']:,.0f})")
-
-            self.tracker.mark_filled(rec.order_id, result["exec_price"], exec_qty)
-            self.tracker.record_fill(
-                result["order_no"], "BUY", code,
-                exec_qty, result["exec_price"],
-                exec_qty, "CHEJAN")
-            self.trade_logger.log_trade(
-                code, "BUY", exec_qty, result["exec_price"], mode="LIVE")
-            logger.info(
-                f"[EXEC] BUY {code} requested_qty={req_qty} exec_qty={exec_qty} "
-                f"price={result['exec_price']:,.0f} order_no={result.get('order_no','')}")
+            # C3 FIX: PARTIAL_TIMEOUT with 0 fills — KRX accepted but
+            # no chejan arrived before timeout.  This is the exact pattern
+            # from 2026-04-03 LIVE (17 BUY orders).
+            if exec_qty == 0 and req_qty > 0:
+                self.tracker.mark_pending_external(rec.order_id)
+                logger.warning(
+                    f"[BUY_PARTIAL_TIMEOUT_ZERO] {code} req={req_qty} exec=0 — "
+                    f"KRX may have filled, routing to PENDING_EXTERNAL "
+                    f"(order_no={result.get('order_no', '')})")
+                self._persist_pending_external(rec)
+            elif 0 < exec_qty < req_qty:
+                # Slippage check on partial
+                decision_price = self.get_live_price(code)
+                if decision_price > 0 and result["exec_price"] > 0:
+                    slip = abs(result["exec_price"] - decision_price) / decision_price
+                    if slip > MAX_SLIPPAGE_CAP:
+                        logger.warning(
+                            f"HIGH SLIPPAGE {code}: {slip:.1%} "
+                            f"(decision={decision_price:,.0f}, fill={result['exec_price']:,.0f})")
+                self.tracker.mark_filled(rec.order_id, result["exec_price"], exec_qty)
+                self.tracker.record_fill(
+                    result["order_no"], "BUY", code,
+                    exec_qty, result["exec_price"],
+                    exec_qty, "CHEJAN")
+                self.trade_logger.log_trade(
+                    code, "BUY", exec_qty, result["exec_price"], mode="LIVE")
+                logger.warning(
+                    f"[BUY_PARTIAL_TIMEOUT] {code} req={req_qty} exec={exec_qty} "
+                    f"— partial filled, remainder {req_qty - exec_qty} tracked via ghost "
+                    f"(order_no={result.get('order_no', '')})")
+            else:
+                # Slippage check
+                decision_price = self.get_live_price(code)
+                if decision_price > 0 and result["exec_price"] > 0:
+                    slip = abs(result["exec_price"] - decision_price) / decision_price
+                    if slip > MAX_SLIPPAGE_CAP:
+                        logger.warning(
+                            f"HIGH SLIPPAGE {code}: {slip:.1%} "
+                            f"(decision={decision_price:,.0f}, fill={result['exec_price']:,.0f})")
+                self.tracker.mark_filled(rec.order_id, result["exec_price"], exec_qty)
+                self.tracker.record_fill(
+                    result["order_no"], "BUY", code,
+                    exec_qty, result["exec_price"],
+                    exec_qty, "CHEJAN")
+                self.trade_logger.log_trade(
+                    code, "BUY", exec_qty, result["exec_price"], mode="LIVE")
+                logger.info(
+                    f"[EXEC] BUY {code} requested_qty={req_qty} exec_qty={exec_qty} "
+                    f"price={result['exec_price']:,.0f} order_no={result.get('order_no','')}")
 
         return result
 
@@ -462,6 +525,7 @@ class OrderExecutor:
 
             # All ghosts settled → upgrade
             rt["rebal_sell_status"] = "COMPLETE"
+            rt["fast_reentry_dirty"] = True
             self._state_mgr.save_runtime(rt)
             logger.info(f"[SELL_STATUS_UPGRADED] {status} -> COMPLETE "
                         f"(all ghost orders settled)")

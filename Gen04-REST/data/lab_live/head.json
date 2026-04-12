@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "committed_version_seq": 1,
+  "strategies": [
+    "breakout_trend",
+    "hybrid_qscore",
+    "liquidity_signal",
+    "lowvol_momentum",
+    "mean_reversion",
+    "momentum_base",
+    "quality_factor",
+    "sector_rotation",
+    "vol_regime"
+  ],
+  "last_run_date": "2026-04-11",
+  "last_run_ts": "2026-04-11T15:43:35.426553"
+}

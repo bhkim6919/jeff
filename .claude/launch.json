@@ -11,9 +11,23 @@
     {
       "name": "surge-rest",
       "runtimeExecutable": "C:/Q-TRON-32_ARCHIVE/.venv/Scripts/python.exe",
-      "runtimeArgs": ["-m", "uvicorn", "web.app:app", "--host", "0.0.0.0", "--port", "8090"],
-      "port": 8090,
+      "runtimeArgs": ["-m", "uvicorn", "web.app:app", "--host", "0.0.0.0", "--port", "8080"],
+      "port": 8080,
       "cwd": "Gen04-REST"
+    },
+    {
+      "name": "rest-preview",
+      "runtimeExecutable": "C:/Q-TRON-32_ARCHIVE/.venv64/Scripts/python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "web.app:app", "--host", "0.0.0.0", "--port", "8085"],
+      "port": 8085,
+      "cwd": "Gen04-REST"
+    },
+    {
+      "name": "qtron-us",
+      "runtimeExecutable": "C:/Q-TRON-32_ARCHIVE/Gen04-US/.venv/Scripts/python.exe",
+      "runtimeArgs": ["-X", "utf8", "-m", "uvicorn", "web.app:app", "--host", "0.0.0.0", "--port", "8081", "--reload"],
+      "port": 8081,
+      "cwd": "Gen04-US"
     }
   ]
 }

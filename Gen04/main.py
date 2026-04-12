@@ -15,6 +15,7 @@ Requires: venv python with pykrx
 """
 from __future__ import annotations
 import argparse
+import ctypes
 import hashlib
 import json
 import logging
@@ -24,11 +25,20 @@ import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-# ── Kakao notifier (optional — failure never blocks trading) ─────────────────
+# ── Telegram notifier (primary — failure never blocks trading) ────────────────
 try:
-    from notify.kakao_notify import notify_buy as _kakao_buy
-    from notify.kakao_notify import notify_sell as _kakao_sell
-    from notify.kakao_notify import notify_trail_stop as _kakao_trail
+    from notify.telegram_notify import notify as _tg_notify
+    from notify.telegram_notify import notify_safe_mode as _tg_safe_mode
+    from notify.telegram_notify import notify_buy_blocked as _tg_buy_blocked
+    from notify.telegram_notify import notify_eod as _tg_eod
+    from notify.telegram_notify import notify_recon as _tg_recon
+    from notify.telegram_notify import notify_rebalance_done as _tg_rebalance_done
+    _TELEGRAM_OK = True
+except Exception:
+    _TELEGRAM_OK = False
+
+# ── Kakao notifier (fallback — failure never blocks trading) ──────────────────
+try:
     from notify.kakao_notify import notify as _kakao_notify
     from notify.kakao_notify import notify_safe_mode as _kakao_safe_mode
     from notify.kakao_notify import notify_buy_blocked as _kakao_buy_blocked
@@ -36,61 +46,159 @@ try:
 except Exception:
     _KAKAO_OK = False
 
-def _load_name_cache(base_dir: Path) -> dict:
-    p = base_dir / "data" / "stock_name_cache.json"
-    try:
-        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
-    except Exception:
-        return {}
+# ── Phase 1 extracted modules ─────────────────────────────────────────────────
+from notify.helpers import (
+    _load_name_cache, _save_name_cache, _enrich_name_cache,
+    _kname, _notify_buy, _notify_sell, _notify_trail,
+)
+from lifecycle.utils import (
+    _file_hash, setup_logging, is_weekday, is_trading_day, is_market_hours,
+    _resolve_trading_mode, validate_trading_mode,
+    _safe_save, _save_test_reentry_meta,
+    _count_trading_days, _compute_regime_snapshot,
+)
+from lifecycle.batch import run_batch
+from lifecycle.mock import run_mock
+from lifecycle.reconcile import _reconcile_with_broker
 
-def _save_name_cache(base_dir: Path, cache: dict) -> None:
-    p = base_dir / "data" / "stock_name_cache.json"
+# ── Telegram Bot (optional — read-only snapshot polling) ─────────────────────
+import copy
+import threading
+
+_snapshot = None          # atomic-replace only (never in-place mutate)
+_snapshot_lock = threading.Lock()
+_snapshot_update_counts = {}  # reason -> count (debug tracking)
+_tg_bot = None            # TelegramBot instance (set in run_live)
+
+
+def _build_snapshot(pm, guard, config, name_cache, daily_pnl_pct=0.0,
+                    next_rebal_days=0, reason=""):
+    """Build a NEW snapshot dict. Never mutate existing snapshot.
+
+    Source timing: all position/equity fields from pm (same read),
+    daily_pnl_pct passed from caller's snapshot_now basis.
+    """
+    from datetime import datetime as _dt
+    snapshot_now = _dt.now()
+    positions = []
+    for code, pos in pm.positions.items():
+        if pos.quantity <= 0:
+            continue
+        drop = ((pos.current_price / pos.high_watermark - 1)
+                if pos.high_watermark > 0 and pos.current_price > 0 else 0.0)
+        stop_pct = -config.TRAIL_PCT
+        dist = abs(drop - stop_pct)
+        positions.append({
+            "code": code,
+            "name": name_cache.get(code, code),
+            "qty": pos.quantity,
+            "pnl_pct": pos.unrealized_pnl_pct,
+            "current_drop_pct": drop,
+            "trail_stop_pct": stop_pct,
+            "distance_to_stop_pp": round(dist * 100, 2),
+        })
+
+    # staleness: max price age
+    max_age = 0.0
+    for pos in pm.positions.values():
+        if pos.last_price_ts:
+            age = (snapshot_now - pos.last_price_ts).total_seconds()
+            max_age = max(max_age, age)
+    is_stale = max_age > 600  # 10분 이상
+
+    # buy_permission from guard
+    bp = "NORMAL"
+    sm = 0
+    if guard:
+        try:
+            _perm, _perm_reason = guard.get_buy_permission()
+            bp = _perm.name
+        except Exception:
+            bp = "NORMAL"
+        sm = guard.safe_mode_level if hasattr(guard, 'safe_mode_level') else 0
+
+    # Regime (read from runtime state, computed by batch EOD)
+    _regime_label = ""
     try:
-        p.write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
+        from core.state_manager import StateManager
+        _rt_path = config.STATE_DIR
+        _rt_file = _rt_path / "runtime_state_live.json"
+        if _rt_file.exists():
+            import json as _json
+            _rt = _json.loads(_rt_file.read_text(encoding="utf-8"))
+            _regime_label = _rt.get("regime", "")
     except Exception:
         pass
 
-def _enrich_name_cache(cache: dict, codes, provider) -> bool:
-    """Fill missing names from Kiwoom master data. Returns True if cache was updated."""
-    updated = False
-    for code in codes:
-        if code in cache and cache[code]:
-            continue
-        try:
-            info = provider.get_stock_info(code)
-            name = info.get("name", "")
-            if name:
-                cache[code] = name
-                updated = True
-        except Exception:
-            pass
-    return updated
+    snap = {
+        "equity": pm.get_current_equity() if hasattr(pm, 'get_current_equity') else 0,
+        "daily_pnl_pct": daily_pnl_pct,
+        "n_positions": len(positions),
+        "safe_mode": sm,
+        "buy_permission": bp,
+        "next_rebalance_in_days": next_rebal_days,
+        "is_stale": is_stale,
+        "max_price_age_sec": round(max_age, 1),
+        "timestamp": snapshot_now.isoformat(),
+        "trail_alert_threshold_pp": config.TRAIL_ALERT_DISTANCE_PP,
+        "regime": _regime_label,
+        "positions": positions,
+    }
 
-def _kname(code: str, cache: dict) -> str:
-    return cache.get(code, code)
+    # Integrity assertions (debug WARNING only)
+    _n = snap["n_positions"]
+    _p = snap["positions"]
+    if len(_p) != _n:
+        logging.getLogger("gen4.snapshot").warning(
+            f"[SNAPSHOT_INTEGRITY] len(positions)={len(_p)} != n_positions={_n}")
+    for _pp in _p:
+        if _pp["qty"] <= 0:
+            logging.getLogger("gen4.snapshot").warning(
+                f"[SNAPSHOT_INTEGRITY] {_pp['code']} qty={_pp['qty']} <= 0")
+        if _pp["current_drop_pct"] > 0.001:
+            logging.getLogger("gen4.snapshot").warning(
+                f"[SNAPSHOT_INTEGRITY] {_pp['code']} drop={_pp['current_drop_pct']} > 0")
+        if _pp["trail_stop_pct"] >= 0:
+            logging.getLogger("gen4.snapshot").warning(
+                f"[SNAPSHOT_INTEGRITY] {_pp['code']} stop={_pp['trail_stop_pct']} >= 0")
+        # float epsilon check for distance
+        expected_dist = round(abs(_pp["current_drop_pct"] - _pp["trail_stop_pct"]) * 100, 2)
+        if abs(_pp["distance_to_stop_pp"] - expected_dist) > 0.01:
+            logging.getLogger("gen4.snapshot").warning(
+                f"[SNAPSHOT_INTEGRITY] {_pp['code']} dist={_pp['distance_to_stop_pp']} "
+                f"!= expected={expected_dist}")
+        if _pp["pnl_pct"] < -1.0 or _pp["pnl_pct"] > 10.0:
+            logging.getLogger("gen4.snapshot").warning(
+                f"[SNAPSHOT_INTEGRITY] {_pp['code']} pnl_pct={_pp['pnl_pct']} out of range")
 
-def _notify_buy(code: str, name_cache: dict, qty: int, price: float):
-    if not _KAKAO_OK: return
-    try: _kakao_buy(code, _kname(code, name_cache), qty, price)
-    except Exception as e:
-        logging.getLogger("gen4.kakao").warning(f"[NOTIFY_BUY_FAIL] {code}: {e}")
+    return snap
 
-def _notify_sell(code: str, name_cache: dict, qty: int, price: float,
-                 pnl_pct: float = 0.0, reason: str = "", avg_price: float = 0.0):
-    if not _KAKAO_OK: return
-    try: _kakao_sell(code, _kname(code, name_cache), qty, price, pnl_pct, reason,
-                     avg_price=avg_price)
-    except Exception as e:
-        logging.getLogger("gen4.kakao").warning(f"[NOTIFY_SELL_FAIL] {code}: {e}")
 
-def _notify_trail(code: str, name_cache: dict, price: float,
-                  hwm: float, drop_pct: float,
-                  qty: int = 0, avg_price: float = 0.0):
-    if not _KAKAO_OK: return
-    try: _kakao_trail(code, _kname(code, name_cache), price, hwm, drop_pct,
-                      qty=qty, avg_price=avg_price)
-    except Exception as e:
-        logging.getLogger("gen4.kakao").warning(f"[NOTIFY_TRAIL_FAIL] {code}: {e}")
+def _update_snapshot(pm, guard, config, name_cache, daily_pnl_pct=0.0,
+                     next_rebal_days=0, reason="UNKNOWN"):
+    """Build new snapshot and atomically replace global reference."""
+    global _snapshot
+    new_snap = _build_snapshot(pm, guard, config, name_cache,
+                               daily_pnl_pct, next_rebal_days, reason)
+    with _snapshot_lock:
+        _snapshot = new_snap
+    # Debug tracking
+    _snapshot_update_counts[reason] = _snapshot_update_counts.get(reason, 0) + 1
+    cnt = _snapshot_update_counts[reason]
+    logging.getLogger("gen4.snapshot").debug(
+        f"[SNAPSHOT_UPDATE] reason={reason} count={cnt}")
+
+
+def _get_snapshot_copy():
+    """Thread-safe deepcopy of current snapshot. Used by TelegramBot."""
+    with _snapshot_lock:
+        if _snapshot is None:
+            return None
+        return copy.deepcopy(_snapshot)
+
+# NOTE: _load_name_cache, _save_name_cache, _enrich_name_cache, _kname,
+#       _notify_buy, _notify_sell, _notify_trail are imported from notify.helpers
+#       (telegram-first + kakao fallback). Do NOT redefine locally.
 
 
 def _file_hash(path: Path) -> str:
@@ -118,19 +226,29 @@ def is_weekday() -> bool:
     return date.today().weekday() < 5
 
 def is_trading_day() -> bool:
-    """pykrx로 거래일 확인. 실패 시 평일 fallback."""
+    """평일이면 거래일. 공휴일은 pykrx로 제외."""
+    today_dt = date.today()
+    if today_dt.weekday() >= 5:
+        return False
     try:
         from pykrx import stock as pykrx_stock
-        today = date.today().strftime("%Y%m%d")
-        # get_market_ohlcv_by_date returns empty for holidays
-        month_start = (date.today().replace(day=1)).strftime("%Y%m%d")
+        today = today_dt.strftime("%Y%m%d")
+        # 당월 거래일 목록 조회 (과거 확정분만 포함)
+        month_start = today_dt.replace(day=1).strftime("%Y%m%d")
         df = pykrx_stock.get_market_ohlcv_by_date(month_start, today, "005930")
-        if df is not None and not df.empty:
-            trading_days = [d.strftime("%Y%m%d") for d in df.index]
-            return today in trading_days
-        return date.today().weekday() < 5  # fallback
+        if df is None or df.empty:
+            return True  # 데이터 없으면 평일 신뢰
+        last_trading = df.index[-1].strftime("%Y%m%d")
+        if last_trading == today:
+            return True  # 당일 데이터 있음 = 거래일
+        # 당일 데이터 없음 = 장 전이거나 공휴일
+        # 장 전이면 어제가 마지막 → 오늘은 아직 미확정 → 평일이므로 거래일
+        # 공휴일이면 어제도 거래일이었을 것 → 동일하게 평일 신뢰
+        # 진짜 구분: 내일 데이터가 나와야 알 수 있음
+        # → 평일이면 거래일로 간주 (공휴일 오탐은 09:01에 빈 호가로 감지)
+        return True
     except Exception:
-        return date.today().weekday() < 5
+        return True
 
 def is_market_hours() -> bool:
     now = datetime.now()
@@ -177,12 +295,19 @@ def validate_trading_mode(trading_mode: str, server_type: str,
                 f"(server_type={server_type}). Mock mode must not use broker.")
         return  # mock + no broker = OK
 
-    if trading_mode in ("paper", "paper_test", "shadow_test"):
+    if trading_mode == "shadow_test":
+        if server_type not in ("MOCK", "REAL"):
+            raise RuntimeError(
+                f"[MODE_MISMATCH_ABORT] trading_mode=shadow_test server_type={server_type}. "
+                f"Shadow test requires MOCK or REAL server.")
+        return  # shadow_test + any server = OK (read-only, no orders)
+
+    if trading_mode in ("paper", "paper_test"):
         if server_type != "MOCK":
             raise RuntimeError(
                 f"[MODE_MISMATCH_ABORT] trading_mode={trading_mode} server_type={server_type}. "
                 f"Paper mode requires MOCK server (모의투자).")
-        return  # paper/paper_test/shadow_test + MOCK = OK
+        return  # paper/paper_test + MOCK = OK
 
     if trading_mode == "live":
         if server_type != "REAL":
@@ -196,7 +321,7 @@ def validate_trading_mode(trading_mode: str, server_type: str,
 
 def _try_fast_reentry(state_mgr, portfolio, config, executor, provider,
                       trade_logger, logger, mode_label, tracker=None,
-                      name_cache=None) -> bool:
+                      name_cache=None, guard=None) -> bool:
     """paper_test only: execute pending buys after delay instead of T+1.
 
     Returns True if reentry executed (or permanently skipped), False to retry next cycle.
@@ -206,40 +331,154 @@ def _try_fast_reentry(state_mgr, portfolio, config, executor, provider,
     cycle_id = rt.get("test_cycle_id", "")
     sell_status = rt.get("rebal_sell_status", "")
     pending_buys = rt.get("pending_buys", [])
+    dd_blocked_buys = rt.get("dd_blocked_buys", [])
 
-    if not ready_at_str or not pending_buys:
-        return False  # nothing to do
+    # ── Diagnostic: re-evaluate DD_GUARD with current equity ──
+    daily_pnl = portfolio.get_daily_pnl_pct()
+    monthly_dd = portfolio.get_monthly_dd_pct()
+    can_buy_now = True
+    buy_scale_now = 1.0
+    risk_level = "UNKNOWN"
+    if guard:
+        risk_action = guard.get_risk_action(
+            daily_pnl, monthly_dd,
+            dd_levels=config.DD_LEVELS,
+            safe_mode_release=config.SAFE_MODE_RELEASE_THRESHOLD)
+        skip_buys, _ = guard.should_skip_rebalance(daily_pnl, monthly_dd)
+        buy_scale_now = risk_action["buy_scale"]
+        if skip_buys:
+            buy_scale_now = 0.0
+        can_buy_now = buy_scale_now > 0
+        risk_level = risk_action["level"]
+
+    # Use dd_blocked_buys as fallback when pending_buys is empty due to DD block
+    effective_buys = pending_buys if pending_buys else dd_blocked_buys
+
+    logger.info(
+        f"[FAST_REENTRY_CHECK] ready_at={ready_at_str or 'NONE'} "
+        f"sell_status={sell_status or 'NONE'} "
+        f"pending_buys={len(pending_buys)} dd_blocked_buys={len(dd_blocked_buys)} "
+        f"monthly_dd={monthly_dd:.2%} daily_pnl={daily_pnl:.2%} "
+        f"risk={risk_level} buy_scale={buy_scale_now:.0%} can_buy={can_buy_now}")
+
+    if not ready_at_str:
+        logger.info("[FAST_REENTRY_BLOCKED] reason=NO_READY_AT (reentry not scheduled)")
+        return False
+
+    if not effective_buys:
+        logger.info("[FAST_REENTRY_BLOCKED] reason=NO_PENDING_BUYS "
+                    "(pending_buys and dd_blocked_buys both empty)")
+        return False
 
     # Check sell_status
     if sell_status not in ("COMPLETE",):
-        return False  # ghost fills still settling
+        logger.info(f"[FAST_REENTRY_BLOCKED] reason=SELL_STATUS_{sell_status} "
+                    f"(waiting for ghost fills to settle)")
+        return False
 
     # Check time
     try:
         ready_at = datetime.fromisoformat(ready_at_str)
     except (ValueError, TypeError):
-        logger.warning(f"[PAPER_TEST_REENTRY] invalid ready_at: {ready_at_str}")
+        logger.warning(f"[FAST_REENTRY_BLOCKED] reason=INVALID_READY_AT "
+                       f"value={ready_at_str} — skipping permanently")
         return True  # skip permanently
 
     now = datetime.now()
     remaining = (ready_at - now).total_seconds()
     if remaining > 0:
-        if remaining < 120:  # only log when close
-            logger.info(f"[PAPER_TEST_REENTRY_WAIT] {remaining:.0f}s remaining")
+        logger.info(f"[FAST_REENTRY_BLOCKED] reason=NOT_YET "
+                    f"remaining={remaining:.0f}s ready_at={ready_at_str}")
         return False  # not yet
 
+    # Re-evaluate DD_GUARD at execution time
+    if not can_buy_now:
+        logger.warning(
+            f"[FAST_REENTRY_BLOCKED] reason=DD_GUARD "
+            f"level={risk_level} monthly_dd={monthly_dd:.2%} "
+            f"daily_pnl={daily_pnl:.2%} buy_scale={buy_scale_now:.0%} "
+            f"— will retry next cycle")
+        return False  # retry — DD may improve
+
+    # If original pending_buys was empty but dd_blocked_buys available,
+    # validate metadata, filter stale/duplicate, then restore
+    if not pending_buys and dd_blocked_buys:
+        dd_meta = rt.get("dd_blocked_meta", {})
+        blocked_cycle = dd_meta.get("cycle_id", "")
+        blocked_created = dd_meta.get("created_at", "")
+
+        # ── Validate: cycle_id must match current session ──
+        if blocked_cycle and cycle_id and blocked_cycle != cycle_id:
+            logger.warning(
+                f"[DD_BLOCKED_RESTORE] DISCARD_CYCLE_MISMATCH "
+                f"blocked_cycle={blocked_cycle} current_cycle={cycle_id} "
+                f"— {len(dd_blocked_buys)} buys discarded")
+            rt["dd_blocked_buys"] = []
+            rt.pop("dd_blocked_meta", None)
+            state_mgr.save_runtime(rt)
+            return True  # permanently skip — wrong cycle
+
+        # ── Validate: created_at must not be stale (max 1 calendar day) ──
+        if blocked_created:
+            try:
+                created_dt = datetime.fromisoformat(blocked_created)
+                age_hours = (datetime.now() - created_dt).total_seconds() / 3600
+                if age_hours > 24:
+                    logger.warning(
+                        f"[DD_BLOCKED_RESTORE] DISCARD_STALE "
+                        f"created_at={blocked_created} age={age_hours:.1f}h "
+                        f"— {len(dd_blocked_buys)} buys discarded")
+                    rt["dd_blocked_buys"] = []
+                    rt.pop("dd_blocked_meta", None)
+                    state_mgr.save_runtime(rt)
+                    return True  # permanently skip — too old
+            except (ValueError, TypeError):
+                pass  # invalid timestamp — proceed with caution
+
+        # ── Filter: skip tickers already in portfolio (EXISTING_POSITION) ──
+        existing_codes = set(portfolio.positions.keys())
+        restored = []
+        for b in dd_blocked_buys:
+            ticker = b["ticker"]
+            if ticker in existing_codes:
+                logger.info(f"[DD_BLOCKED_RESTORE] code={ticker} "
+                            f"action=SKIP_EXISTING (already in portfolio)")
+                continue
+            b["target_amount"] = b.get("original_amount", b["target_amount"]) * buy_scale_now
+            restored.append(b)
+            logger.info(f"[DD_BLOCKED_RESTORE] code={ticker} action=RESTORE "
+                        f"amount={b['target_amount']:,.0f} scale={buy_scale_now:.0%}")
+
+        n_skip = len(dd_blocked_buys) - len(restored)
+        logger.info(
+            f"[DD_BLOCKED_RESTORE_SUMMARY] total={len(dd_blocked_buys)} "
+            f"restored={len(restored)} skipped_existing={n_skip} "
+            f"cycle={blocked_cycle} buy_scale={buy_scale_now:.0%}")
+
+        if not restored:
+            logger.info("[FAST_REENTRY_BLOCKED] reason=ALL_BLOCKED_BUYS_FILTERED")
+            rt["dd_blocked_buys"] = []
+            rt.pop("dd_blocked_meta", None)
+            state_mgr.save_runtime(rt)
+            return True  # nothing left to execute
+
+        effective_buys = restored
+
     # All conditions met — execute
+    logger.info(f"[FAST_REENTRY_EXECUTE] cycle={cycle_id} "
+                f"buys={len(effective_buys)} sell_status={sell_status} "
+                f"cash={portfolio.cash:,.0f} buy_scale={buy_scale_now:.0%}")
     logger.info(f"[TRACKER_WIRED] fast_reentry tracker={'yes' if tracker else 'no'}")
-    logger.info(f"[PAPER_TEST_FAST_REENTRY_EXEC] cycle={cycle_id} "
-                f"buys={len(pending_buys)} sell_status={sell_status}")
 
     _execute_pending_buys(
-        portfolio, pending_buys, config, executor, provider,
+        portfolio, effective_buys, config, executor, provider,
         trade_logger, state_mgr, logger, mode_label, tracker=tracker,
         name_cache=name_cache)
 
     # Mark executed
     rt["pending_buys"] = []
+    rt["dd_blocked_buys"] = []
+    rt.pop("dd_blocked_meta", None)
     rt["rebal_sell_status"] = ""
     rt["test_reentry_executed"] = True
     state_mgr.save_runtime(rt)
@@ -282,7 +521,7 @@ def _safe_save(state_mgr, portfolio, context: str = "",
 
 
 # ── Batch Mode ───────────────────────────────────────────────────────────────
-def run_batch(config):
+def run_batch(config, fast: bool = False):
     """Batch: pykrx update → universe → scoring → target portfolio."""
     from data.pykrx_provider import update_ohlcv_incremental, get_stock_list
     from data.universe_builder import build_universe_from_ohlcv
@@ -323,11 +562,23 @@ def run_batch(config):
 
     # Step 2: Build universe
     logger.info("[2/5] Building universe...")
+    # Load sector map for market filter
+    _sector_map_path = config.BASE_DIR / "data" / "sector_map.json"
+    _sector_map_batch = {}
+    if _sector_map_path.exists():
+        try:
+            _sector_map_batch = json.load(open(_sector_map_path, encoding="utf-8"))
+        except Exception:
+            pass
+    _markets = getattr(config, "MARKETS", None)
+    logger.info(f"  Market filter: {_markets or 'ALL'}")
     universe = build_universe_from_ohlcv(
         ohlcv_dir, min_close=config.UNIV_MIN_CLOSE,
         min_amount=config.UNIV_MIN_AMOUNT,
         min_history=config.UNIV_MIN_HISTORY,
-        min_count=config.UNIV_MIN_COUNT)
+        min_count=config.UNIV_MIN_COUNT,
+        allowed_markets=_markets,
+        sector_map=_sector_map_batch)
     logger.info(f"  Universe: {len(universe)} stocks")
     if not universe:
         logger.error("Empty universe!")
@@ -355,6 +606,10 @@ def run_batch(config):
         logger.info(f"    {i:2d}. {tk}  vol={s.get('vol_12m',0):.4f}  mom={s.get('mom_12_1',0):.4f}")
 
     # Step 5: Generate Top20 MA HTML report
+    if fast:
+        logger.info("[5-7/7] Skipped (--fast mode)")
+        logger.info("Batch complete (fast).")
+        return target
     logger.info("[5/7] Generating Top20 MA report...")
     try:
         from report.top20_report import generate_top20_report
@@ -506,7 +761,7 @@ def run_live(config):
     if not is_trading_day():
         logger.warning("Non-trading day (weekend/holiday). Exiting.")
         return
-    if datetime.now().hour >= 16:
+    if datetime.now().hour >= 16 and _resolve_trading_mode(config) != "shadow_test":
         logger.warning("After 16:00. Market closed. Exiting.")
         return
 
@@ -552,8 +807,20 @@ def run_live(config):
     logger.info(f"[TRADING_MODE] {trading_mode}  "
                 f"(intended={intended_mode}, server={server_type})")
 
+    # FORCE_* fault-injection flags must NEVER be active in live/paper mode
+    if trading_mode in ("live", "paper"):
+        _force_flags = {
+            "FORCE_OPT10075_FAIL": getattr(config, "FORCE_OPT10075_FAIL", False),
+            "FORCE_RECON_CORRECTIONS": getattr(config, "FORCE_RECON_CORRECTIONS", 0),
+            "FORCE_PENDING_EXTERNAL_BLOCK": getattr(config, "FORCE_PENDING_EXTERNAL_BLOCK", False),
+        }
+        _active = {k: v for k, v in _force_flags.items() if v}
+        if _active:
+            logger.critical(f"[ABORT] FORCE_* flags active in {trading_mode} mode: {_active}")
+            raise RuntimeError(f"FORCE_* flags must be False in {trading_mode} mode: {_active}")
+
     # LIVE protection: block if test residue detected
-    if actual_mode == "live" and intended_mode != "paper_test":
+    if actual_mode == "live" and intended_mode not in ("paper_test", "shadow_test"):
         _test_state = config.STATE_DIR / "runtime_state_paper_test.json"
         if _test_state.exists():
             import json
@@ -600,6 +867,53 @@ def run_live(config):
         portfolio.restore_from_dict(saved, buy_cost=config.BUY_COST)
         logger.info(f"Restored: {len(portfolio.positions)} positions, cash={portfolio.cash:,.0f}")
 
+        # ── C1 FIX: Startup price validity guard ──────────────────
+        # After restore, current_price may be stale (from last save) or zero
+        # (legacy state without current_price).  Phantom DD can false-trigger
+        # DD guard before RECON/real-time prices arrive.
+        #
+        # Composite condition — ALL must be true to neutralize:
+        #   1) apparent daily DD exceeds -30% (extreme, not normal overnight)
+        #   2) market_value is suspiciously low vs prev_close_equity
+        #      (most positions have current_price=0 or near-zero)
+        #   3) at least one position has current_price <= 0
+        #
+        # This ensures:
+        #   - Normal overnight DD (-3%~-18%) is NEVER masked
+        #   - Only structural price-data-loss (restart with stale/zero prices)
+        #     triggers neutralization
+        #   - RECON will sync broker truth; real-time ticks update prices
+        _restored_equity = portfolio.get_current_equity()
+        _saved_prev = portfolio.prev_close_equity
+        _n_positions = len(portfolio.positions)
+        if _saved_prev > 0 and _n_positions > 0:
+            _startup_dd = (_restored_equity - _saved_prev) / _saved_prev
+            _market_value = sum(p.market_value for p in portfolio.positions.values())
+            _mv_ratio = _market_value / _saved_prev if _saved_prev > 0 else 1.0
+            _zero_price_count = sum(
+                1 for p in portfolio.positions.values() if p.current_price <= 0)
+
+            _is_phantom = (
+                _startup_dd < -0.30          # condition 1: extreme DD
+                and _mv_ratio < 0.50         # condition 2: market value < 50% of prev equity
+                and _zero_price_count > 0    # condition 3: at least one zero-price position
+            )
+
+            logger.info(
+                f"[STARTUP_PRICE_CHECK] equity={_restored_equity:,.0f} "
+                f"prev_close={_saved_prev:,.0f} dd={_startup_dd:.2%} "
+                f"mv_ratio={_mv_ratio:.2%} zero_prices={_zero_price_count}/{_n_positions} "
+                f"phantom={_is_phantom}")
+
+            if _is_phantom:
+                logger.warning(
+                    f"[STARTUP_PRICE_GUARD] Phantom DD detected: "
+                    f"dd={_startup_dd:.2%} mv_ratio={_mv_ratio:.2%} "
+                    f"zero_prices={_zero_price_count}/{_n_positions} "
+                    f"— neutralizing prev_close_equity until RECON/realtime")
+                portfolio.prev_close_equity = _restored_equity
+                portfolio.peak_equity = max(portfolio.peak_equity, _restored_equity)
+
     # Ghost fill sync: executor needs portfolio + state_mgr for immediate sync
     executor.set_ghost_fill_context(portfolio, state_mgr,
                                      buy_cost=config.BUY_COST)
@@ -637,6 +951,42 @@ def run_live(config):
     # Mark session as running (dirty) — will be cleared on clean shutdown
     state_mgr.mark_startup()
 
+    # ── Discard stale PENDING_EXTERNAL orders (24h threshold) ──
+    _pe_stale = state_mgr.load_pending_external()
+    if _pe_stale:
+        _now_ts = datetime.now()
+        _kept, _discarded = [], []
+        for _pe in _pe_stale:
+            _pe_ts_str = _pe.get("requested_at") or _pe.get("timestamp", "")
+            try:
+                _pe_ts = datetime.fromisoformat(_pe_ts_str)
+                _age_h = (_now_ts - _pe_ts).total_seconds() / 3600
+                if _age_h > 24:
+                    _discarded.append((_pe, f"{_age_h:.1f}h"))
+                else:
+                    _kept.append(_pe)
+            except (ValueError, TypeError):
+                _discarded.append((_pe, "unparseable_ts"))
+        if _discarded:
+            logger.warning(f"[PENDING_STALE_DISCARD] discarded={len(_discarded)} "
+                           f"kept={len(_kept)} total={len(_pe_stale)}")
+            for _d, _reason in _discarded:
+                logger.info(f"  discarded: order_id={_d.get('order_id','?')} "
+                            f"code={_d.get('code','?')} side={_d.get('side','?')} "
+                            f"ts={_d.get('requested_at', _d.get('timestamp','?'))} "
+                            f"age={_reason}")
+            if _kept:
+                _saved = state_mgr.save_pending_external(_kept)
+            else:
+                _saved = state_mgr.clear_pending_external()
+            if not _saved:
+                logger.error("[PENDING_STALE_DISCARD] state save FAILED after discard")
+            else:
+                logger.info(f"[PENDING_STALE_DISCARD] state saved — "
+                            f"remaining pending_external={len(_kept)}")
+        else:
+            logger.info(f"[PENDING_EXTERNAL_CHECK] {len(_pe_stale)} entries, all within 24h")
+
     # ── Cancel Stale Orders (recovery-first) ──────────────────
     # Always cancel open orders on startup — prevents ghost fills from
     # previous session's orphaned orders (root cause of OVERFILL)
@@ -652,18 +1002,24 @@ def run_live(config):
         elif _cancelled > 0:
             logger.warning(f"[STARTUP_CANCEL] {_cancelled} stale orders cancelled")
             time.sleep(3.0)  # Allow cancels to settle
-            # Re-verify: confirm all orders are actually cancelled
+            # Re-verify: single query (cancel_all already verified internally)
+            # Total opt10075 calls: cancel_all(query+verify) + this = 3
             try:
                 _remaining = provider.query_open_orders()
+                logger.info(f"[STARTUP_CANCEL_RECHECK] source=startup_cancel_check "
+                            f"remaining={'None' if _remaining is None else len(_remaining)} "
+                            f"opt10075_call=3of3")
                 if _remaining is None:
                     logger.warning("[OPEN_ORDERS_RECHECK_FAIL] query returned None")
                     _recovery_ok = False
                 elif len(_remaining) > 0:
-                    logger.critical(f"[OPEN_ORDERS_AFTER_CANCEL] {len(_remaining)} orders "
-                                    f"still open after cancel — manual intervention needed")
+                    logger.critical(f"[CANCEL_INCOMPLETE] {len(_remaining)} orders still open "
+                                    f"after cancel — SAFE_MODE L2 + rebalance blocked")
+                    guard.force_safe_mode(
+                        f"CANCEL_INCOMPLETE: {len(_remaining)} orders remain", level=2)
                     _recovery_ok = False
                 else:
-                    logger.info("[OPEN_ORDERS_AFTER_CANCEL] 0 — all cancels confirmed")
+                    logger.info("[OPEN_ORDERS_AFTER_CANCEL] 0 — verified clean")
             except Exception as _recheck_err:
                 logger.warning(f"[OPEN_ORDERS_RECHECK_FAIL] {_recheck_err}")
                 _recovery_ok = False
@@ -685,6 +1041,8 @@ def run_live(config):
             and trading_mode in ("paper_test", "shadow_test")):
         _opt_success = False
         logger.warning("[FAULT_INJECT] FORCE_OPT10075_FAIL=True → recording as failure")
+    logger.info(f"[OPT10075_RECORD] source=startup_cancel success={_opt_success} "
+                f"recovery_ok={_recovery_ok} streak_before={guard._opt10075_fail_streak}")
     guard.record_opt10075_result(success=_opt_success)
 
     # Wait for broker data to settle after login (mitigation, not root fix)
@@ -697,16 +1055,34 @@ def run_live(config):
                                     buy_cost=config.BUY_COST)
     reconcile_corrections = recon.get("corrections", 0) if recon else 0
     if recon and reconcile_corrections > 0:
-        _safe_save(state_mgr, portfolio,
-                   context=f"recon/{reconcile_corrections}corrections")
-        logger.info(f"[RECON] State saved after {recon['corrections']} corrections")
+        if trading_mode != "shadow_test":
+            _safe_save(state_mgr, portfolio,
+                       context=f"recon/{reconcile_corrections}corrections")
+            logger.info(f"[RECON] State saved after {recon['corrections']} corrections")
+        else:
+            logger.info(f"[SHADOW_TEST] RECON found {reconcile_corrections} corrections (not saved)")
     if recon and not recon.get("ok", True):
+        if trading_mode == "shadow_test":
+            logger.warning("[SHADOW_TEST_EXIT] Broker sync failed — logged only, no abort needed")
+            logger.info("[SHADOW_TEST_RESULT] RECON=FAIL, corrections=%d, error=%s",
+                        reconcile_corrections, recon.get("error", "unknown"))
+            return
         logger.critical("Broker sync FAILED — aborting LIVE to prevent stale-state trading")
         save_forensic_snapshot(
             config.STATE_DIR,
             portfolio_data=portfolio.to_dict(),
             error_msg=f"Broker sync failed: {recon.get('error', 'unknown')}",
             extra={"recon": recon})
+        return
+
+    # ── shadow_test: exit after RECON (read-only verification complete) ──
+    if trading_mode == "shadow_test":
+        _pos_count = len(portfolio.positions)
+        _cash = portfolio.cash
+        logger.info("[SHADOW_TEST_EXIT] RECON completed successfully")
+        logger.info("[SHADOW_TEST_RESULT] RECON=OK, corrections=%d, "
+                    "positions=%d, cash=%s, broker_ok=True",
+                    reconcile_corrections, _pos_count, f"{_cash:,.0f}")
         return
 
     # FRESH start: reset equity baseline to current (post-RECON) equity
@@ -725,17 +1101,20 @@ def run_live(config):
 
     # ── Recovery Verification (dirty exit + stale orders) ────────
     if not _recovery_ok:
-        # Re-check: are there still open orders after cancel + RECON?
+        # Single re-check after RECON (opt10075 call count control)
         _recheck_ok = False
         try:
             _remaining = provider.query_open_orders()
+            logger.info(f"[RECOVERY_RECHECK] source=recovery_recheck "
+                        f"remaining={'None' if _remaining is None else len(_remaining)}")
             if _remaining is None:
                 logger.critical("[RECOVERY_CHECK_FAIL] query returned None — staying cautious")
             elif len(_remaining) > 0:
                 logger.critical(f"[RECOVERY_FAILED] {len(_remaining)} orders still open "
-                                f"after cancel — forcing MONITOR-ONLY")
+                                f"after cancel — forcing SAFE_MODE L2")
+                guard.force_safe_mode("RECOVERY_FAILED: stale orders remain", level=2)
             else:
-                logger.info("[RECOVERY_OK] No stale orders remain — recovery complete")
+                logger.info("[RECOVERY_OK] No stale orders remain — verified clean")
                 _recovery_ok = True
                 _recheck_ok = True
         except Exception as _re:
@@ -746,13 +1125,16 @@ def run_live(config):
                 and trading_mode in ("paper_test", "shadow_test")):
             _recheck_success = False
             logger.warning("[FAULT_INJECT] FORCE_OPT10075_FAIL=True → recheck as failure")
+        logger.info(f"[OPT10075_RECORD] source=recovery_recheck success={_recheck_success} "
+                    f"streak_before={guard._opt10075_fail_streak}")
         guard.record_opt10075_result(success=_recheck_success)
 
     # Fault injection: force 2nd opt10075 failure even when recovery_ok=True
     if (getattr(config, "FORCE_OPT10075_FAIL", False)
             and trading_mode in ("paper_test", "shadow_test")
             and _recovery_ok):
-        logger.warning("[FAULT_INJECT] FORCE_OPT10075_FAIL=True → 2nd failure injected")
+        logger.warning(f"[OPT10075_RECORD] source=fault_inject_test success=False "
+                       f"streak_before={guard._opt10075_fail_streak}")
         guard.record_opt10075_result(success=False)
 
     # Session-level context for equity log (initialized early for safe_mode path)
@@ -785,9 +1167,14 @@ def run_live(config):
             logger.warning(f"[RECON_SAFE_MODE_SKIP] {mode_label}: proceeding despite safe mode")
         else:
             level_changed = guard.force_safe_mode(reason, level=_sm_level)
-            if level_changed and _KAKAO_OK:
-                try: _kakao_safe_mode(_sm_level, reason)
-                except Exception: pass
+            if level_changed:
+                if _TELEGRAM_OK:
+                    try: _tg_safe_mode(_sm_level, reason)
+                    except Exception: pass
+                if _KAKAO_OK:
+                    try: _kakao_safe_mode(_sm_level, reason)
+                    except Exception: pass
+                _update_snapshot(portfolio, guard, config, _name_cache, next_rebal_days=_rebal_remaining_days, reason="SAFE_MODE_CHANGE")
         # holdings_unreliable → full monitor-only (block rebalance sells too)
         if "holdings_unreliable" in reason:
             session_monitor_only = True
@@ -800,6 +1187,17 @@ def run_live(config):
         if rt.get("recon_unreliable"):
             rt["recon_unreliable"] = False
             state_mgr.save_runtime(rt)
+
+    # ── Snapshot: RECON_DONE ─────────────────────────────────────
+    _update_snapshot(portfolio, guard, config, _name_cache, next_rebal_days=_rebal_remaining_days, reason="RECON_DONE")
+
+    # ── Telegram Bot: DISABLED (REST handles polling) ──────────────
+    # COM에서 polling 비활성화 — REST가 동일 토큰으로 polling 중.
+    # 동시 polling 시 409 Conflict 발생.
+    # COM은 send-only (notify/telegram_notify.py)로 알림만 발송.
+    global _tg_bot
+    _tg_bot = None
+    logger.info("[TG_BOT] Polling disabled — REST handles bot commands. COM is send-only.")
 
     # ── Phase 1.5: Pending Buy Execution (T+1 model) ────────────
     _is_paper_test = mode_label.lower() in ("paper_test", "shadow_test")
@@ -845,6 +1243,15 @@ def run_live(config):
             f"[PENDING_BUY_BLOCKED_SAFE_MODE] "
             f"{len(pending_buys)} buys blocked — {guard.safe_mode_reason}")
         pending_buys = []  # prevent fall-through to execution
+
+    # GAP-2 FIX: BuyPermission 검사 (BLOCKED/RECOVERING이면 매수 차단)
+    if pending_buys:
+        _pb_perm, _pb_reason = guard.get_buy_permission()
+        if _pb_perm in (BuyPermission.BLOCKED, BuyPermission.RECOVERING):
+            logger.warning(
+                f"[PENDING_BUY_BLOCKED_PERMISSION] "
+                f"{len(pending_buys)} buys blocked — {_pb_perm.value}: {_pb_reason}")
+            pending_buys = []
 
     if pending_buys and not session_monitor_only and not _skip_phase15:
         if pb_sell_status not in ("COMPLETE",):
@@ -894,14 +1301,29 @@ def run_live(config):
             if not expired:
                 logger.info(f"[PENDING_BUY_EXECUTE] {len(pending_buys)} buys "
                             f"from signal_date={signal_date}")
-                _execute_pending_buys(
+                _pb_ok, _pb_fail = _execute_pending_buys(
                     portfolio, pending_buys, config, executor, provider,
                     trade_logger, state_mgr, logger, mode_label,
                     tracker=tracker, name_cache=_name_cache)
+
+                # Conditional clear — single authority for pending_buys state
+                if _pb_fail == 0:
+                    state_mgr.clear_pending_buys()
+                elif _pb_ok == 0:
+                    logger.critical(
+                        "[PENDING_BUY_ALL_FAILED] %d buys all failed — "
+                        "pending_buys RETAINED for next session retry", _pb_fail)
+                else:
+                    # Partial success: clear all, rely on RECON + EXISTING_POSITION guard
+                    logger.warning(
+                        "[PENDING_BUY_PARTIAL_CLEAR] success=%d fail=%d total=%d "
+                        "— clearing all, relying on RECON + EXISTING_POSITION guard",
+                        _pb_ok, _pb_fail, _pb_ok + _pb_fail)
+                    state_mgr.clear_pending_buys()
             else:
                 logger.info(f"[PENDING_BUY_SKIP] reason=expired signal_date={signal_date}")
-
-            state_mgr.clear_pending_buys()
+                state_mgr.clear_pending_buys()
+            _update_snapshot(portfolio, guard, config, _name_cache, next_rebal_days=_rebal_remaining_days, reason="REBAL_BUY_DONE")
     elif pending_buys and session_monitor_only:
         logger.warning(
             f"[PENDING_BUY_BLOCKED_MONITOR_ONLY] "
@@ -920,6 +1342,7 @@ def run_live(config):
     today_str = date.today().strftime("%Y%m%d")
 
     # Trading-day based rebalance check (matches backtest REBAL_DAYS)
+    _rebal_remaining_days = 0  # default: rebalance day
     if need_rebalance is not None:
         pass  # already set (buy_only)
     elif not last_rebal:
@@ -931,8 +1354,10 @@ def run_live(config):
             # Count actual trading days using KOSPI calendar
             trading_days = _count_trading_days(last_dt, date.today(), config)
             need_rebalance = (trading_days >= config.REBAL_DAYS)
+            _rebal_remaining_days = max(0, config.REBAL_DAYS - trading_days)
             logger.info(f"Trading days since last rebalance: {trading_days} "
                         f"(threshold: {config.REBAL_DAYS}, "
+                        f"remaining: {_rebal_remaining_days}, "
                         f"calendar days: {(date.today() - last_dt).days})")
         except (ValueError, TypeError):
             need_rebalance = True
@@ -1108,9 +1533,16 @@ def run_live(config):
                     rt["rebal_deferred_reason"] = perm_reason
                     rt["rebal_deferred_date"] = today_str
                     state_mgr.save_runtime(rt)
-                    if _KAKAO_OK and permission == BuyPermission.BLOCKED:
-                        try: _kakao_buy_blocked(perm_reason)
-                        except Exception: pass
+                    if permission == BuyPermission.BLOCKED:
+                        if _TELEGRAM_OK:
+                            try: _tg_buy_blocked(perm_reason)
+                            except Exception: pass
+                        if _KAKAO_OK:
+                            try: _kakao_buy_blocked(perm_reason)
+                            except Exception: pass
+                    _update_snapshot(portfolio, guard, config, _name_cache,
+                                     next_rebal_days=_rebal_remaining_days,
+                                     reason="BUY_PERM_CHANGE")
 
                 elif permission == BuyPermission.REDUCED:
                     buy_scale = buy_scale * 0.5
@@ -1227,11 +1659,42 @@ def run_live(config):
                                   date.today().strftime("%Y-%m-%d"))
     collector.set_active_codes(list(portfolio.positions.keys()))
 
+    # KOSPI index collector — uses polling (SetRealReg doesn't work for indices)
+    _kospi_intraday_dir = _intraday_dir / "indices"
+    kospi_collector = IntradayCollector(_kospi_intraday_dir,
+                                        date.today().strftime("%Y-%m-%d"))
+    kospi_collector.set_active_codes(["001"])  # KOSPI index code
+
     if portfolio.positions:
         provider.set_real_data_callback(collector.on_tick)
         provider.register_real(list(portfolio.positions.keys()), fids="10;27")
         logger.info("[Intraday] Real-time tick collection started "
-                    f"for {len(portfolio.positions)} positions")
+                    f"for {len(portfolio.positions)} positions + KOSPI polling")
+
+    # ── Snapshot replay data collectors (non-critical) ──────────────
+    swing_collector = None
+    micro_collector = None
+    try:
+        from data.microstructure_collector import MicrostructureCollector
+        from data.swing_collector import SwingRankingCollector
+        _swing_dir = config.BASE_DIR / "data" / "swing"
+        _micro_dir = config.BASE_DIR / "data" / "micro"
+        micro_collector = MicrostructureCollector(
+            _micro_dir, date.today().strftime("%Y%m%d"), provider)
+        swing_collector = SwingRankingCollector(
+            _swing_dir, date.today().strftime("%Y%m%d"),
+            provider, collector, micro_collector)
+        provider.set_micro_callback(micro_collector.on_real_data)
+        logger.info("[SWING] snapshot replay data collectors initialized")
+        # FIX-001: Pre-market seed — force first ranking snapshot immediately
+        try:
+            swing_collector.seed_pre_market()
+        except Exception as seed_err:
+            logger.warning(f"[SWING] pre-market seed failed (non-critical): {seed_err}")
+    except Exception as e:
+        logger.warning(f"[SWING] init failed (non-critical): {e}")
+        swing_collector = None
+        micro_collector = None
 
     # ── Phase 3: Monitor Loop (HWM update + trail warning only) ────
     #    Trail stop EXECUTION happens at EOD (Phase 4) to match backtest
@@ -1281,13 +1744,30 @@ def run_live(config):
                     break
 
                 # ── paper_test fast reentry: execute pending buys after delay ──
+                # Check dirty flag (set by ghost settle sell_status upgrade)
+                if not _test_reentry_done:
+                    _rt_check = state_mgr.load_runtime()
+                    if _rt_check.get("fast_reentry_dirty"):
+                        _rt_check.pop("fast_reentry_dirty", None)
+                        state_mgr.save_runtime(_rt_check)
+                        logger.info("[FAST_REENTRY_DIRTY] sell_status upgrade "
+                                    "detected — forcing immediate reentry check")
+
                 if (mode_label.lower() in ("paper_test", "shadow_test")
                         and config.PAPER_TEST_FAST_REENTRY
                         and not _test_reentry_done):
+                    _pre_reentry_codes = set(portfolio.positions.keys())
                     _test_reentry_done = _try_fast_reentry(
                         state_mgr, portfolio, config, executor, provider,
                         trade_logger, logger, mode_label, tracker=tracker,
-                        name_cache=_name_cache)
+                        name_cache=_name_cache, guard=guard)
+                    # FIX-A8: fast_reentry로 추가된 종목을 collector에 등록
+                    if _test_reentry_done:
+                        _new_codes = set(portfolio.positions.keys()) - _pre_reentry_codes
+                        if _new_codes and collector is not None:
+                            collector.set_active_codes(list(portfolio.positions.keys()))
+                            for _nc in _new_codes:
+                                logger.info(f"[FAST_REENTRY_REGISTER] code={_nc}")
 
                 if now.hour < 9:
                     # Qt-aware wait (allows real-time tick events to process)
@@ -1383,6 +1863,10 @@ def run_live(config):
                         reconcile_corrections=reconcile_corrections,
                         monitor_only=session_monitor_only)
                     _safe_save(state_mgr, portfolio, context="recon/monitor/checkpoint")
+                    _update_snapshot(portfolio, guard, config, _name_cache,
+                                     daily_pnl_pct=summary['daily_pnl'],
+                                     next_rebal_days=_rebal_remaining_days,
+                                     reason="MONITOR_TICK")
 
                 # Qt-aware wait: allows real-time tick events to process
                 # Check stop_requested every 1s to enable Ctrl+C during wait
@@ -1398,6 +1882,27 @@ def run_live(config):
                 # Flush minute bars
                 collector.check_and_flush()
 
+                # KOSPI index polling (SetRealReg doesn't support indices)
+                try:
+                    _kospi_price = provider.get_kospi_close()
+                    if _kospi_price and _kospi_price > 0:
+                        kospi_collector.on_tick("001", _kospi_price, 0)
+                except Exception:
+                    pass
+                kospi_collector.check_and_flush()
+
+                # Swing/Micro snapshot replay collectors (fully isolated)
+                if swing_collector:
+                    try:
+                        swing_collector.check_and_snapshot()
+                    except Exception as _sw_e:
+                        logger.warning(f"[SWING] snapshot error (ignored): {_sw_e}")
+                if micro_collector:
+                    try:
+                        micro_collector.check_and_sample()
+                    except Exception as _mc_e:
+                        logger.warning(f"[MICRO] sample error (ignored): {_mc_e}")
+
         except KeyboardInterrupt:
             logger.info("Interrupted (Ctrl+C)")
         except Exception as e:
@@ -1406,6 +1911,17 @@ def run_live(config):
             # Always save state + flush intraday + cleanup on monitor exit
             try:
                 collector.flush_all()
+                kospi_collector.flush_all()
+                if swing_collector:
+                    try:
+                        swing_collector.flush()
+                    except Exception as _e:
+                        logger.warning(f"[SWING] flush error (ignored): {_e}")
+                if micro_collector:
+                    try:
+                        micro_collector.flush()
+                    except Exception as _e:
+                        logger.warning(f"[MICRO] flush error (ignored): {_e}")
                 provider.unregister_real()
                 _safe_save(state_mgr, portfolio, context="monitor_exit")
                 logger.info("[MONITOR_CLEANUP] state saved, realtime cleared, exit complete")
@@ -1552,8 +2068,19 @@ def run_live(config):
         close_price, price_source = price_info
 
         if not pos or close_price is None or close_price <= 0:
-            logger.warning(f"[EOD_PRICE_MISSING] {code}: decision=SKIP_NO_PRICE "
-                           f"(source={price_source})")
+            # Phase 1-A: unavailable도 trail_skip_days 누적 (감시 사각 방지)
+            if pos:
+                pos.trail_skip_days += 1
+                if pos.trail_skip_days >= 3:
+                    logger.critical(
+                        f"[TRAIL_SKIP_UNAVAIL] {code}: {pos.trail_skip_days}d "
+                        f"— price unavailable, trail stop unmonitored")
+                else:
+                    logger.warning(
+                        f"[EOD_PRICE_MISSING] {code}: decision=SKIP_NO_PRICE "
+                        f"(source={price_source}, skip_days={pos.trail_skip_days})")
+            else:
+                logger.warning(f"[EOD_PRICE_MISSING] {code}: pos=None")
             continue
 
         # [BEHAVIOR CHANGE] Only execute trail stop on verified close prices.
@@ -1652,8 +2179,21 @@ def run_live(config):
                     f"sent={trail_sent}, filled={trail_filled}, "
                     f"failed={trail_failed}")
 
+    _update_snapshot(portfolio, guard, config, _name_cache, next_rebal_days=_rebal_remaining_days, reason="EOD_TRAIL_EVAL")
+
     # ── EOD Intraday Cleanup ──────────────────────────────────
     collector.flush_all()
+    kospi_collector.flush_all()
+    if swing_collector:
+        try:
+            swing_collector.flush()
+        except Exception as _e:
+            logger.warning(f"[SWING] EOD flush error (ignored): {_e}")
+    if micro_collector:
+        try:
+            micro_collector.flush()
+        except Exception as _e:
+            logger.warning(f"[MICRO] EOD flush error (ignored): {_e}")
     provider.unregister_real()
     provider.set_real_data_callback(None)
 
@@ -1689,6 +2229,16 @@ def run_live(config):
     except Exception as e:
         logger.warning(f"KOSPI minute bars fetch failed: {e} (non-critical)")
 
+    # ── Fetch broker account summary (broker = truth) ──────────
+    _broker_summary = None
+    try:
+        _broker_summary = provider.query_account_summary()
+        if _broker_summary.get("error"):
+            logger.warning(f"[EOD_BROKER_SUMMARY] failed: {_broker_summary['error']}")
+            _broker_summary = None
+    except Exception as e:
+        logger.warning(f"[EOD_BROKER_SUMMARY] exception: {e}")
+
     # ── EOD equity snapshot (BEFORE end_of_day to capture correct daily_pnl) ──
     summary = portfolio.summary()
     trade_logger.log_equity(
@@ -1703,193 +2253,242 @@ def run_live(config):
         kosdaq_close=kosdaq_close_val,
         regime=session_regime,
         kospi_ma200=session_kospi_ma200,
-        breadth=session_breadth)
+        breadth=session_breadth,
+        broker_summary=_broker_summary)
 
     portfolio.end_of_day()
     _safe_save(state_mgr, portfolio, context="EOD")
+    _update_snapshot(portfolio, guard, config, _name_cache, next_rebal_days=_rebal_remaining_days, reason="EOD_SETTLE")
 
-    # ── EOD Daily Report: open positions snapshot ──────────────
-    trade_logger.log_daily_positions(
-        portfolio.positions,
-        buy_cost=config.BUY_COST,
-        sell_cost=config.SELL_COST)
-
-    # ── EOD Intraday Analysis + Daily HTML Report ────────────
-    # Use same report_dir as TradeLogger (output_test/ for paper_test)
-    _eod_report_dir = _report_dir
-    intraday_summary = None
+    # ── EOD Reports, Analysis, Settlement ──────────────────────
+    # Wrapped in try/finally so shutdown cleanup (mark_shutdown,
+    # provider.shutdown, app.quit) runs even if reports/settlement fail.
     try:
-        from report.intraday_analyzer import (
-            analyze_all as ia_analyze_all,
-            generate_summary as ia_generate_summary,
-            save_json as ia_save_json,
-            save_csv as ia_save_csv,
-            extract_prev_closes as ia_prev_closes,
-        )
-        from data.intraday_collector import IntradayCollector
-        today_date_str = date.today().strftime("%Y-%m-%d")
-        ia_bars = IntradayCollector.load_all_for_date(
-            _intraday_dir, today_date_str)
-        if ia_bars:
-            prev_closes = ia_prev_closes(
-                _intraday_dir, today_date_str, list(ia_bars.keys()))
-            ia_results = ia_analyze_all(ia_bars, prev_closes)
-            intraday_summary = ia_generate_summary(ia_results, today_date_str)
-            ia_save_json(intraday_summary, _eod_report_dir, today_date_str)
-            ia_save_csv(intraday_summary, _eod_report_dir, today_date_str)
-            logger.info(f"[INTRADAY_ANALYSIS] {intraday_summary['n_stocks']} stocks, "
-                        f"risk_score={intraday_summary.get('risk_score', 'N/A')}, "
-                        f"worst_dd={intraday_summary.get('worst_dd_pct', 0):.2f}%")
-        else:
-            logger.info("[INTRADAY_ANALYSIS] No intraday data for today")
-    except Exception as e:
-        logger.warning(f"Intraday analysis failed: {e} (non-critical)")
+        # ── EOD Daily Report: open positions snapshot ──────────────
+        trade_logger.log_daily_positions(
+            portfolio.positions,
+            buy_cost=config.BUY_COST,
+            sell_cost=config.SELL_COST)
 
-    try:
-        from report.daily_report import generate_daily_report as gen_daily
-        rpt_path = gen_daily(_eod_report_dir, config,
-                              intraday_dir=_intraday_dir,
-                              intraday_summary=intraday_summary,
-                              eod_price_src=eod_price_src)
-        if rpt_path:
-            logger.info(f"Daily report: {rpt_path}")
-    except Exception as e:
-        logger.warning(f"Daily report generation failed: {e} (non-critical)")
-
-    # ── Weekly Report (Friday EOD) ─────────────────────────
-    if date.today().weekday() == 4:  # Friday
+        # ── EOD Intraday Analysis + Daily HTML Report ────────────
+        # Use same report_dir as TradeLogger (output_test/ for paper_test)
+        _eod_report_dir = _report_dir
+        intraday_summary = None
         try:
-            from report.weekly_report import generate_weekly_report
-            wrpt = generate_weekly_report(_eod_report_dir, config)
-            if wrpt:
-                logger.info(f"Weekly report: {wrpt}")
+            from report.intraday_analyzer import (
+                analyze_all as ia_analyze_all,
+                generate_summary as ia_generate_summary,
+                save_json as ia_save_json,
+                save_csv as ia_save_csv,
+                extract_prev_closes as ia_prev_closes,
+            )
+            from data.intraday_collector import IntradayCollector
+            today_date_str = date.today().strftime("%Y-%m-%d")
+            ia_bars_all = IntradayCollector.load_all_for_date(
+                _intraday_dir, today_date_str)
+            # 보유종목만 필터 (비보유 종목 DD가 리포트에 포함되는 것 방지)
+            _held_codes = set(portfolio.positions.keys())
+            ia_bars = {c: b for c, b in ia_bars_all.items() if c in _held_codes} if ia_bars_all else {}
+            if ia_bars:
+                prev_closes = ia_prev_closes(
+                    _intraday_dir, today_date_str, list(ia_bars.keys()))
+                ia_results = ia_analyze_all(ia_bars, prev_closes)
+                intraday_summary = ia_generate_summary(ia_results, today_date_str)
+                ia_save_json(intraday_summary, _eod_report_dir, today_date_str)
+                ia_save_csv(intraday_summary, _eod_report_dir, today_date_str)
+                logger.info(f"[INTRADAY_ANALYSIS] {intraday_summary['n_stocks']} stocks, "
+                            f"risk_score={intraday_summary.get('risk_score', 'N/A')}, "
+                            f"worst_dd={intraday_summary.get('worst_dd_pct', 0):.2f}%")
+            else:
+                logger.info("[INTRADAY_ANALYSIS] No intraday data for today")
         except Exception as e:
-            logger.warning(f"Weekly report generation failed: {e} (non-critical)")
+            logger.warning(f"Intraday analysis failed: {e} (non-critical)")
 
-    # ── Monthly Report (last trading day of month) ─────────
-    tomorrow = date.today() + timedelta(days=1)
-    if tomorrow.month != date.today().month:
         try:
-            from report.monthly_report import generate_monthly_report
-            mrpt = generate_monthly_report(_eod_report_dir, config)
-            if mrpt:
-                logger.info(f"Monthly report: {mrpt}")
+            from report.daily_report import generate_daily_report as gen_daily
+            rpt_path = gen_daily(_eod_report_dir, config,
+                                  intraday_dir=_intraday_dir,
+                                  intraday_summary=intraday_summary,
+                                  eod_price_src=eod_price_src,
+                                  broker_summary=_broker_summary)
+            if rpt_path:
+                logger.info(f"Daily report: {rpt_path}")
         except Exception as e:
-            logger.warning(f"Monthly report generation failed: {e} (non-critical)")
+            logger.warning(f"Daily report generation failed: {e} (non-critical)")
 
-    # Order summary
-    order_sum = tracker.summary()
-    logger.info(f"Orders: {order_sum}")
-
-    # Ghost check
-    ghosts = provider.get_ghost_orders()
-    if ghosts:
-        logger.critical(f"GHOST ORDERS: {len(ghosts)} unresolved! Check HTS!")
-        for g in ghosts:
-            logger.critical(f"  {g['side']} {g['code']} qty={g['requested_qty']} status={g['status']}")
-
-    # ── EOD: Settle PENDING_EXTERNAL orders via broker snapshot ────
-    if tracker:
-        from runtime.order_tracker import OrderStatus
-        pending_ext = [r for r in tracker._orders.values()
-                       if r.status == OrderStatus.PENDING_EXTERNAL]
-        if pending_ext:
-            logger.info(f"[EOD_SETTLE] {len(pending_ext)} PENDING_EXTERNAL orders to settle")
+        # ── Weekly Report (Friday EOD) ─────────────────────────
+        if date.today().weekday() == 4:  # Friday
             try:
-                snap = provider.query_account_summary()
-                broker_holdings = {h["code"]: h for h in snap.get("holdings", [])}
-                for rec in pending_ext:
-                    broker_pos = broker_holdings.get(rec.code)
-                    broker_qty = broker_pos.get("qty", broker_pos.get("quantity", 0)) if broker_pos else 0
-                    broker_avg = broker_pos.get("avg_price", 0) if broker_pos else 0
-                    logger.info(
-                        f"[EOD_SETTLE_INPUT] {rec.side} {rec.code}: "
-                        f"broker_pos={'found' if broker_pos else 'MISSING'} "
-                        f"broker_qty={broker_qty} broker_avg={broker_avg} "
-                        f"requested={rec.quantity} base_qty={getattr(rec, 'base_qty', 'N/A')}")
-
-                    if rec.side == "BUY":
-                        base_qty = getattr(rec, 'base_qty', None)
-                        if base_qty is not None:
-                            delta_qty = max(0, broker_qty - base_qty)
-                            if broker_qty < base_qty:
-                                logger.warning(
-                                    f"[RECON_NEGATIVE_DELTA] BUY {rec.code}: "
-                                    f"broker={broker_qty} < base={base_qty} — clamped to 0")
-                        else:
-                            delta_qty = broker_qty
-                            logger.warning(
-                                f"[RECON_NO_BASE_QTY] BUY {rec.code}: "
-                                f"base_qty missing, using broker_qty as-is")
-
-                        if delta_qty > rec.quantity * 2:
-                            logger.error(
-                                f"[RECON_ANOMALY] BUY {rec.code}: "
-                                f"delta={delta_qty} > 2x requested={rec.quantity}")
-
-                        if delta_qty >= rec.quantity:
-                            terminal, final_qty = "FILLED", rec.quantity
-                        elif 0 < delta_qty < rec.quantity:
-                            terminal, final_qty = "FILLED", delta_qty
-                            logger.warning(
-                                f"[RECON_PARTIAL_BUY] {rec.code}: "
-                                f"delta={delta_qty} < requested={rec.quantity}")
-                        else:
-                            terminal, final_qty = "CANCELLED", 0
-
-                        logger.info(
-                            f"[RECON_DECISION] BUY {rec.code} broker_qty={broker_qty} "
-                            f"base_qty={base_qty} delta={delta_qty} "
-                            f"expected={rec.quantity} → {terminal} (qty={final_qty})")
-                        tracker.mark_reconcile_settled(
-                            rec.order_id, final_qty, broker_avg, terminal)
-
-                    elif rec.side == "SELL":
-                        sold_qty = max(0, rec.quantity - broker_qty)
-                        if broker_qty < 0:
-                            logger.error(
-                                f"[RECON_ANOMALY] SELL {rec.code}: "
-                                f"broker_qty={broker_qty} < 0 — data error")
-                        if sold_qty <= 0:
-                            terminal, final_qty = "CANCELLED", 0
-                            logger.warning(
-                                f"[RECON_DECISION] SELL {rec.code} "
-                                f"broker_qty={broker_qty} >= requested={rec.quantity} "
-                                f"→ CANCELLED")
-                        elif sold_qty >= rec.quantity:
-                            terminal, final_qty = "FILLED", rec.quantity
-                            logger.info(
-                                f"[RECON_DECISION] SELL {rec.code} "
-                                f"broker_qty={broker_qty} requested={rec.quantity} "
-                                f"→ FILLED")
-                        else:
-                            terminal, final_qty = "FILLED", sold_qty
-                            logger.info(
-                                f"[RECON_DECISION] SELL {rec.code} "
-                                f"broker_qty={broker_qty} requested={rec.quantity} "
-                                f"sold={sold_qty} → FILLED (partial)")
-                        tracker.mark_reconcile_settled(
-                            rec.order_id, final_qty, rec.exec_price, terminal)
-
-                executor._try_upgrade_sell_status()
-                if state_mgr:
-                    state_mgr.clear_pending_external()
-                logger.info("[EOD_SETTLE] PENDING_EXTERNAL settlement complete")
+                from report.weekly_report import generate_weekly_report
+                wrpt = generate_weekly_report(_eod_report_dir, config)
+                if wrpt:
+                    logger.info(f"Weekly report: {wrpt}")
             except Exception as e:
-                logger.error(f"[EOD_SETTLE_ERROR] {e}", exc_info=True)
+                logger.warning(f"Weekly report generation failed: {e} (non-critical)")
 
-    # Mark clean shutdown
-    state_mgr.mark_shutdown("eod_complete")
+        # ── Monthly Report (last trading day of month) ─────────
+        tomorrow = date.today() + timedelta(days=1)
+        if tomorrow.month != date.today().month:
+            try:
+                from report.monthly_report import generate_monthly_report
+                mrpt = generate_monthly_report(_eod_report_dir, config)
+                if mrpt:
+                    logger.info(f"Monthly report: {mrpt}")
+            except Exception as e:
+                logger.warning(f"Monthly report generation failed: {e} (non-critical)")
 
-    provider.shutdown()
-    logger.info("=" * 40)
-    logger.info("  EOD complete.")
-    logger.info("=" * 40)
+        # Order summary
+        order_sum = tracker.summary()
+        logger.info(f"Orders: {order_sum}")
 
-    try:
-        app.quit()
-    except Exception:
-        pass
+        # Ghost check
+        ghosts = provider.get_ghost_orders()
+        if ghosts:
+            logger.critical(f"GHOST ORDERS: {len(ghosts)} unresolved! Check HTS!")
+            for g in ghosts:
+                logger.critical(f"  {g['side']} {g['code']} qty={g['requested_qty']} status={g['status']}")
+
+        # ── EOD: Settle PENDING_EXTERNAL orders via broker snapshot ────
+        if tracker:
+            from runtime.order_tracker import OrderStatus
+            pending_ext = [r for r in tracker._orders.values()
+                           if r.status == OrderStatus.PENDING_EXTERNAL]
+            if pending_ext:
+                logger.info(f"[EOD_SETTLE] {len(pending_ext)} PENDING_EXTERNAL orders to settle")
+                try:
+                    snap = provider.query_account_summary()
+                    broker_holdings = {h["code"]: h for h in snap.get("holdings", [])}
+                    for rec in pending_ext:
+                        broker_pos = broker_holdings.get(rec.code)
+                        broker_qty = broker_pos.get("qty", broker_pos.get("quantity", 0)) if broker_pos else 0
+                        broker_avg = broker_pos.get("avg_price", 0) if broker_pos else 0
+                        logger.info(
+                            f"[EOD_SETTLE_INPUT] {rec.side} {rec.code}: "
+                            f"broker_pos={'found' if broker_pos else 'MISSING'} "
+                            f"broker_qty={broker_qty} broker_avg={broker_avg} "
+                            f"requested={rec.quantity} base_qty={getattr(rec, 'base_qty', 'N/A')}")
+
+                        if rec.side == "BUY":
+                            base_qty = getattr(rec, 'base_qty', None)
+                            if base_qty is not None:
+                                delta_qty = max(0, broker_qty - base_qty)
+                                if broker_qty < base_qty:
+                                    logger.warning(
+                                        f"[RECON_NEGATIVE_DELTA] BUY {rec.code}: "
+                                        f"broker={broker_qty} < base={base_qty} — clamped to 0")
+                            else:
+                                delta_qty = broker_qty
+                                logger.warning(
+                                    f"[RECON_NO_BASE_QTY] BUY {rec.code}: "
+                                    f"base_qty missing, using broker_qty as-is")
+
+                            if delta_qty > rec.quantity * 2:
+                                logger.error(
+                                    f"[RECON_ANOMALY] BUY {rec.code}: "
+                                    f"delta={delta_qty} > 2x requested={rec.quantity}")
+
+                            if delta_qty >= rec.quantity:
+                                terminal, final_qty = "FILLED", rec.quantity
+                            elif 0 < delta_qty < rec.quantity:
+                                terminal, final_qty = "FILLED", delta_qty
+                                logger.warning(
+                                    f"[RECON_PARTIAL_BUY] {rec.code}: "
+                                    f"delta={delta_qty} < requested={rec.quantity}")
+                            else:
+                                terminal, final_qty = "CANCELLED", 0
+
+                            logger.info(
+                                f"[RECON_DECISION] BUY {rec.code} broker_qty={broker_qty} "
+                                f"base_qty={base_qty} delta={delta_qty} "
+                                f"expected={rec.quantity} → {terminal} (qty={final_qty})")
+                            tracker.mark_reconcile_settled(
+                                rec.order_id, final_qty, broker_avg, terminal)
+
+                        elif rec.side == "SELL":
+                            # EOD SELL settle: use base_qty (pre-order holdings)
+                            # to compute how many shares were actually sold.
+                            #   delta = base_qty - broker_qty_after
+                            # Mirrors BUY logic symmetrically:
+                            #   BUY:  delta = broker_qty_after - base_qty  (increase)
+                            #   SELL: delta = base_qty - broker_qty_after  (decrease)
+                            base_qty = getattr(rec, 'base_qty', None)
+                            if base_qty is not None:
+                                sold_qty = max(0, base_qty - broker_qty)
+                                if broker_qty > base_qty:
+                                    logger.warning(
+                                        f"[RECON_NEGATIVE_DELTA] SELL {rec.code}: "
+                                        f"broker={broker_qty} > base={base_qty} "
+                                        f"— clamped to 0 (sell may not have executed)")
+                            else:
+                                # Fallback: legacy path (no base_qty)
+                                sold_qty = max(0, rec.quantity - broker_qty)
+                                logger.warning(
+                                    f"[RECON_NO_BASE_QTY] SELL {rec.code}: "
+                                    f"base_qty missing, using requested-broker fallback")
+
+                            if broker_qty < 0:
+                                logger.error(
+                                    f"[RECON_ANOMALY] SELL {rec.code}: "
+                                    f"broker_qty={broker_qty} < 0 — data error")
+                            if sold_qty <= 0:
+                                terminal, final_qty = "CANCELLED", 0
+                                logger.warning(
+                                    f"[RECON_DECISION] SELL {rec.code} "
+                                    f"base_qty={base_qty} broker_qty={broker_qty} "
+                                    f"delta=0 → CANCELLED")
+                            elif sold_qty >= rec.quantity:
+                                terminal, final_qty = "FILLED", rec.quantity
+                                logger.info(
+                                    f"[RECON_DECISION] SELL {rec.code} "
+                                    f"base_qty={base_qty} broker_qty={broker_qty} "
+                                    f"delta={sold_qty} requested={rec.quantity} → FILLED")
+                            else:
+                                terminal, final_qty = "FILLED", sold_qty
+                                logger.info(
+                                    f"[RECON_DECISION] SELL {rec.code} "
+                                    f"base_qty={base_qty} broker_qty={broker_qty} "
+                                    f"delta={sold_qty} requested={rec.quantity} "
+                                    f"→ FILLED (partial)")
+                            tracker.mark_reconcile_settled(
+                                rec.order_id, final_qty, rec.exec_price, terminal)
+
+                    executor._try_upgrade_sell_status()
+                    if state_mgr:
+                        state_mgr.clear_pending_external()
+                    logger.info("[EOD_SETTLE] PENDING_EXTERNAL settlement complete")
+                except Exception as e:
+                    logger.error(f"[EOD_SETTLE_ERROR] {e}", exc_info=True)
+
+    finally:
+        # Shutdown cleanup: each step individually protected
+        # so one failure does not skip subsequent steps.
+
+        # Stop Telegram bot
+        if _tg_bot:
+            try:
+                _tg_bot.stop()
+            except Exception as e:
+                logger.warning(f"[SHUTDOWN_CLEANUP] tg_bot.stop: {e}")
+            _tg_bot = None
+
+        try:
+            state_mgr.mark_shutdown("eod_complete")
+        except Exception as e:
+            logger.error(f"[SHUTDOWN_CLEANUP_FAIL] mark_shutdown: {e}")
+
+        try:
+            provider.shutdown()
+        except Exception as e:
+            logger.error(f"[SHUTDOWN_CLEANUP_FAIL] provider.shutdown: {e}")
+
+        logger.info("=" * 40)
+        logger.info("  EOD complete.")
+        logger.info("=" * 40)
+
+        try:
+            app.quit()
+        except Exception:
+            pass
 
 
 def _reconcile_with_broker(portfolio, provider, logger, trade_logger=None,
@@ -2071,6 +2670,20 @@ def _reconcile_with_broker(portfolio, provider, logger, trade_logger=None,
         for ctype, ccode, cold, cnew in correction_details:
             logger.warning(f"  [{ctype}] {ccode}: {cold} -> {cnew}")
     logger.info(f"[RECON] Done — cash={broker_cash:,.0f}, positions={synced}")
+
+    # Log equity divergence for manual review (no auto-correction)
+    if corrections > 0:
+        current_equity = portfolio.cash + sum(
+            p.quantity * p.avg_price for p in portfolio.positions.values())
+        divergence = (abs(portfolio.prev_close_equity - current_equity)
+                      / max(current_equity, 1))
+        if divergence > 0.3:
+            logger.warning(
+                "[RECON_EQUITY_DIVERGENCE] prev_close=%s current=%s "
+                "divergence=%.1f%% — NOT auto-correcting, manual review needed",
+                f"{portfolio.prev_close_equity:,.0f}",
+                f"{current_equity:,.0f}", divergence * 100)
+
     return {"ok": True, "error": "", "corrections": corrections,
             "safe_mode": safe_mode, "safe_mode_reason": safe_mode_reason,
             "correction_details": correction_details}
@@ -2370,6 +2983,7 @@ def _execute_pending_buys(portfolio, pending_buys, config, executor,
     """Execute pending buy orders from previous session (T+1 model).
 
     Broker cash sync first, then each buy with cash hard cap.
+    Returns: (success_count, fail_count)
     """
     # Shadow mode: dry-run only — log intent, never send to executor
     if config.SHADOW_MODE:
@@ -2379,7 +2993,7 @@ def _execute_pending_buys(portfolio, pending_buys, config, executor,
                 f"amount={pb.get('target_amount', 0):,.0f} — DRY RUN (not executed)"
             )
         logger.info(f"[SHADOW_PENDING_BUY] {len(pending_buys)} buys skipped (shadow mode)")
-        return
+        return (0, 0)
 
     # Broker cash sync: provider is truth
     cash_source = "LOCAL"
@@ -2404,6 +3018,10 @@ def _execute_pending_buys(portfolio, pending_buys, config, executor,
             f"[BUY_REDUCED_STALE_CASH] cash_source={cash_source} "
             f"— applying 80% extra buffer")
         extra_buffer = 0.80
+
+    _pb_success = 0
+    _pb_fail = 0
+    _pb_failed_tickers = []
 
     logger.info(
         f"[PENDING_BUY_EXEC] {len(pending_buys)} buys, "
@@ -2474,15 +3092,22 @@ def _execute_pending_buys(portfolio, pending_buys, config, executor,
                 _new_pos.score_mom = pb.get("score_mom", 0.0)
             _notify_buy(ticker, name_cache or {}, applied_qty, fill_price)
             _safe_save(state_mgr, portfolio, context=f"pending_buy/{ticker}")
+            _pb_success += 1
         else:
             error_str = result.get("error", "")
+            _pb_fail += 1
+            _pb_failed_tickers.append(ticker)
             if "TIMEOUT_UNCERTAIN" in error_str:
                 logger.warning(f"[PENDING_BUY_PENDING_EXTERNAL] {ticker}: "
                                f"timeout — ghost/reconcile will resolve")
             else:
                 logger.error(f"[PENDING_BUY_FAILED] {ticker}: {error_str}")
 
-    logger.info(f"[PENDING_BUY_COMPLETE] cash_remaining={portfolio.cash:,.0f}")
+    logger.info(f"[PENDING_BUY_COMPLETE] success={_pb_success} fail={_pb_fail} "
+                f"cash_remaining={portfolio.cash:,.0f}")
+    if _pb_failed_tickers:
+        logger.info(f"[PENDING_BUY_FAILED_TICKERS] {_pb_failed_tickers}")
+    return (_pb_success, _pb_fail)
 
 
 def _execute_rebalance_live(portfolio, target, config, executor, provider,
@@ -2599,13 +3224,23 @@ def _execute_rebalance_live(portfolio, target, config, executor, provider,
             _avg = _pre_pos.avg_price if _pre_pos else 0.0
             _notify_sell(order.ticker, name_cache or {}, exec_qty, fill_price, _pnl, "REBALANCE",
                          avg_price=_avg)
-            sell_results.append("FILLED" if exec_qty >= order.quantity else "PARTIAL")
+            _sell_status = "FILLED" if exec_qty >= order.quantity else "PARTIAL"
+            sell_results.append(_sell_status)
+            # Crash-recovery checkpoint: save known state so far.
+            # This is NOT a fill confirmation — it records the portfolio
+            # as understood at this moment for restart recovery purposes.
+            if state_mgr:
+                _safe_save(state_mgr, portfolio,
+                           context=f"rebalance_sell/{order.ticker}/{_sell_status}")
         else:
             error_str = result.get("error", "")
             if "TIMEOUT_UNCERTAIN" in error_str:
                 logger.warning(f"[SELL_PENDING_EXTERNAL] {order.ticker}: "
                                f"timeout — ghost/reconcile will resolve")
                 sell_results.append("PENDING")
+                if state_mgr:
+                    _safe_save(state_mgr, portfolio,
+                               context=f"rebalance_sell/{order.ticker}/PENDING")
             else:
                 logger.error(f"SELL failed {order.ticker}: {error_str}")
                 sell_results.append("FAILED")
@@ -2639,6 +3274,7 @@ def _execute_rebalance_live(portfolio, target, config, executor, provider,
                 f"pending={sell_results.count('PENDING')}, "
                 f"failed={sell_results.count('FAILED')}, "
                 f"pending_ext={len(pending_sells)})")
+    _update_snapshot(portfolio, guard, config, name_cache or {}, next_rebal_days=_rebal_remaining_days, reason="REBAL_SELL_DONE")
 
     time.sleep(2)  # Brief pause after sells
 
@@ -2657,6 +3293,30 @@ def _execute_rebalance_live(portfolio, target, config, executor, provider,
     if skip_buys or buy_scale <= 0:
         reason = risk_action["level"] if risk_action else "DD_GUARD"
         logger.warning(f"[DD_GUARD_TRIGGERED] {reason}: buys BLOCKED (no pending buys)")
+        # Save blocked buys for later reentry (DD may clear during session)
+        dd_blocked_list = []
+        for rank_idx, order in enumerate(buy_orders, 1):
+            dd_blocked_list.append({
+                "ticker": order.ticker,
+                "target_amount": order.target_amount,
+                "original_amount": order.target_amount,
+                "score_vol": scores.get(order.ticker, {}).get("vol_12m", 0),
+                "score_mom": scores.get(order.ticker, {}).get("mom_12_1", 0),
+                "rank": rank_idx,
+                "signal_date": today_str,
+            })
+        if dd_blocked_list:
+            _rt = state_mgr.load_runtime()
+            _rt["dd_blocked_buys"] = dd_blocked_list
+            _rt["dd_blocked_meta"] = {
+                "cycle_id": _rt.get("test_cycle_id", today_str),
+                "created_at": datetime.now().isoformat(),
+                "sell_status": sell_status,
+            }
+            state_mgr.save_runtime(_rt)
+            logger.info(f"[DD_BLOCKED_BUYS_SAVED] {len(dd_blocked_list)} buys "
+                        f"saved for reentry if DD clears "
+                        f"(cycle={_rt['dd_blocked_meta']['cycle_id']})")
     else:
         if buy_scale < 1.0:
             logger.info(f"[DD_BUY_SCALED] buy allocation * {buy_scale:.0%}")
@@ -2694,56 +3354,7 @@ def _execute_rebalance_live(portfolio, target, config, executor, provider,
     return len(price_fail_codes), pending_buys_list, sell_status
 
 
-# ── Mock Mode ────────────────────────────────────────────────────────────────
-def run_mock(config):
-    """Mock mode: test state + target + reporter without broker."""
-    from core.state_manager import StateManager
-    from core.portfolio_manager import PortfolioManager
-    from strategy.factor_ranker import load_target_portfolio
-    from report.reporter import TradeLogger
-
-    trading_mode = "mock"
-    logger = logging.getLogger("gen4.mock")
-    logger.info("=" * 60)
-    logger.info("  Gen4 Mock Mode")
-    logger.info(f"  [TRADING_MODE] {trading_mode}")
-    logger.info("=" * 60)
-
-    state_mgr = StateManager(config.STATE_DIR, trading_mode=trading_mode)
-    portfolio = PortfolioManager(
-        config.INITIAL_CASH, config.DAILY_DD_LIMIT,
-        config.MONTHLY_DD_LIMIT, config.N_STOCKS)
-    trade_logger = TradeLogger(config.REPORT_DIR)
-
-    saved = state_mgr.load_portfolio()
-    if saved:
-        portfolio.restore_from_dict(saved, buy_cost=config.BUY_COST)
-        logger.info(f"Restored: {len(portfolio.positions)} positions")
-
-    target = load_target_portfolio(config.SIGNALS_DIR)
-    if target:
-        logger.info(f"Target: {len(target['target_tickers'])} stocks (date: {target.get('date', '?')})")
-        for i, tk in enumerate(target["target_tickers"][:5], 1):
-            s = target["scores"].get(tk, {})
-            logger.info(f"  {i}. {tk}  mom={s.get('mom_12_1',0):.4f}")
-        if len(target["target_tickers"]) > 5:
-            logger.info(f"  ... and {len(target['target_tickers'])-5} more")
-    else:
-        logger.info("No target portfolio. Run --batch first.")
-
-    summary = portfolio.summary()
-    logger.info(f"Portfolio: equity={summary['equity']:,.0f}, "
-                 f"cash={summary['cash']:,.0f}, pos={summary['n_positions']}, "
-                 f"risk={summary['risk_mode']}")
-
-    # Log equity snapshot
-    trade_logger.log_equity(
-        summary["equity"], summary["cash"], summary["n_positions"],
-        summary["daily_pnl"], summary["monthly_dd"])
-
-    _safe_save(state_mgr, portfolio, context="mock_complete")
-    logger.info("Mock complete.")
-
+# run_mock → lifecycle/mock.py (Phase 1 extracted)
 
 MAX_RESTART_ATTEMPTS = 3
 MIN_RESTART_INTERVAL_SEC = 60  # prevent crash loop
@@ -2789,6 +3400,56 @@ def _run_live_with_restart(config):
                   f"Manual intervention required.")
 
 
+# ── Single-Instance Guard ────────────────────────────────────────────────────
+_instance_mutex = None  # prevent GC release
+
+
+def _acquire_instance_lock(mode: str) -> bool:
+    """Windows Named Mutex로 동일 mode 중복 실행 방지.
+
+    Returns True if lock acquired (this is the only instance).
+    Returns False if another instance already holds the lock.
+    """
+    global _instance_mutex
+    mutex_name = f"Global\\Gen4_{mode}_lock"
+    try:
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.CreateMutexW(None, True, mutex_name)
+        last_error = kernel32.GetLastError()
+        if handle and last_error != 183:  # ERROR_ALREADY_EXISTS = 183
+            _instance_mutex = handle  # prevent GC
+            return True
+        # Another instance holds the mutex
+        if handle:
+            kernel32.CloseHandle(handle)
+        return False
+    except Exception:
+        # Non-Windows or ctypes failure — fall back to lockfile
+        return _acquire_lockfile(mode)
+
+
+def _acquire_lockfile(mode: str) -> bool:
+    """Lockfile fallback (pidfile). Less reliable but cross-platform."""
+    lockfile = Path(__file__).resolve().parent / "state" / f".{mode}.lock"
+    try:
+        import os
+        lockfile.parent.mkdir(parents=True, exist_ok=True)
+        if lockfile.exists():
+            old_pid = int(lockfile.read_text().strip())
+            # Check if old process is alive
+            try:
+                os.kill(old_pid, 0)
+                return False  # process alive — duplicate
+            except (OSError, ProcessLookupError):
+                pass  # process dead — stale lockfile, OK to take over
+        lockfile.write_text(str(os.getpid()))
+        import atexit
+        atexit.register(lambda: lockfile.unlink(missing_ok=True))
+        return True
+    except Exception:
+        return True  # fail-open: don't block launch on lockfile error
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="Gen4 Core Trading System")
@@ -2814,6 +3475,8 @@ def main():
                         help="Force rebalance (paper_test/shadow_test only)")
     parser.add_argument("--confirm-force-rebalance", action="store_true",
                         help="Confirm force rebalance intent (required with --force-rebalance)")
+    parser.add_argument("--fast", action="store_true",
+                        help="Batch: skip reports + fundamental (signal only)")
     args = parser.parse_args()
 
     # ── Force-rebalance safety checks ────────────────────────────
@@ -2843,9 +3506,15 @@ def main():
         bt_main()
     elif args.batch:
         setup_logging(config.LOG_DIR, "batch")
-        run_batch(config)
+        run_batch(config, fast=getattr(args, "fast", False))
     elif args.live:
         setup_logging(config.LOG_DIR, "live")
+        if not _acquire_instance_lock("live"):
+            print("ERROR: Another main.py --live instance is already running.")
+            print("  Only one live instance is allowed per trading mode.")
+            logging.getLogger("gen4.live").critical(
+                "[INSTANCE_GUARD] Blocked: duplicate live instance detected. Exiting.")
+            sys.exit(1)
         _run_live_with_restart(config)
     elif args.paper_test:
         config.TRADING_MODE = "paper_test"
@@ -2854,6 +3523,11 @@ def main():
             config.PAPER_TEST_FORCE_REBALANCE = True
             config.FORCE_REBALANCE_CONFIRMED = True
         setup_logging(config.LOG_DIR, "paper_test")
+        if not _acquire_instance_lock("paper_test"):
+            print("ERROR: Another main.py --paper-test instance is already running.")
+            logging.getLogger("gen4.live").critical(
+                "[INSTANCE_GUARD] Blocked: duplicate paper_test instance. Exiting.")
+            sys.exit(1)
         logger = logging.getLogger("gen4.live")
         if args.fresh:
             config.FRESH_START = True

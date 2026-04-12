@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Q-TRON Gen4 Daily Report — 2026-04-10</title>
+<style>
+
+:root {
+    /* ── Core Palette ─────────────────── */
+    --primary: #0B1426;
+    --primary-light: #162544;
+    --accent: #0891B2;
+    --accent-light: rgba(8,145,178,0.12);
+
+    /* Korean convention: red=profit, blue=loss */
+    --profit: #DC2626;
+    --profit-bg: rgba(220,38,38,0.06);
+    --profit-border: rgba(220,38,38,0.25);
+    --loss: #2563EB;
+    --loss-bg: rgba(37,99,235,0.06);
+    --loss-border: rgba(37,99,235,0.25);
+
+    --success: #059669;
+    --success-bg: rgba(5,150,105,0.08);
+    --warning: #D97706;
+    --warning-bg: rgba(217,119,6,0.08);
+    --danger: #DC2626;
+    --danger-bg: rgba(220,38,38,0.08);
+    --info: #0891B2;
+    --info-bg: rgba(8,145,178,0.08);
+
+    /* Surfaces */
+    --surface: #FFFFFF;
+    --surface-raised: #FFFFFF;
+    --surface-alt: #F8FAFC;
+    --surface-hover: #F1F5F9;
+    --body-bg: #F0F4F8;
+
+    /* Text */
+    --text: #0F172A;
+    --text-secondary: #475569;
+    --text-dim: #94A3B8;
+    --text-inverse: #FFFFFF;
+
+    /* Borders & Shadows */
+    --border: #E2E8F0;
+    --border-light: #F1F5F9;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.06);
+    --shadow-lg: 0 12px 32px rgba(0,0,0,0.08);
+    --shadow-hover: 0 8px 24px rgba(0,0,0,0.10);
+
+    /* Typography */
+    --font: 'Pretendard','Malgun Gothic',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    --font-mono: 'JetBrains Mono','Consolas','Courier New',monospace;
+
+    /* Sizing */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 20px;
+}
+
+/* ══════════════════════════════════════════════════════════ */
+/*  Base Reset                                               */
+/* ══════════════════════════════════════════════════════════ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: var(--font);
+    background: var(--body-bg);
+    color: var(--text);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ══════════════════════════════════════════════════════════ */
+/*  Header                                                   */
+/* ══════════════════════════════════════════════════════════ */
+.g4-header {
+    background: linear-gradient(145deg, #0B1426 0%, #132B4A 50%, #1A365D 100%);
+    padding: 40px 24px 36px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+.g4-header::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background:
+        radial-gradient(ellipse at 15% 50%, rgba(8,145,178,0.15) 0%, transparent 55%),
+        radial-gradient(ellipse at 85% 30%, rgba(220,38,38,0.08) 0%, transparent 55%),
+        radial-gradient(ellipse at 50% 80%, rgba(139,92,246,0.06) 0%, transparent 40%);
+    pointer-events: none;
+}
+.g4-header::after {
+    content: '';
+    position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent 0%, rgba(8,145,178,0.4) 50%, transparent 100%);
+}
+.g4-header h1 {
+    font-size: 26px; color: #FFFFFF; margin: 0 0 4px; font-weight: 800;
+    letter-spacing: -0.5px; position: relative;
+}
+.g4-header .g4-brand {
+    font-size: 10px; color: rgba(255,255,255,0.40); letter-spacing: 3px;
+    text-transform: uppercase; margin-bottom: 10px; position: relative;
+    font-weight: 500;
+}
+.g4-header .g4-date {
+    font-size: 15px; color: rgba(255,255,255,0.65); position: relative;
+    font-weight: 400;
+}
+.g4-header .g4-subtitle {
+    font-size: 12px; color: rgba(255,255,255,0.45); position: relative;
+    margin-top: 4px;
+}
+
+/* ══════════════════════════════════════════════════════════ */
+/*  Container                                                */
+/* ══════════════════════════════════════════════════════════ */
+.container {
+    max-width: 980px;
+    margin: -24px auto 0;
+    padding: 0 16px 40px;
+    position: relative;
+    z-index: 1;
+}
+
+/* ══════════════════════════════════════════════════════════ */
+/*  Section (card wrapper)                                   */
+/* ══════════════════════════════════════════════════════════ */
+.g4-section {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 16px;
+    padding: 20px 24px;
+    border: 1px solid var(--border-light);
+    position: relative;
+    animation: g4FadeIn 0.4s ease-out;
+}
+.g4-section::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, var(--accent), rgba(8,145,178,0.3));
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.g4-section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.g4-section-title .g4-icon {
+    font-size: 16px;
+}
+
+@keyframes g4FadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ══════════════════════════════════════════════════════════ */
+/*  KPI Cards                                                */
+/* ══════════════════════════════════════════════════════════ */
+.g4-cards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+.g4-card {
+    flex: 1;
+    min-width: 150px;
+    background: var(--surface);
+    border-radius: var(--radius-md);
+    padding: 16px 18px;
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.g4-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-hover);
+}
+.g4-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+.g4-card.profit::before { background: var(--profit); }
+.g4-card.loss::before { background: var(--loss); }
+.g4-card.neutral::before { background: var(--border); }
+.g4-card.success::before { background: var(--success); }
+.g4-card.warning::before { background: var(--warning); }
+.g4-card.danger::before { background: var(--danger); }
+
+.g4-card .g4-card-label {
+    font-size: 11px; color: var(--text-dim); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+.g4-card .g4-card-value {
+    font-size: 28px; font-weight: 800; line-height: 1.1;
+    font-family: var(--font);
+    letter-spacing: -0.5px;
+}
+.g4-card .g4-card-sub {
+    font-size: 11px; color: var(--text-dim); margin-top: 4px;
+}
+.g4-card .g4-card-value.profit { color: var(--profit); }
+.g4-card .g4-card-value.loss { color: var(--loss); }
+.g4-card .g4-card-value.neutral { color: var(--text); }
+
+/* Hero KPI (main number) */
+.g4-hero-value {
+    font-size: 48px; font-weight: 900; letter-spacing: -1px;
+    line-height: 1.0;
+}
+
+/* ══════════════════════════════════════════════════════════ */
+/*  Verdict Badge / Ribbon                                   */
+/* ══════════════════════════════════════════════════════════ */
+.g4-verdict {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 20px;
+    border-radius: 100px;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+.g4-verdict.danger {
+    background: var(--danger-bg); color: var(--danger);
+    border: 1px solid rgba(220,38,38,0.2);
+}
+.g4-verdict.warning {
+    background: var(--warning-bg); color: var(--warning);
+    border: 1px solid rgba(217,119,6,0.2);
+}
+.g4-verdict.success {
+    background: var(--success-bg); color: var(--success);
+    border: 1px solid rgba(5,150,105,0.2);
+}
+.g4-verdict.info {
+    background: var(--info-bg); color: var(--info);
+    border: 1px solid rgba(8,145,178,0.2);
+}
+
+/* ══════════════════════════════════════════════════════════ */
+/*  Tables                                                   */
+/* ══════════════════════════════════════════════════════════ */
+.g4-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+}
+table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 12px;
+}
+thead th {
+    background: #F1F5F9;
+    color: var(--text-secondary);
+    font-weight: 700;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 2px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+tbody td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border-light);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    vertical-align: middle;
+}
+tbody tr {
+    transition: background 0.12s ease;
+}
+tbody tr:nth-child(even) { background: var(--surface-alt); }
+tbody tr:nth-child(odd) { background: var(--surface); }
+tbody tr:hover { background: #EFF6FF !important; }
+
+td.g4-profit-cell { background: var(--profit-bg) !important; }
+td.g4-loss-cell { background: var(--loss-bg) !important; }
+
+/* Sortable */
+.g4-sortable {
+    cursor: pointer; user-select: none;
+    transition: color 0.12s ease;
+}
+.g4-sortable:hover { color: var(--accent) !important; }
+
+/* Sticky wrap */
+.g4-sticky-wrap { overflow-x: auto; max-height: none; }
+.g4-sticky-wrap thead th {
+    position: sticky; top: 0;
+    background: #F1F5F9; z-index: 1;
+}
+
+/* ══════════════════════════════════════════════════════════ */
+/*  Alert Box                                                */
+/* ══════════════════════════════════════════════════════════ */
+.g4-alert {
+    padding: 12px 16px;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    margin-bottom: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+    transition: box-shadow 0.15s ease, transform 0.15s ease;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+.g4-alert:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateX(2px);
+}
+.g4-alert.danger {
+    background: var(--danger-bg);
+    border-left: 4px solid var(--danger);
+}
+.g4-alert.warning {
+    background: var(--warning-bg);
+    border-left: 4px solid var(--warning);
+}
+.g4-alert.success {
+    background: var(--success-bg);
+    border-left: 4px solid var(--success);
+}
+.g4-alert.info {
+    background: var(--info-bg);
+    border-left: 4px solid var(--info);
+}
+.g4-alert-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+.g4-alert-content {
+    flex: 1;
+}
+
+/* ══════════════════════════════════════════════════════════ */
+/*  Progress Bar                                             */
+/* ══════════════════════════════════════════════════════════ */
+.g4-progress {
+    display: inline-block;
+    width: 52px; height: 5px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+    vertical-align: middle;
+    margin-left: 6px;
+}
+.g4-progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.4s ease;
+}
+
+/* ══════════════════════════════════════════════════════════ */
+/*  Ops Card                                                 */
+/* ══════════════════════════════════════════════════════════ */
+.g4-ops {
+    border-radius: var(--radius-lg);
+    transition: box-shadow 0.15s ease;
+}
+.g4-ops:hover { box-shadow: var(--shadow-md); }
+
+/* ══════════════════════════════════════════════════════════ */
+/*  Timeline                                                 */
+/* ══════════════════════════════════════════════════════════ */
+.g4-timeline {
+    position: relative;
+    padding-left: 24px;
+}
+.g4-timeline::before {
+    content: '';
+    position: absolute; left: 6px; top: 8px; bottom: 8px;
+    width: 2px;
+    background: linear-gradient(180deg, var(--accent), var(--border));
+    border-radius: 1px;
+}
+.g4-timeline-item {
+    position: relative;
+    margin-bottom: 12px;
+    padding-left: 4px;
+}
+.g4-timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -22px; top: 6px;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--surface);
+}
+
+/* ══════════════════════════════════════════════════════════ */
+/*  Treemap                                                  */
+/* ══════════════════════════════════════════════════════════ */
+.g4-treemap {
+    display: flex; flex-wrap: wrap;
+    gap: 4px; padding: 8px 0;
+}
+.g4-treemap > div {
+    transition: transform 0.15s ease;
+    border-radius: var(--radius-sm);
+}
+.g4-treemap > div:hover {
+    transform: scale(1.06);
+    z-index: 2;
+}
+
+/* ══════════════════════════════════════════════════════════ */
+/*  Collapsible Sections                                     */
+/* ══════════════════════════════════════════════════════════ */
+details.g4-collapsible {
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    margin-bottom: 8px;
+}
+details.g4-collapsible summary {
+    padding: 10px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+details.g4-collapsible summary::before {
+    content: '\25B6';
+    font-size: 9px;
+    color: var(--text-dim);
+    transition: transform 0.2s ease;
+}
+details.g4-collapsible[open] summary::before {
+    transform: rotate(90deg);
+}
+details.g4-collapsible .g4-detail-body {
+    padding: 0 16px 12px;
+}
+
+/* ══════════════════════════════════════════════════════════ */
+/*  Footer                                                   */
+/* ══════════════════════════════════════════════════════════ */
+.g4-footer {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 36px;
+    padding: 20px 0;
+    border-top: 1px solid var(--border);
+}
+.g4-footer a {
+    color: var(--accent);
+    text-decoration: none;
+}
+.g4-footer .g4-footer-brand {
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    opacity: 0.6;
+    margin-top: 6px;
+}
+
+/* ══════════════════════════════════════════════════════════ */
+/*  Responsive: Mobile                                       */
+/* ══════════════════════════════════════════════════════════ */
+@media (max-width: 640px) {
+    .g4-header { padding: 28px 16px 24px; }
+    .g4-header h1 { font-size: 20px; }
+    .container { padding: 0 10px 28px; margin-top: -16px; }
+    .g4-section { padding: 16px 14px !important; border-radius: var(--radius-md); }
+    .g4-card { min-width: 130px !important; padding: 12px 14px !important; }
+    .g4-card .g4-card-value { font-size: 22px !important; }
+    .g4-hero-value { font-size: 36px !important; }
+    table { font-size: 11px !important; }
+    table th, table td { padding: 5px 8px !important; }
+    .g4-sticky-wrap { -webkit-overflow-scrolling: touch; }
+    .g4-verdict { font-size: 12px; padding: 6px 14px; }
+}
+
+/* ══════════════════════════════════════════════════════════ */
+/*  Print                                                    */
+/* ══════════════════════════════════════════════════════════ */
+@media print {
+    body { background: #fff !important; padding: 0 !important; }
+    .g4-header {
+        background: var(--primary) !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+    .container { max-width: 100%; margin: 0; padding: 0 8px; }
+    .g4-section {
+        box-shadow: none !important;
+        border: 1px solid var(--border);
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+    .g4-card {
+        box-shadow: none !important;
+        border: 1px solid var(--border);
+    }
+    .g4-card:hover, .g4-alert:hover, .g4-ops:hover {
+        transform: none !important;
+        box-shadow: none !important;
+    }
+    tbody tr:hover { background: inherit !important; }
+    .g4-footer { margin-top: 16px; }
+    details.g4-collapsible[open] { break-inside: avoid; }
+    @page { margin: 1cm; }
+}
+
+/* ── Legacy compat overrides ── */
+.g4-header .g4-brand {
+    font-size: 10px; color: rgba(255,255,255,0.40); letter-spacing: 3px;
+    text-transform: uppercase; margin-bottom: 10px; position: relative;
+    font-weight: 500;
+}
+.g4-header .g4-date {
+    font-size: 15px; color: rgba(255,255,255,0.65); position: relative;
+}
+/* Container + section + card + table + alert + timeline + print:
+   All handled by premium_style.py — see get_premium_css().
+   Only report-specific overrides below. */
+.g4-card div:nth-child(2) { font-size: 28px; }
+td.g4-profit-cell { background: rgba(220,38,38,0.06); }
+td.g4-loss-cell { background: rgba(37,99,235,0.06); }
+</style>
+<script>
+
+function g4sort(tableId, colIdx, isNum) {
+  var table = document.getElementById(tableId);
+  if (!table) return;
+  var tbody = table.querySelector('tbody') || table;
+  var rows = Array.from(tbody.querySelectorAll('tr'));
+  var dataRows = rows.filter(function(r) {
+    return !r.querySelector('td[colspan]');
+  });
+  var sumRow = rows.filter(function(r) {
+    return r.querySelector('td[colspan]');
+  });
+  var th = table.querySelectorAll('thead th, tr:first-child th')[colIdx];
+  var asc = th && th.getAttribute('data-sort') === 'asc';
+  var ths = table.querySelectorAll('thead th, tr:first-child th');
+  for (var i = 0; i < ths.length; i++) {
+    ths[i].setAttribute('data-sort', '');
+    var arrow = ths[i].querySelector('.g4-arrow');
+    if (arrow) arrow.textContent = '';
+  }
+  if (th) {
+    th.setAttribute('data-sort', asc ? 'desc' : 'asc');
+    var arrow = th.querySelector('.g4-arrow');
+    if (arrow) arrow.textContent = asc ? ' \u25BC' : ' \u25B2';
+  }
+  var dir = asc ? -1 : 1;
+  dataRows.sort(function(a, b) {
+    var cellA = a.cells[colIdx];
+    var cellB = b.cells[colIdx];
+    if (!cellA || !cellB) return 0;
+    var va = cellA.textContent.trim();
+    var vb = cellB.textContent.trim();
+    if (isNum) {
+      var na = parseFloat(va.replace(/[%,+\s\u50d\u65e5]/g, '').replace(/[^\d.\-]/g, ''));
+      var nb = parseFloat(vb.replace(/[%,+\s\u50d\u65e5]/g, '').replace(/[^\d.\-]/g, ''));
+      if (isNaN(na)) na = -Infinity;
+      if (isNaN(nb)) nb = -Infinity;
+      return (na - nb) * dir;
+    } else {
+      return va.localeCompare(vb, 'ko') * dir;
+    }
+  });
+  while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+  dataRows.forEach(function(r) { tbody.appendChild(r); });
+  sumRow.forEach(function(r) { tbody.appendChild(r); });
+}
+
+
+</script>
+</head>
+<body>
+<div class="g4-header">
+    <div class="g4-brand">Q-TRON GEN4 DAILY REPORT</div>
+    <h1>Daily Performance Report</h1>
+    <div class="g4-date">2026-04-10</div>
+    <div class="g4-subtitle">Initial Capital: +5,000,000</div>
+</div>
+<div class="container">
+<div class="g4-ops" style="background:#FFFFFF;border-radius:12px;padding:18px 22px;
+        margin-bottom:20px;border-left:3px solid #00B4D8;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+        <div style="font-size:13px;font-weight:700;color:#0A1628;margin-bottom:10px;
+            text-transform:uppercase;letter-spacing:0.5px;">
+            운영 상태</div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px;border-bottom:1px solid #F1F5F9;"><span style="color:#64748B;">Mode</span><span style="color:#EF4444;font-weight:600;">LIVE</span></div><div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px;border-bottom:1px solid #F1F5F9;"><span style="color:#64748B;">Rebalance</span><span style="color:#94A3B8;font-weight:600;">미실행</span></div><div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px;border-bottom:1px solid #F1F5F9;"><span style="color:#64748B;">Cash Sync</span><span style="color:#10B981;font-weight:600;">OK (-209)</span></div><div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px;border-bottom:1px solid #F1F5F9;"><span style="color:#64748B;">State Save</span><span style="color:#10B981;font-weight:600;">OK</span></div><div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px;border-bottom:1px solid #F1F5F9;"><span style="color:#64748B;">Price Feed</span><span style="color:#10B981;font-weight:600;">RT=17 / FB=0 / FAIL=0</span></div>
+        <div style="margin-top:8px;padding-top:8px;border-top:1px solid #E2E8F0;font-size:11px;display:flex;gap:10px;flex-wrap:wrap;"><span style="color:#94A3B8;font-size:11px;">Cash보정:18</span> <span style="color:#94A3B8;font-size:11px;">State저장:129</span> <span style="color:#94A3B8;font-size:11px;">PriceFB:0</span> <span style="color:#94A3B8;font-size:11px;">PriceFail:0</span> <span style="color:#94A3B8;font-size:11px;">Warning:2499</span> <span style="color:#EF4444;font-size:11px;">Error:3</span></div>
+    </div>
+<div style="display:flex;justify-content:space-between;align-items:flex-start;
+        background:#FFFFFF;border-radius:12px;padding:20px 24px;margin-bottom:20px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);border-left:3px solid #00B4D8;">
+        <div style="font-size:14px;line-height:1.8;color:#1E293B;">당일 수익률 <b>+1.59%</b>, 총 자산 <b>+5,200,000</b>원 (누적 +5.33%)<br>주요 손익: NH투자증권(+11.31%), NH투자증권(+11.31%), 동부건설(+10.44%)<br>포지션 17종목 보유</div>
+        <div style="flex-shrink:0;margin-left:16px;"><span style="display:inline-block;padding:6px 18px;border-radius:20px;font-size:14px;font-weight:700;color:#10B981;background:#DCFCE7;letter-spacing:0.5px;">정상</span></div>
+    </div>
+<div style="font-size:11px;color:#94A3B8;margin-bottom:12px;padding:0 4px;">기준: 2026-04-10 18:52 KST | 당일 수익률 = EOD 총자산 / 전일 종가 총자산 - 1</div>
+<div style="background:#FFFBEB;border-left:4px solid #F59E0B;border-radius:0 10px 10px 0;padding:12px 16px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,0.04);"><div style="font-size:11px;font-weight:700;color:#0A1628;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">오늘의 판단</div><div style="padding:3px 0;font-size:12px;color:#1E293B;">오늘 상태: 상승 마감 (+1.59%) / 리밸런싱 미실행 / 운영 정상</div><div style="padding:3px 0;font-size:12px;color:#1E293B;">핵심 경고: 일부 종목 DD -6.9%</div><div style="padding:3px 0;font-size:12px;color:#1E293B;">운영 안정성: Cash Sync OK (-209), Price Feed 안정</div></div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">리스크 요약</h2>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;"><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #EF4444, #F87171);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">Worst DD</div>
+        <div style="font-size:28px;font-weight:700;color:#EF4444;line-height:1.2;">-6.9%<span style="font-size:14px;margin-left:4px;opacity:0.7;">&#9660;</span></div>
+        <div style="font-size:11px;color:#94A3B8;margin-top:4px;">005960</div>
+    </div><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #F59E0B, #FBBF24);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">Avg DD</div>
+        <div style="font-size:28px;font-weight:700;color:#F59E0B;line-height:1.2;">-2.7%<span style="font-size:14px;margin-left:4px;opacity:0.7;">&#9660;</span></div>
+        
+    </div><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #1E293B, #1E293B);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">VWAP 하회</div>
+        <div style="font-size:28px;font-weight:700;color:#1E293B;line-height:1.2;">8/17</div>
+        <div style="font-size:11px;color:#94A3B8;margin-top:4px;">47%</div>
+    </div><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #EF4444, #F87171);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">Risk Score</div>
+        <div style="font-size:28px;font-weight:700;color:#EF4444;line-height:1.2;">71<span style="font-size:14px;margin-left:4px;opacity:0.7;">&#9650;</span></div>
+        
+    </div></div>
+    </div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">이상 탐지</h2>
+        <div class="g4-alert" style="background:#FEE2E2;border-left:4px solid #EF4444;padding:10px 14px;margin-bottom:8px;font-size:13px;border-radius:0 8px 8px 0;"><span style="font-weight:700;color:#EF4444;margin-right:6px;">!!</span>일부 종목 -6.9% DD 발생 (005960)<div style="font-size:11px;color:#64748B;margin-top:4px;padding-left:20px;line-height:1.5;"><span style="color:#94A3B8;">의미:</span> 장중 급락으로 trail stop 근접 위험<br><span style="color:#94A3B8;">체크:</span> 내일 해당 종목 시가 및 거래량 확인<br><span style="color:#94A3B8;">주의:</span> trail 발동 시 빈 슬롯 보충 없음에 유의</div></div><div class="g4-alert" style="background:#FFFBEB;border-left:4px solid #F59E0B;padding:10px 14px;margin-bottom:8px;font-size:13px;border-radius:0 8px 8px 0;"><span style="font-weight:700;color:#F59E0B;margin-right:6px;">!</span>볼륨 스파이크 3x: 189건 (변동성 확대)<div style="font-size:11px;color:#64748B;margin-top:4px;padding-left:20px;line-height:1.5;"><span style="color:#94A3B8;">의미:</span> 거래량 급증으로 변동성 확대<br><span style="color:#94A3B8;">체크:</span> 내일 스파이크 지속 여부 확인<br><span style="color:#94A3B8;">주의:</span> 급등 후 되돌림 가능성 주의</div></div><div class="g4-alert" style="background:#FFFBEB;border-left:4px solid #F59E0B;padding:10px 14px;margin-bottom:8px;font-size:13px;border-radius:0 8px 8px 0;"><span style="font-weight:700;color:#F59E0B;margin-right:6px;">!</span>ERROR 이벤트 3건<div style="font-size:11px;color:#64748B;margin-top:4px;padding-left:20px;line-height:1.5;"><span style="color:#94A3B8;">의미:</span> 시스템 에러 다수 발생<br><span style="color:#94A3B8;">체크:</span> 로그 파일에서 ERROR 패턴 확인<br><span style="color:#94A3B8;">주의:</span> 연속 발생 시 monitor restart 동작 확인</div></div>
+    </div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">성과 지표</h2>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;"><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #FF4757, #FF6B81);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">당일 수익률</div>
+        <div style="font-size:28px;font-weight:700;color:#FF4757;line-height:1.2;">+1.59%<span style="font-size:14px;margin-left:4px;opacity:0.7;">&#9650;</span></div>
+        
+    </div><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #FF4757, #FF6B81);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">누적 수익률</div>
+        <div style="font-size:28px;font-weight:700;color:#FF4757;line-height:1.2;">+5.33%<span style="font-size:14px;margin-left:4px;opacity:0.7;">&#9650;</span></div>
+        <div style="font-size:11px;color:#94A3B8;margin-top:4px;">기준 매입 +3,750,000</div>
+    </div><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #94A3B8, #CBD5E1);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">실현 손익</div>
+        <div style="font-size:28px;font-weight:700;color:#94A3B8;line-height:1.2;">0</div>
+        <div style="font-size:11px;color:#94A3B8;margin-top:4px;">청산 확정</div>
+    </div><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #FF4757, #FF6B81);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">미실현 손익</div>
+        <div style="font-size:28px;font-weight:700;color:#FF4757;line-height:1.2;">+200,000<span style="font-size:14px;margin-left:4px;opacity:0.7;">&#9650;</span></div>
+        <div style="font-size:11px;color:#94A3B8;margin-top:4px;">보유 중</div>
+    </div></div>
+    </div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">장중 수익률 추이</h2>
+        <svg xmlns="http://www.w3.org/2000/svg" width="720" height="200" style="background:#fafafa;border-radius:8px;"><line x1="10" y1="20.0" x2="670" y2="20.0" stroke="#e0e0e0" stroke-width="0.5"/><line x1="10" y1="59.0" x2="670" y2="59.0" stroke="#e0e0e0" stroke-width="0.5"/><line x1="10" y1="98.0" x2="670" y2="98.0" stroke="#e0e0e0" stroke-width="0.5"/><line x1="10" y1="137.0" x2="670" y2="137.0" stroke="#e0e0e0" stroke-width="0.5"/><line x1="10" y1="176.0" x2="670" y2="176.0" stroke="#e0e0e0" stroke-width="0.5"/><line x1="10" y1="145.6" x2="670" y2="145.6" stroke="#333" stroke-width="0.5"/><polygon points="10.0,145.6 10.0,124.2 11.9,118.3 13.7,125.5 15.6,130.7 17.5,134.4 19.3,138.6 21.2,138.6 23.1,136.4 25.0,145.6 26.8,145.6 28.7,145.6 30.6,145.6 32.4,145.6 34.3,145.6 36.2,145.6 38.0,145.6 39.9,145.6 41.8,145.6 43.7,145.6 45.5,139.9 47.4,144.6 49.3,141.4 51.1,144.4 53.0,145.6 54.9,145.6 56.7,145.6 58.6,138.1 60.5,138.9 62.4,140.1 64.2,145.6 66.1,145.6 68.0,145.6 69.8,145.4 71.7,133.8 73.6,118.9 75.4,123.1 77.3,110.3 79.2,107.5 81.0,108.7 82.9,107.9 84.8,109.5 86.7,112.8 88.5,126.6 90.4,124.7 92.3,120.0 94.1,126.1 96.0,124.4 97.9,121.9 99.7,122.9 101.6,128.5 103.5,132.0 105.4,127.8 107.2,131.5 109.1,130.7 111.0,127.6 112.8,126.3 114.7,125.7 116.6,125.0 118.4,128.1 120.3,120.8 122.2,119.2 124.1,117.1 125.9,114.0 127.8,111.0 129.7,113.4 131.5,111.3 133.4,107.5 135.3,109.2 137.1,109.5 139.0,111.3 140.9,110.4 142.7,110.0 144.6,106.3 146.5,106.0 148.4,112.2 150.2,111.8 152.1,110.4 154.0,117.7 155.8,117.0 157.7,121.3 159.6,121.2 161.4,113.2 163.3,111.9 165.2,110.5 167.1,109.8 168.9,110.4 170.8,111.0 172.7,112.3 174.5,113.9 176.4,117.3 178.3,118.5 180.1,115.4 182.0,108.8 183.9,117.1 185.8,120.2 187.6,124.3 189.5,126.2 191.4,124.6 193.2,126.8 195.1,125.7 197.0,130.3 198.8,125.2 200.7,127.7 202.6,127.5 204.4,128.1 206.3,127.8 208.2,127.6 210.1,128.7 211.9,126.6 213.8,123.3 215.7,123.3 217.5,121.3 219.4,118.6 221.3,117.6 223.1,116.9 225.0,119.1 226.9,120.3 228.8,121.2 230.6,116.8 232.5,114.4 234.4,114.6 236.2,113.6 238.1,110.7 240.0,112.5 241.8,115.3 243.7,112.9 245.6,110.0 247.5,111.2 249.3,107.9 251.2,108.4 253.1,104.1 254.9,106.3 256.8,107.1 258.7,111.4 260.5,109.7 262.4,103.0 264.3,103.6 266.1,107.3 268.0,108.6 269.9,109.2 271.8,113.7 273.6,117.5 275.5,114.0 277.4,114.1 279.2,113.1 281.1,112.6 283.0,111.5 284.8,111.0 286.7,110.2 288.6,109.3 290.5,107.7 292.3,111.3 294.2,109.4 296.1,108.8 297.9,103.6 299.8,104.0 301.7,107.9 303.5,103.4 305.4,103.2 307.3,100.3 309.2,100.9 311.0,100.2 312.9,98.8 314.8,99.9 316.6,96.0 318.5,96.8 320.4,101.3 322.2,101.7 324.1,99.7 326.0,101.3 327.8,101.5 329.7,88.8 331.6,91.1 333.5,88.4 335.3,87.7 337.2,90.9 339.1,91.2 340.9,92.0 342.8,94.9 344.7,95.1 346.5,96.3 348.4,95.3 350.3,93.1 352.2,92.7 354.0,87.8 355.9,89.8 357.8,88.8 359.6,88.6 361.5,88.4 363.4,87.3 365.2,89.6 367.1,91.0 369.0,89.1 370.8,90.9 372.7,88.7 374.6,87.9 376.5,89.0 378.3,91.2 380.2,93.3 382.1,91.8 383.9,92.6 385.8,94.6 387.7,96.9 389.5,96.2 391.4,99.8 393.3,97.8 395.2,96.2 397.0,96.6 398.9,91.9 400.8,91.3 402.6,91.7 404.5,91.2 406.4,78.7 408.2,78.5 410.1,79.5 412.0,77.8 413.9,75.7 415.7,77.6 417.6,74.0 419.5,74.0 421.3,73.4 423.2,73.7 425.1,65.3 426.9,64.0 428.8,66.3 430.7,66.1 432.5,64.3 434.4,64.4 436.3,66.6 438.2,62.7 440.0,65.0 441.9,64.5 443.8,65.8 445.6,65.0 447.5,65.9 449.4,65.8 451.2,68.6 453.1,71.0 455.0,69.4 456.9,70.3 458.7,70.3 460.6,72.5 462.5,73.5 464.3,72.1 466.2,70.5 468.1,69.5 469.9,69.4 471.8,69.9 473.7,71.0 475.6,69.1 477.4,73.0 479.3,72.4 481.2,73.7 483.0,71.7 484.9,72.0 486.8,75.3 488.6,76.3 490.5,78.4 492.4,77.2 494.2,75.9 496.1,74.1 498.0,81.2 499.9,83.5 501.7,82.0 503.6,83.3 505.5,79.5 507.3,77.0 509.2,76.1 511.1,75.3 512.9,80.3 514.8,73.4 516.7,75.0 518.6,75.5 520.4,76.1 522.3,74.8 524.2,73.9 526.0,76.7 527.9,76.8 529.8,77.0 531.6,80.6 533.5,79.4 535.4,77.3 537.3,82.2 539.1,80.3 541.0,83.3 542.9,80.6 544.7,79.0 546.6,78.6 548.5,82.9 550.3,83.2 552.2,80.2 554.1,79.1 555.9,66.5 557.8,70.5 559.7,68.7 561.6,70.0 563.4,67.4 565.3,65.4 567.2,70.7 569.0,70.6 570.9,69.5 572.8,70.5 574.6,68.5 576.5,71.9 578.4,74.5 580.3,82.1 582.1,87.1 584.0,84.0 585.9,80.5 587.7,78.9 589.6,81.3 591.5,65.8 593.3,66.3 595.2,66.4 597.1,63.9 599.0,65.4 600.8,66.6 602.7,68.4 604.6,67.6 606.4,62.6 608.3,62.3 610.2,64.5 612.0,61.1 613.9,57.0 615.8,53.7 617.6,50.7 619.5,52.7 621.4,50.5 623.3,52.1 625.1,49.9 627.0,52.2 628.9,50.9 630.7,51.3 632.6,51.2 634.5,49.8 636.3,53.1 638.2,52.1 640.1,52.5 642.0,60.4 643.8,47.7 645.7,51.5 647.6,53.2 649.4,53.5 651.3,53.0 653.2,58.0 655.0,55.2 656.9,49.2 658.8,34.9 660.7,40.5 662.5,48.2 664.4,34.4 666.3,38.0 668.1,33.0 670.0,84.8 670.0,145.6" fill="rgba(211,47,47,0.15)" stroke="none"/><polygon points="10.0,145.6 10.0,145.6 11.9,145.6 13.7,145.6 15.6,145.6 17.5,145.6 19.3,145.6 21.2,145.6 23.1,145.6 25.0,146.3 26.8,147.3 28.7,148.7 30.6,152.0 32.4,153.5 34.3,150.1 36.2,146.7 38.0,147.7 39.9,151.1 41.8,147.2 43.7,145.6 45.5,145.6 47.4,145.6 49.3,145.6 51.1,145.6 53.0,150.0 54.9,163.0 56.7,153.5 58.6,145.6 60.5,145.6 62.4,145.6 64.2,148.7 66.1,148.5 68.0,155.0 69.8,145.6 71.7,145.6 73.6,145.6 75.4,145.6 77.3,145.6 79.2,145.6 81.0,145.6 82.9,145.6 84.8,145.6 86.7,145.6 88.5,145.6 90.4,145.6 92.3,145.6 94.1,145.6 96.0,145.6 97.9,145.6 99.7,145.6 101.6,145.6 103.5,145.6 105.4,145.6 107.2,145.6 109.1,145.6 111.0,145.6 112.8,145.6 114.7,145.6 116.6,145.6 118.4,145.6 120.3,145.6 122.2,145.6 124.1,145.6 125.9,145.6 127.8,145.6 129.7,145.6 131.5,145.6 133.4,145.6 135.3,145.6 137.1,145.6 139.0,145.6 140.9,145.6 142.7,145.6 144.6,145.6 146.5,145.6 148.4,145.6 150.2,145.6 152.1,145.6 154.0,145.6 155.8,145.6 157.7,145.6 159.6,145.6 161.4,145.6 163.3,145.6 165.2,145.6 167.1,145.6 168.9,145.6 170.8,145.6 172.7,145.6 174.5,145.6 176.4,145.6 178.3,145.6 180.1,145.6 182.0,145.6 183.9,145.6 185.8,145.6 187.6,145.6 189.5,145.6 191.4,145.6 193.2,145.6 195.1,145.6 197.0,145.6 198.8,145.6 200.7,145.6 202.6,145.6 204.4,145.6 206.3,145.6 208.2,145.6 210.1,145.6 211.9,145.6 213.8,145.6 215.7,145.6 217.5,145.6 219.4,145.6 221.3,145.6 223.1,145.6 225.0,145.6 226.9,145.6 228.8,145.6 230.6,145.6 232.5,145.6 234.4,145.6 236.2,145.6 238.1,145.6 240.0,145.6 241.8,145.6 243.7,145.6 245.6,145.6 247.5,145.6 249.3,145.6 251.2,145.6 253.1,145.6 254.9,145.6 256.8,145.6 258.7,145.6 260.5,145.6 262.4,145.6 264.3,145.6 266.1,145.6 268.0,145.6 269.9,145.6 271.8,145.6 273.6,145.6 275.5,145.6 277.4,145.6 279.2,145.6 281.1,145.6 283.0,145.6 284.8,145.6 286.7,145.6 288.6,145.6 290.5,145.6 292.3,145.6 294.2,145.6 296.1,145.6 297.9,145.6 299.8,145.6 301.7,145.6 303.5,145.6 305.4,145.6 307.3,145.6 309.2,145.6 311.0,145.6 312.9,145.6 314.8,145.6 316.6,145.6 318.5,145.6 320.4,145.6 322.2,145.6 324.1,145.6 326.0,145.6 327.8,145.6 329.7,145.6 331.6,145.6 333.5,145.6 335.3,145.6 337.2,145.6 339.1,145.6 340.9,145.6 342.8,145.6 344.7,145.6 346.5,145.6 348.4,145.6 350.3,145.6 352.2,145.6 354.0,145.6 355.9,145.6 357.8,145.6 359.6,145.6 361.5,145.6 363.4,145.6 365.2,145.6 367.1,145.6 369.0,145.6 370.8,145.6 372.7,145.6 374.6,145.6 376.5,145.6 378.3,145.6 380.2,145.6 382.1,145.6 383.9,145.6 385.8,145.6 387.7,145.6 389.5,145.6 391.4,145.6 393.3,145.6 395.2,145.6 397.0,145.6 398.9,145.6 400.8,145.6 402.6,145.6 404.5,145.6 406.4,145.6 408.2,145.6 410.1,145.6 412.0,145.6 413.9,145.6 415.7,145.6 417.6,145.6 419.5,145.6 421.3,145.6 423.2,145.6 425.1,145.6 426.9,145.6 428.8,145.6 430.7,145.6 432.5,145.6 434.4,145.6 436.3,145.6 438.2,145.6 440.0,145.6 441.9,145.6 443.8,145.6 445.6,145.6 447.5,145.6 449.4,145.6 451.2,145.6 453.1,145.6 455.0,145.6 456.9,145.6 458.7,145.6 460.6,145.6 462.5,145.6 464.3,145.6 466.2,145.6 468.1,145.6 469.9,145.6 471.8,145.6 473.7,145.6 475.6,145.6 477.4,145.6 479.3,145.6 481.2,145.6 483.0,145.6 484.9,145.6 486.8,145.6 488.6,145.6 490.5,145.6 492.4,145.6 494.2,145.6 496.1,145.6 498.0,145.6 499.9,145.6 501.7,145.6 503.6,145.6 505.5,145.6 507.3,145.6 509.2,145.6 511.1,145.6 512.9,145.6 514.8,145.6 516.7,145.6 518.6,145.6 520.4,145.6 522.3,145.6 524.2,145.6 526.0,145.6 527.9,145.6 529.8,145.6 531.6,145.6 533.5,145.6 535.4,145.6 537.3,145.6 539.1,145.6 541.0,145.6 542.9,145.6 544.7,145.6 546.6,145.6 548.5,145.6 550.3,145.6 552.2,145.6 554.1,145.6 555.9,145.6 557.8,145.6 559.7,145.6 561.6,145.6 563.4,145.6 565.3,145.6 567.2,145.6 569.0,145.6 570.9,145.6 572.8,145.6 574.6,145.6 576.5,145.6 578.4,145.6 580.3,145.6 582.1,145.6 584.0,145.6 585.9,145.6 587.7,145.6 589.6,145.6 591.5,145.6 593.3,145.6 595.2,145.6 597.1,145.6 599.0,145.6 600.8,145.6 602.7,145.6 604.6,145.6 606.4,145.6 608.3,145.6 610.2,145.6 612.0,145.6 613.9,145.6 615.8,145.6 617.6,145.6 619.5,145.6 621.4,145.6 623.3,145.6 625.1,145.6 627.0,145.6 628.9,145.6 630.7,145.6 632.6,145.6 634.5,145.6 636.3,145.6 638.2,145.6 640.1,145.6 642.0,145.6 643.8,145.6 645.7,145.6 647.6,145.6 649.4,145.6 651.3,145.6 653.2,145.6 655.0,145.6 656.9,145.6 658.8,145.6 660.7,145.6 662.5,145.6 664.4,145.6 666.3,145.6 668.1,145.6 670.0,145.6 670.0,145.6" fill="rgba(21,101,192,0.15)" stroke="none"/><polyline points="10.0,124.2 11.9,118.3 13.7,125.5 15.6,130.7 17.5,134.4 19.3,138.6 21.2,138.6 23.1,136.4 25.0,146.3 26.8,147.3 28.7,148.7 30.6,152.0 32.4,153.5 34.3,150.1 36.2,146.7 38.0,147.7 39.9,151.1 41.8,147.2 43.7,145.6 45.5,139.9 47.4,144.6 49.3,141.4 51.1,144.4 53.0,150.0 54.9,163.0 56.7,153.5 58.6,138.1 60.5,138.9 62.4,140.1 64.2,148.7 66.1,148.5 68.0,155.0 69.8,145.4 71.7,133.8 73.6,118.9 75.4,123.1 77.3,110.3 79.2,107.5 81.0,108.7 82.9,107.9 84.8,109.5 86.7,112.8 88.5,126.6 90.4,124.7 92.3,120.0 94.1,126.1 96.0,124.4 97.9,121.9 99.7,122.9 101.6,128.5 103.5,132.0 105.4,127.8 107.2,131.5 109.1,130.7 111.0,127.6 112.8,126.3 114.7,125.7 116.6,125.0 118.4,128.1 120.3,120.8 122.2,119.2 124.1,117.1 125.9,114.0 127.8,111.0 129.7,113.4 131.5,111.3 133.4,107.5 135.3,109.2 137.1,109.5 139.0,111.3 140.9,110.4 142.7,110.0 144.6,106.3 146.5,106.0 148.4,112.2 150.2,111.8 152.1,110.4 154.0,117.7 155.8,117.0 157.7,121.3 159.6,121.2 161.4,113.2 163.3,111.9 165.2,110.5 167.1,109.8 168.9,110.4 170.8,111.0 172.7,112.3 174.5,113.9 176.4,117.3 178.3,118.5 180.1,115.4 182.0,108.8 183.9,117.1 185.8,120.2 187.6,124.3 189.5,126.2 191.4,124.6 193.2,126.8 195.1,125.7 197.0,130.3 198.8,125.2 200.7,127.7 202.6,127.5 204.4,128.1 206.3,127.8 208.2,127.6 210.1,128.7 211.9,126.6 213.8,123.3 215.7,123.3 217.5,121.3 219.4,118.6 221.3,117.6 223.1,116.9 225.0,119.1 226.9,120.3 228.8,121.2 230.6,116.8 232.5,114.4 234.4,114.6 236.2,113.6 238.1,110.7 240.0,112.5 241.8,115.3 243.7,112.9 245.6,110.0 247.5,111.2 249.3,107.9 251.2,108.4 253.1,104.1 254.9,106.3 256.8,107.1 258.7,111.4 260.5,109.7 262.4,103.0 264.3,103.6 266.1,107.3 268.0,108.6 269.9,109.2 271.8,113.7 273.6,117.5 275.5,114.0 277.4,114.1 279.2,113.1 281.1,112.6 283.0,111.5 284.8,111.0 286.7,110.2 288.6,109.3 290.5,107.7 292.3,111.3 294.2,109.4 296.1,108.8 297.9,103.6 299.8,104.0 301.7,107.9 303.5,103.4 305.4,103.2 307.3,100.3 309.2,100.9 311.0,100.2 312.9,98.8 314.8,99.9 316.6,96.0 318.5,96.8 320.4,101.3 322.2,101.7 324.1,99.7 326.0,101.3 327.8,101.5 329.7,88.8 331.6,91.1 333.5,88.4 335.3,87.7 337.2,90.9 339.1,91.2 340.9,92.0 342.8,94.9 344.7,95.1 346.5,96.3 348.4,95.3 350.3,93.1 352.2,92.7 354.0,87.8 355.9,89.8 357.8,88.8 359.6,88.6 361.5,88.4 363.4,87.3 365.2,89.6 367.1,91.0 369.0,89.1 370.8,90.9 372.7,88.7 374.6,87.9 376.5,89.0 378.3,91.2 380.2,93.3 382.1,91.8 383.9,92.6 385.8,94.6 387.7,96.9 389.5,96.2 391.4,99.8 393.3,97.8 395.2,96.2 397.0,96.6 398.9,91.9 400.8,91.3 402.6,91.7 404.5,91.2 406.4,78.7 408.2,78.5 410.1,79.5 412.0,77.8 413.9,75.7 415.7,77.6 417.6,74.0 419.5,74.0 421.3,73.4 423.2,73.7 425.1,65.3 426.9,64.0 428.8,66.3 430.7,66.1 432.5,64.3 434.4,64.4 436.3,66.6 438.2,62.7 440.0,65.0 441.9,64.5 443.8,65.8 445.6,65.0 447.5,65.9 449.4,65.8 451.2,68.6 453.1,71.0 455.0,69.4 456.9,70.3 458.7,70.3 460.6,72.5 462.5,73.5 464.3,72.1 466.2,70.5 468.1,69.5 469.9,69.4 471.8,69.9 473.7,71.0 475.6,69.1 477.4,73.0 479.3,72.4 481.2,73.7 483.0,71.7 484.9,72.0 486.8,75.3 488.6,76.3 490.5,78.4 492.4,77.2 494.2,75.9 496.1,74.1 498.0,81.2 499.9,83.5 501.7,82.0 503.6,83.3 505.5,79.5 507.3,77.0 509.2,76.1 511.1,75.3 512.9,80.3 514.8,73.4 516.7,75.0 518.6,75.5 520.4,76.1 522.3,74.8 524.2,73.9 526.0,76.7 527.9,76.8 529.8,77.0 531.6,80.6 533.5,79.4 535.4,77.3 537.3,82.2 539.1,80.3 541.0,83.3 542.9,80.6 544.7,79.0 546.6,78.6 548.5,82.9 550.3,83.2 552.2,80.2 554.1,79.1 555.9,66.5 557.8,70.5 559.7,68.7 561.6,70.0 563.4,67.4 565.3,65.4 567.2,70.7 569.0,70.6 570.9,69.5 572.8,70.5 574.6,68.5 576.5,71.9 578.4,74.5 580.3,82.1 582.1,87.1 584.0,84.0 585.9,80.5 587.7,78.9 589.6,81.3 591.5,65.8 593.3,66.3 595.2,66.4 597.1,63.9 599.0,65.4 600.8,66.6 602.7,68.4 604.6,67.6 606.4,62.6 608.3,62.3 610.2,64.5 612.0,61.1 613.9,57.0 615.8,53.7 617.6,50.7 619.5,52.7 621.4,50.5 623.3,52.1 625.1,49.9 627.0,52.2 628.9,50.9 630.7,51.3 632.6,51.2 634.5,49.8 636.3,53.1 638.2,52.1 640.1,52.5 642.0,60.4 643.8,47.7 645.7,51.5 647.6,53.2 649.4,53.5 651.3,53.0 653.2,58.0 655.0,55.2 656.9,49.2 658.8,34.9 660.7,40.5 662.5,48.2 664.4,34.4 666.3,38.0 668.1,33.0 670.0,84.8" fill="none" stroke="#d32f2f" stroke-width="1.8"/><text x="674" y="179.0" font-size="9" fill="#78909c">-0.49%</text><text x="674" y="140.0" font-size="9" fill="#78909c">+0.14%</text><text x="674" y="101.0" font-size="9" fill="#78909c">+0.77%</text><text x="674" y="62.0" font-size="9" fill="#78909c">+1.40%</text><text x="674" y="23.0" font-size="9" fill="#78909c">+2.02%</text><text x="674" y="78.8" font-size="10" font-weight="700" fill="#d32f2f">+0.98%</text></svg>
+    </div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">장중 흐름 요약</h2>
+        
+        <div style="background:#F8FAFC;border-radius:10px;padding:16px 20px;">
+            <div style="padding:4px 0;font-size:13px;color:#1E293B;"><span style="color:#00B4D8;margin-right:8px;font-weight:700;">-</span>고점: 09:04 (5원)</div><div style="padding:4px 0;font-size:13px;color:#1E293B;"><span style="color:#00B4D8;margin-right:8px;font-weight:700;">-</span>저점: 09:04 (5원)</div><div style="padding:4px 0;font-size:13px;color:#1E293B;"><span style="color:#00B4D8;margin-right:8px;font-weight:700;">-</span>장중 변동폭: 0.00%</div><div style="padding:4px 0;font-size:13px;color:#1E293B;"><span style="color:#00B4D8;margin-right:8px;font-weight:700;">-</span>평균 장중DD: -2.66%</div><div style="padding:4px 0;font-size:13px;color:#1E293B;"><span style="color:#00B4D8;margin-right:8px;font-weight:700;">-</span>최악 DD: -6.91% (동부건설 @ 09:27)</div><div style="padding:4px 0;font-size:13px;color:#1E293B;"><span style="color:#00B4D8;margin-right:8px;font-weight:700;">-</span>고점→종가 DD: 0.00%</div><div style="padding:4px 0;font-size:13px;color:#1E293B;"><span style="color:#00B4D8;margin-right:8px;font-weight:700;">-</span>저점 이후 회복: +0.00%</div><div style="padding:4px 0;font-size:13px;color:#1E293B;"><span style="color:#00B4D8;margin-right:8px;font-weight:700;">-</span>후반(14:00~) 강도: +0.00% (보합)</div>
+        </div>
+    </div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">장중 분석 (Intraday Analytics)</h2>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+        <div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #EF4444, #F87171);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">Risk Score</div>
+        <div style="font-size:28px;font-weight:700;color:#EF4444;line-height:1.2;">71<span style="font-size:14px;margin-left:4px;opacity:0.7;">&#9650;</span></div>
+        <div style="font-size:11px;color:#94A3B8;margin-top:4px;">(참고용 · HIGH)</div>
+    </div>
+        <div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #94A3B8, #CBD5E1);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">VWAP 하회</div>
+        <div style="font-size:28px;font-weight:700;color:#94A3B8;line-height:1.2;">8/17</div>
+        
+    </div>
+        <div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #F59E0B, #FBBF24);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">Spike 2x/3x</div>
+        <div style="font-size:28px;font-weight:700;color:#F59E0B;line-height:1.2;">494/189</div>
+        <div style="font-size:11px;color:#94A3B8;margin-top:4px;">개장5분 제외</div>
+    </div>
+        <div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #10B981, #34D399);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">Trail 근접</div>
+        <div style="font-size:28px;font-weight:700;color:#10B981;line-height:1.2;">0</div>
+        <div style="font-size:11px;color:#94A3B8;margin-top:4px;">DD ≤ -10%</div>
+    </div>
+    </div><div style="border-radius:8px;overflow:hidden;border:1px solid #E2E8F0;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+            <tr style="background:#F1F5F9;">
+                <th style="padding:8px;text-align:left;color:#475569;font-weight:600;">종목</th>
+                <th style="padding:8px;text-align:right;color:#475569;font-weight:600;">장중DD</th>
+                <th style="padding:8px;text-align:center;color:#475569;font-weight:600;">시각</th>
+                <th style="padding:8px;text-align:right;color:#475569;font-weight:600;">vs VWAP</th>
+                <th style="padding:8px;text-align:right;color:#475569;font-weight:600;">5m Drop</th>
+                <th style="padding:8px;text-align:center;color:#475569;font-weight:600;">Spikes</th>
+            </tr>
+        </thead>
+        <tbody><tr>
+            <td style="font-weight:600;">동부건설 <span style="font-size:9px;color:#94A3B8;">005960</span></td>
+            <td style="color:#EF4444;font-weight:700;">-6.91%</td>
+            <td style="color:#64748B;">09:27</td>
+            <td style="color:#FF4757;">+0.50%</td>
+            <td>-2.30%</td>
+            <td style="text-align:center;">34</td>
+        </tr><tr>
+            <td style="font-weight:600;">영원무역홀딩스 <span style="font-size:9px;color:#94A3B8;">009970</span></td>
+            <td style="color:#EF4444;font-weight:700;">-5.95%</td>
+            <td style="color:#64748B;">13:44</td>
+            <td style="color:#3B82F6;">-1.79%</td>
+            <td>-1.12%</td>
+            <td style="text-align:center;">45</td>
+        </tr><tr>
+            <td style="font-weight:600;">삼지전자 <span style="font-size:9px;color:#94A3B8;">037460</span></td>
+            <td style="color:#F59E0B;font-weight:700;">-3.68%</td>
+            <td style="color:#64748B;">12:07</td>
+            <td style="color:#3B82F6;">-0.98%</td>
+            <td>-1.68%</td>
+            <td style="text-align:center;">37</td>
+        </tr><tr>
+            <td style="font-weight:600;">NH투자증권 <span style="font-size:9px;color:#94A3B8;">005940</span></td>
+            <td style="color:#F59E0B;font-weight:700;">-3.29%</td>
+            <td style="color:#64748B;">15:16</td>
+            <td style="color:#3B82F6;">-1.05%</td>
+            <td>-1.29%</td>
+            <td style="text-align:center;">18</td>
+        </tr><tr>
+            <td style="font-weight:600;">S-Oil <span style="font-size:9px;color:#94A3B8;">010950</span></td>
+            <td style="color:#F59E0B;font-weight:700;">-3.11%</td>
+            <td style="color:#64748B;">11:10</td>
+            <td style="color:#FF4757;">+0.09%</td>
+            <td>-1.65%</td>
+            <td style="text-align:center;">23</td>
+        </tr></tbody>
+    </table></div>
+    <div style="font-size:10px;color:#94A3B8;margin-top:6px;">
+        장중DD: 고점 대비 종가 기준 | 5m Drop: 종가-종가 5분 | Spike: 직전5분 평균 대비 2x (개장5분 제외)
+    </div>
+    </div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">시장 대비 성과</h2>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;"><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #FF4757, #FF6B81);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">포트폴리오</div>
+        <div style="font-size:28px;font-weight:700;color:#FF4757;line-height:1.2;">+1.59%<span style="font-size:14px;margin-left:4px;opacity:0.7;">&#9650;</span></div>
+        
+    </div><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #FF4757, #FF6B81);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">KOSPI</div>
+        <div style="font-size:28px;font-weight:700;color:#FF4757;line-height:1.2;">+1.52%<span style="font-size:14px;margin-left:4px;opacity:0.7;">&#9650;</span></div>
+        <div style="font-size:11px;color:#94A3B8;margin-top:4px;">종가 5,858.72</div>
+    </div><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #FF4757, #FF6B81);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">초과 수익</div>
+        <div style="font-size:28px;font-weight:700;color:#FF4757;line-height:1.2;">+0.07%<span style="font-size:14px;margin-left:4px;opacity:0.7;">&#9650;</span></div>
+        <div style="font-size:11px;color:#94A3B8;margin-top:4px;"><span style="color:#10B981;font-weight:600;">Outperform</span></div>
+    </div></div><div style="font-size:10px;color:#94A3B8;margin-top:6px;">KOSPI 수익률 = 당일 종가 / 전일 종가 - 1 | 포트폴리오 수익률 = EOD 총자산 / 전일 종가 총자산 - 1</div>
+    </div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">비용 분석</h2>
+        <div style="color:#94A3B8;padding:12px;">당일 비용 없음</div>
+    </div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">거래 요약</h2>
+        <div style="color:#94A3B8;padding:12px;">당일 거래 없음</div>
+    </div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">미청산 포지션</h2>
+        <div style="font-size:11px;color:#94A3B8;margin-bottom:8px;">
+            헤더 클릭으로 정렬 | 상태: 정상 / 주의(VWAP+DD) / 경계(Trail) / 고위험(복합)</div>
+        <div class="g4-sticky-wrap" style="overflow-x:auto;border-radius:8px;border:1px solid #E2E8F0;">
+        <table id="pos-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:1000px;">
+        <thead><tr>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',0,true)" style="text-align:right;padding:8px 8px;border-bottom:1px solid #E2E8F0;color:#475569;font-size:11px;font-weight:600;background:#F1F5F9;">#<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',1,false)" style="text-align:left;padding:8px 8px;border-bottom:1px solid #E2E8F0;color:#475569;font-size:11px;font-weight:600;background:#F1F5F9;">종목명<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',2,true)" style="text-align:right;padding:8px 8px;border-bottom:1px solid #E2E8F0;color:#475569;font-size:11px;font-weight:600;background:#F1F5F9;">수량<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',3,true)" style="text-align:right;padding:8px 8px;border-bottom:1px solid #E2E8F0;color:#475569;font-size:11px;font-weight:600;background:#F1F5F9;">평균가<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',4,true)" style="text-align:right;padding:8px 8px;border-bottom:1px solid #E2E8F0;color:#475569;font-size:11px;font-weight:600;background:#F1F5F9;">현재가<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',5,true)" style="text-align:right;padding:8px 8px;border-bottom:1px solid #E2E8F0;color:#475569;font-size:11px;font-weight:600;background:#F1F5F9;">손익률<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',6,true)" style="text-align:right;padding:8px 8px;border-bottom:1px solid #E2E8F0;color:#475569;font-size:11px;font-weight:600;background:#F1F5F9;">손익금액<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',7,true)" style="text-align:right;padding:8px 8px;border-bottom:1px solid #E2E8F0;color:#475569;font-size:11px;font-weight:600;background:#F1F5F9;">순손익률<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',8,true)" style="text-align:right;padding:8px 8px;border-bottom:1px solid #E2E8F0;color:#475569;font-size:11px;font-weight:600;background:#F1F5F9;">vs VWAP<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',9,true)" style="text-align:right;padding:8px 8px;border-bottom:1px solid #E2E8F0;color:#475569;font-size:11px;font-weight:600;background:#F1F5F9;">장중DD<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',10,true)" style="text-align:right;padding:8px 8px;border-bottom:1px solid #E2E8F0;color:#475569;font-size:11px;font-weight:600;background:#F1F5F9;">보유<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',11,true)" style="text-align:right;padding:8px 8px;border-bottom:1px solid #E2E8F0;color:#475569;font-size:11px;font-weight:600;background:#F1F5F9;">Trail Gap<span class="g4-arrow" style="font-size:9px;"></span></th>
+        <th class="g4-sortable" onclick="g4sort('pos-tbl',12,false)" style="text-align:center;padding:8px 8px;border-bottom:1px solid #E2E8F0;color:#475569;font-size:11px;font-weight:600;background:#F1F5F9;">상태<span class="g4-arrow" style="font-size:9px;"></span></th>
+        </tr></thead>
+        <tbody>
+        <tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">1</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#3B82F6;">인카금융서비스<span style="font-size:9px;color:#94A3B8;margin-left:4px;">211050</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">21</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">11,900</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">11,700</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-loss-cell" style="color:#3B82F6;">-1.68%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-loss-cell" style="color:#3B82F6;">-4,200</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;font-weight:600;">-2.09%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;">-0.88%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#F59E0B;">-2.42%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">6.6% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:33%;height:100%;background:#F59E0B;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">2</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#3B82F6;">인카금융서비스<span style="font-size:9px;color:#94A3B8;margin-left:4px;">211050</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">21</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">11,900</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">11,700</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-loss-cell" style="color:#3B82F6;">-1.68%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-loss-cell" style="color:#3B82F6;">-4,200</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;font-weight:600;">-2.09%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;">-0.88%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#F59E0B;">-2.42%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">6.6% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:33%;height:100%;background:#F59E0B;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">3</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">삼성전자<span style="font-size:9px;color:#94A3B8;margin-left:4px;">005930</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">1</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">184,500</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">206,000</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+11.65%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+21,500</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+11.24%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;">-0.98%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#F59E0B;">-2.39%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">9.3% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:46%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">4</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">삼성전자<span style="font-size:9px;color:#94A3B8;margin-left:4px;">005930</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">1</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">184,500</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">206,000</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+11.65%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+21,500</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+11.24%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;">-0.98%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#F59E0B;">-2.39%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">9.3% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:46%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">5</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">삼지전자<span style="font-size:9px;color:#94A3B8;margin-left:4px;">037460</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">9</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">28,500</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">28,900</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+1.40%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+3,600</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+0.99%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;">-0.98%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#F59E0B;">-3.68%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">9.3% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:46%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">6</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">삼지전자<span style="font-size:9px;color:#94A3B8;margin-left:4px;">037460</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">9</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">28,500</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">28,900</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+1.40%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+3,600</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+0.99%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;">-0.98%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#F59E0B;">-3.68%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">9.3% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:46%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FEF3C7;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">7</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#3B82F6;">영원무역홀딩스<span style="font-size:9px;color:#94A3B8;margin-left:4px;">009970</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">1</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">220,500</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">216,500</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-loss-cell" style="color:#3B82F6;">-1.81%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-loss-cell" style="color:#3B82F6;">-4,000</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;font-weight:600;">-2.22%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;">-1.79%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#EF4444;">-5.95%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#F59E0B;">9.3% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:47%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#F59E0B;font-weight:600;">주의</td></tr><tr style="background:#FEF3C7;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">8</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#3B82F6;">영원무역홀딩스<span style="font-size:9px;color:#94A3B8;margin-left:4px;">009970</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">1</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">220,500</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">216,500</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-loss-cell" style="color:#3B82F6;">-1.81%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-loss-cell" style="color:#3B82F6;">-4,000</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;font-weight:600;">-2.22%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;">-1.79%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#EF4444;">-5.95%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#F59E0B;">9.6% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:48%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#F59E0B;font-weight:600;">주의</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">9</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">동부건설<span style="font-size:9px;color:#94A3B8;margin-left:4px;">005960</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">30</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">8,430</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">9,310</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+10.44%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+26,400</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+10.03%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.50%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#EF4444;">-6.91%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">9.8% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:49%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">10</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">동부건설<span style="font-size:9px;color:#94A3B8;margin-left:4px;">005960</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">30</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">8,430</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">9,310</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+10.44%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+26,400</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+10.03%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.50%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#EF4444;">-6.91%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">9.8% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:49%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">11</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">삼성생명<span style="font-size:9px;color:#94A3B8;margin-left:4px;">032830</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">1</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">226,000</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">235,000</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+3.98%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+9,000</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+3.57%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.33%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#1E293B;">-1.90%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">10.1% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:51%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">12</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">삼성생명<span style="font-size:9px;color:#94A3B8;margin-left:4px;">032830</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">1</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">226,000</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">235,000</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+3.98%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+9,000</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+3.57%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.33%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#1E293B;">-1.90%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">10.1% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:51%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">13</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">NH투자증권<span style="font-size:9px;color:#94A3B8;margin-left:4px;">005940</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">8</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">30,500</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">33,950</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+11.31%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+27,600</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+10.90%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;">-1.05%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#F59E0B;">-3.29%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">10.5% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:53%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">14</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">NH투자증권<span style="font-size:9px;color:#94A3B8;margin-left:4px;">005940</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">8</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">30,500</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">33,950</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+11.31%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+27,600</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+10.90%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;">-1.05%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#F59E0B;">-3.29%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">10.5% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:53%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">15</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">DB손해보험<span style="font-size:9px;color:#94A3B8;margin-left:4px;">005830</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">1</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">165,600</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">168,300</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+1.63%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+2,700</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+1.22%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.15%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#1E293B;">-1.94%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">11.2% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:56%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">16</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">DB손해보험<span style="font-size:9px;color:#94A3B8;margin-left:4px;">005830</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">1</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">165,600</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">168,300</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+1.63%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+2,700</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+1.22%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.15%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#1E293B;">-1.94%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">11.2% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:56%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">17</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">iM금융지주<span style="font-size:9px;color:#94A3B8;margin-left:4px;">139130</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">15</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">16,990</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">18,080</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+6.42%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+16,350</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+6.01%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.05%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#F59E0B;">-2.81%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">11.2% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:56%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">18</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">iM금융지주<span style="font-size:9px;color:#94A3B8;margin-left:4px;">139130</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">15</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">16,990</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">18,080</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+6.42%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+16,350</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+6.01%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.05%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#F59E0B;">-2.81%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">11.2% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:56%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">19</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">현대글로비스<span style="font-size:9px;color:#94A3B8;margin-left:4px;">086280</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">1</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">212,000</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">218,500</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+3.07%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+6,500</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+2.66%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;">-0.02%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#1E293B;">-1.14%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">11.5% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:57%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">20</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">현대글로비스<span style="font-size:9px;color:#94A3B8;margin-left:4px;">086280</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">1</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">212,000</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">218,500</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+3.07%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+6,500</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+2.66%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;">-0.02%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#1E293B;">-1.14%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">11.5% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:57%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">21</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">현대위아<span style="font-size:9px;color:#94A3B8;margin-left:4px;">011210</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">3</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">76,200</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">78,800</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+3.41%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+7,800</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+3.00%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.25%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#1E293B;">-1.77%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">11.5% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:58%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">22</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">현대위아<span style="font-size:9px;color:#94A3B8;margin-left:4px;">011210</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">3</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">76,200</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">78,800</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+3.41%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+7,800</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+3.00%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.25%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#1E293B;">-1.77%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">11.5% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:58%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">23</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">S-Oil<span style="font-size:9px;color:#94A3B8;margin-left:4px;">010950</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">2</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">106,900</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">120,100</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+12.35%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+26,400</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+11.94%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.09%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#F59E0B;">-3.11%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">11.9% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:59%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">24</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">S-Oil<span style="font-size:9px;color:#94A3B8;margin-left:4px;">010950</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">2</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">106,900</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">120,100</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+12.35%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+26,400</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+11.94%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.09%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#F59E0B;">-3.11%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">11.9% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:59%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">25</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">대신증권<span style="font-size:9px;color:#94A3B8;margin-left:4px;">003540</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">36,350</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">37,750</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+3.85%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+9,800</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+3.44%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.29%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#1E293B;">-1.32%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">12.0% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:60%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">26</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">대신증권<span style="font-size:9px;color:#94A3B8;margin-left:4px;">003540</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">36,350</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">37,750</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+3.85%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+9,800</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+3.44%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.29%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#1E293B;">-1.32%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">12.0% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:60%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">27</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">삼성증권<span style="font-size:9px;color:#94A3B8;margin-left:4px;">016360</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">2</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">94,700</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">106,800</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+12.78%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+24,200</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+12.37%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;">-0.31%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#1E293B;">-1.48%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">12.2% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:61%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">28</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">삼성증권<span style="font-size:9px;color:#94A3B8;margin-left:4px;">016360</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">2</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">94,700</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">106,800</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+12.78%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+24,200</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+12.37%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;">-0.31%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#1E293B;">-1.48%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">12.2% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:61%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">29</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">신한지주<span style="font-size:9px;color:#94A3B8;margin-left:4px;">055550</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">2</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">94,200</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">98,600</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+4.67%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+8,800</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+4.26%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;">-0.39%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#1E293B;">-1.30%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">12.3% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:61%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">30</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">신한지주<span style="font-size:9px;color:#94A3B8;margin-left:4px;">055550</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">2</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">94,200</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">98,600</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+4.67%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+8,800</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+4.26%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#3B82F6;">-0.39%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#1E293B;">-1.30%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">12.3% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:61%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">31</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">우리금융지주<span style="font-size:9px;color:#94A3B8;margin-left:4px;">316140</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">32,650</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">34,100</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+4.44%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+10,150</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+4.03%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.02%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#F59E0B;">-2.03%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">12.5% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:62%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">32</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">우리금융지주<span style="font-size:9px;color:#94A3B8;margin-left:4px;">316140</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">32,650</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">34,100</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+4.44%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+10,150</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+4.03%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.02%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#F59E0B;">-2.03%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">12.5% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:62%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">33</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">이지홀딩스<span style="font-size:9px;color:#94A3B8;margin-left:4px;">035810</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">45</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">5,550</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">5,820</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+4.86%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+12,150</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+4.45%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.40%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#1E293B;">-1.71%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">12.9% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:64%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr><tr style="background:#FFFFFF;"><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;">34</td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="font-weight:600;color:#FF4757;">이지홀딩스<span style="font-size:9px;color:#94A3B8;margin-left:4px;">035810</span></td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">45</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">5,550</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">5,820</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+4.86%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" class="g4-profit-cell" style="color:#FF4757;">+12,150</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;font-weight:600;">+4.45%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#FF4757;">+0.40%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#1E293B;">-1.71%</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;">7일</td><td style="padding:6px 8px;text-align:right;font-size:12px;border-bottom:1px solid #F1F5F9;" style="color:#10B981;">13.6% <div style="display:inline-block;width:48px;height:5px;background:#E2E8F0;border-radius:3px;overflow:hidden;vertical-align:middle;"><div style="width:68%;height:100%;background:#10B981;border-radius:3px;transition:width 0.3s ease;"></div></div></td><td style="padding:6px 8px;font-size:12px;border-bottom:1px solid #F1F5F9;" style="text-align:center;color:#10B981;font-weight:600;">정상</td></tr>
+        <tr style="border-top:2px solid #00B4D8;font-weight:700;background:#F8FAFC;">
+        <td colspan="6" style="padding:8px;">합계</td>
+        <td style="padding:8px;text-align:right;color:#FF4757;">+409,500</td>
+        <td colspan="3" style="padding:8px;"></td>
+        <td colspan="3" style="padding:8px;text-align:right;">8,048,900</td></tr>
+        </tbody>
+        </table></div>
+    </div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">손익 원인 분석</h2>
+        <div style="font-size:13px;margin:4px 0;">&#9650; 수익 기여 TOP3: NH투자증권 +11.31% (+27,600원) / NH투자증권 +11.31% (+27,600원) / 동부건설 +10.44% (+26,400원)</div>
+<div style="font-size:13px;margin:4px 0;">&#9660; 손실 기여 TOP3: 인카금융서비스 -1.68% (-4,200원) / 인카금융서비스 -1.68% (-4,200원) / 영원무역홀딩스 -1.81% (-4,000원)</div>
+<div style="font-size:13px;margin-top:8px;">시스템 영향: <span style="font-weight:600;color:#10B981;">없음</span> (price_fail=0, reconcile=0)</div>
+    </div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">리스크 분석</h2>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;"><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #3B82F6, #60A5FA);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">전체 MDD</div>
+        <div style="font-size:28px;font-weight:700;color:#3B82F6;line-height:1.2;">-0.84%<span style="font-size:14px;margin-left:4px;opacity:0.7;">&#9660;</span></div>
+        
+    </div><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #3B82F6, #60A5FA);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">월간 DD</div>
+        <div style="font-size:28px;font-weight:700;color:#3B82F6;line-height:1.2;">-0.42%<span style="font-size:14px;margin-left:4px;opacity:0.7;">&#9660;</span></div>
+        
+    </div><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #1E293B, #1E293B);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">포지션 수</div>
+        <div style="font-size:28px;font-weight:700;color:#1E293B;line-height:1.2;">17종목</div>
+        <div style="font-size:11px;color:#94A3B8;margin-top:4px;">목표: 20종목</div>
+    </div><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #1E293B, #1E293B);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">집중도 (Top3)</div>
+        <div style="font-size:28px;font-weight:700;color:#1E293B;line-height:1.2;">10.3%<span style="font-size:14px;margin-left:4px;opacity:0.7;">&#9650;</span></div>
+        <div style="font-size:11px;color:#94A3B8;margin-top:4px;">상위 3종목 비중</div>
+    </div></div>
+    </div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">시스템 상태</h2>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;"><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #10B981, #34D399);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">가격 실패</div>
+        <div style="font-size:28px;font-weight:700;color:#10B981;line-height:1.2;">0건</div>
+        
+    </div><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #10B981, #34D399);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">Broker 보정</div>
+        <div style="font-size:28px;font-weight:700;color:#10B981;line-height:1.2;">0건</div>
+        
+    </div><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #10B981, #34D399);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">Monitor Only</div>
+        <div style="font-size:28px;font-weight:700;color:#10B981;line-height:1.2;">아니오</div>
+        
+    </div><div class="g4-card" style="flex:1;min-width:150px;background:#FFFFFF;
+        border-radius:12px;padding:20px 16px;
+        box-shadow:0 2px 8px rgba(0,0,0,0.06);text-align:center;
+        border-top:2px solid transparent;background-image:linear-gradient(135deg, #10B981, #34D399);
+        background-size:100% 2px;background-repeat:no-repeat;background-position:top;">
+        <div style="font-size:11px;color:#64748B;margin-bottom:6px;
+            text-transform:uppercase;letter-spacing:0.8px;font-weight:500;">리밸런스</div>
+        <div style="font-size:28px;font-weight:700;color:#10B981;line-height:1.2;">미실행</div>
+        
+    </div></div><div style="font-size:12px;color:#94A3B8;margin-top:8px;">Risk Mode: NORMAL | Target: N/A | Critical Errors: 0건</div>
+    </div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">로그 핵심 이벤트</h2>
+        
+        <div style="overflow-x:auto;border-radius:8px;border:1px solid #E2E8F0;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <tr><th style="text-align:left;padding:8px 8px;border-bottom:1px solid #E2E8F0;color:#475569;font-size:11px;font-weight:600;background:#F1F5F9;">시각</th><th style="text-align:left;padding:8px 8px;border-bottom:1px solid #E2E8F0;color:#475569;font-size:11px;font-weight:600;background:#F1F5F9;">이벤트</th><th style="text-align:left;padding:8px 8px;border-bottom:1px solid #E2E8F0;color:#475569;font-size:11px;font-weight:600;background:#F1F5F9;">요약</th></tr>
+        <tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">08:24</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">LOGIN</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">TRADING_MODE] live  (intended=live, server=REAL)</td></tr><tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">08:24</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">RECON</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">RECON_WAIT] Waiting 3s for broker data to settle...</td></tr><tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">08:24</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">RECON</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">RECON_WAIT] Done — proceeding with reconciliation</td></tr><tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">08:24</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">RECON</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">RECON] Done — cash=1,171,775, positions=17</td></tr><tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">08:24</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">PENDING_BUY</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">PENDING_BUY_LOAD] 0 buys, sell_status=NONE</td></tr><tr style="background:#FEE2E2;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">09:02</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#EF4444;">ERROR</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">ERROR] Gen4KiwoomProvider: [TR final fail] 업종일봉요청(opt20006) - 3x retry all no re</td></tr><tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">09:04</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">STATE_SAVE</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">STATE_SAVE_OK] recon/monitor/checkpoint</td></tr><tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">09:37</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">RECON</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">RECON] Cash synced: 1,171,775 -> 1,171,556</td></tr><tr style="background:#FFFBEB;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">09:37</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#F59E0B;">RECON</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">RECON] 1 corrections applied:</td></tr><tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">09:37</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">RECON</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">RECON] Done — cash=1,171,556, positions=17</td></tr><tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">09:37</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">STATE_SAVE</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">STATE_SAVE_OK] recon/1corrections</td></tr><tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">09:37</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">RECON</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">RECON] State saved after 1 corrections</td></tr><tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">10:04</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">RECON</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">RECON] Done — cash=1,171,566, positions=17</td></tr><tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">15:20</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">STATE_SAVE</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">STATE_SAVE_OK] monitor_exit</td></tr><tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">15:30</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">TRAIL</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">EOD_TRAIL_CHECK] 005940: close=33,950, hwm=34,900, stop=30,712, decision=HOLD, s</td></tr><tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">15:30</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">TRAIL</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">EOD_TRAIL_CHECK] 037460: close=28,900, hwm=30,050, stop=26,444, decision=HOLD, s</td></tr><tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">15:30</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">TRAIL</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">EOD_TRAIL_CHECK] 005930: close=206,000, hwm=214,250, stop=188,540, decision=HOLD</td></tr><tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">15:30</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">TRAIL</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">EOD_TRAIL_CHECK] 211050: close=11,700, hwm=12,470, stop=10,974, decision=HOLD, s</td></tr><tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">15:30</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">TRAIL</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">EOD_TRAIL_CHECK] 316140: close=34,100, hwm=34,450, stop=30,316, decision=HOLD, s</td></tr><tr style="background:#FFFFFF;"><td style="padding:5px 8px;font-size:12px;color:#94A3B8;">15:30</td><td style="padding:5px 8px;font-size:11px;font-weight:600;color:#1E293B;">TRAIL</td><td style="padding:5px 8px;font-size:11px;color:#1E293B;">EOD_TRAIL_CHECK] 011210: close=78,800, hwm=80,300, stop=70,664, decision=HOLD, s</td></tr>
+        </table></div>
+    </div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">문제 탐지</h2>
+        <div style="color:#10B981;padding:8px;">이상 없음</div>
+    </div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">현금 비중 / 포지션 변동</h2>
+        <div style="font-size:13px;">현금 비중: <b>22.6%</b> (+1,171,775원)</div>
+<div style="font-size:13px;margin-top:4px;color:#94A3B8;">전일 대비 포지션 변동 없음</div>
+    </div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">전략 해석</h2>
+        
+        <div style="background:#ECFDF5;border-left:4px solid #10B981;
+            border-radius:0 10px 10px 0;padding:16px 20px;font-size:13px;line-height:1.8;">
+            <div style="padding:3px 0;color:#1E293B;">금일 포트폴리오 <b>소폭 상승</b> (+1.59%)</div><div style="padding:3px 0;color:#1E293B;">Risk Score 고위험 구간 — 변동성 확대 주의</div><div style="padding:3px 0;color:#1E293B;">리밸런싱 실행 완료 — 포트폴리오 재편성됨</div><div style="padding:3px 0;color:#1E293B;">종합: <b>정상 운영</b> — 모니터링 유지</div>
+        </div>
+    </div>
+<div class="g4-section" style="margin-bottom:28px;padding:20px 24px;
+        background:#FFFFFF;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);
+        border-left:3px solid #00B4D8;">
+        <h2 style="font-size:15px;color:#1E293B;font-weight:600;
+            margin:0 0 14px 0;padding:0;border:none;">자동 판단</h2>
+        <div style="text-align:center;margin:8px 0 16px;"><span style="display:inline-block;padding:10px 32px;border-radius:20px;font-size:18px;font-weight:700;color:#10B981;background:#DCFCE7;letter-spacing:1px;">정상</span></div><div style="font-size:14px;text-align:center;padding:10px 16px;background:#F8FAFC;border-radius:8px;color:#1E293B;">다음 액션: <b>기존 전략 유지</b></div>
+    </div>
+<div class="g4-footer">
+    <div>Generated: 2026-04-10 18:52:57 | Q-TRON Gen4 Automated Trading System</div>
+    <div class="g4-footer-brand">Confidential &mdash; Internal Use Only</div>
+</div>
+</div>
+</body>
+</html>

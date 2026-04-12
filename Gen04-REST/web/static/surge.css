@@ -206,11 +206,11 @@
     background: var(--bg-hover);
 }
 
-.surge-table .pnl-pos { color: var(--green); }
-.surge-table .pnl-neg { color: var(--red); }
+.pnl-pos { color: #F04452; }
+.pnl-neg { color: #3182F6; }
 
-.surge-table .exit-tp { color: var(--green); font-weight: 600; }
-.surge-table .exit-sl { color: var(--red); font-weight: 600; }
+.exit-tp { color: #F04452; font-weight: 600; }
+.exit-sl { color: #3182F6; font-weight: 600; }
 .surge-table .exit-time { color: var(--yellow); }
 .surge-table .exit-force { color: var(--orange); }
 
@@ -328,3 +328,6 @@
     color: var(--text);
     margin-top: 2px;
 }
+
+.summary-card .s-value.pnl-pos { color: #F04452; }
+.summary-card .s-value.pnl-neg { color: #3182F6; }

@@ -61,10 +61,15 @@ def build_universe_from_ohlcv(ohlcv_dir: Path,
             continue
 
         # Market filter (KOSPI only, etc.)
+        # sector_map format: {code: {"market": "KOSPI", ...}} or {code: "섹터명"}
+        # If sector_map has no "market" key (str values = sector names), skip filter
         if allowed_markets and sector_map:
-            ticker_market = sector_map.get(code, {}).get("market", "")
-            if ticker_market not in allowed_markets:
-                continue
+            entry = sector_map.get(code)
+            if isinstance(entry, dict):
+                ticker_market = entry.get("market", "")
+                if ticker_market and ticker_market not in allowed_markets:
+                    continue
+            # str entries = sector name, not market → skip market filter
 
         try:
             df = pd.read_csv(f, parse_dates=["date"])

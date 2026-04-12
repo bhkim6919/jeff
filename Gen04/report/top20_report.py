@@ -564,12 +564,14 @@ def generate_html(analyses: List[dict], target_info: dict,
     golden_list = []
     death_list = []
     for a in analyses:
+        name = a.get("name", "") or a["ticker"]
+        label = f"{name}({a['ticker']})"
         if a.get("cross") == "GOLDEN":
             d = a.get("cross_days_ago", 0)
-            golden_list.append(f"{a['ticker']}({d}d)" if d > 0 else a['ticker'])
+            golden_list.append(f"{label} {d}d ago" if d > 0 else label)
         elif a.get("cross") == "DEATH":
             d = a.get("cross_days_ago", 0)
-            death_list.append(f"{a['ticker']}({d}d)" if d > 0 else a['ticker'])
+            death_list.append(f"{label} {d}d ago" if d > 0 else label)
 
     # Cross alerts
     alert_html = ""

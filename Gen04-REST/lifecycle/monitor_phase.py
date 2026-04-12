@@ -242,6 +242,22 @@ def run_monitor(ctx: LiveContext) -> None:
                         monitor_only=ctx.monitor_only)
                     _safe_save(state_mgr, portfolio, context="recon/monitor/checkpoint")
 
+                    # ── XVAL: observer-only cross validation (P2) ──
+                    if ctx.xval_observer:
+                        try:
+                            _xval_broker = provider.query_account_summary()
+                            _xval_file = portfolio.to_dict()
+                            _xval_file["timestamp"] = state_mgr.load_runtime().get("timestamp", "")
+                            _xval_file["_version_seq"] = state_mgr._version_seq
+                            ctx.xval_observer.observe(
+                                broker_summary=_xval_broker,
+                                file_state=_xval_file,
+                            )
+                            if cycle % 60 == 0:  # ~1시간마다 summary
+                                ctx.xval_observer.log_summary()
+                        except Exception as _xval_err:
+                            logger.debug(f"[XVAL_ERR] {_xval_err}")
+
                 # Sleep with 1s granularity for Ctrl+C responsiveness
                 for _ in range(60):
                     if ctx.stop_requested:

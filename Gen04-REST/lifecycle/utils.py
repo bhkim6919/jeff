@@ -32,6 +32,12 @@ def setup_logging(log_dir: Path, mode: str):
             logging.StreamHandler(sys.stdout),
         ],
     )
+    # Auto-cleanup old logs (30 days retention)
+    try:
+        from data.rest_logger import _cleanup_old_logs
+        _cleanup_old_logs(log_dir)
+    except Exception:
+        pass
 
 
 def is_weekday() -> bool:

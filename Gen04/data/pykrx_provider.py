@@ -74,6 +74,14 @@ def get_stock_ohlcv(code: str, days: int = 400) -> Optional[pd.DataFrame]:
             if c in df.columns:
                 df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
+        # FIX-A3: close=0 행 제거 (거래정지/상폐 → -100% return spike 방지)
+        before_len = len(df)
+        df = df[df["close"] > 0]
+        removed = before_len - len(df)
+        if removed > 0:
+            logger.info(f"[OHLCV_FILTER] {code}: removed {removed}/{before_len} "
+                        f"rows with close=0")
+
         if "date" in df.columns:
             df["date"] = pd.to_datetime(df["date"])
             df = df.sort_values("date").reset_index(drop=True)
@@ -108,12 +116,13 @@ def get_stock_list(market: str = "KOSPI",
     Tries pykrx first with retry; if broken (known issue with pykrx<=1.0.51
     and KRX API changes in 2026), falls back to existing CSV filenames.
     """
-    MAX_RETRY = 3
+    MAX_RETRY = 5
     # Try pykrx
     if krx is not None:
         d = datetime.today()
-        if d.hour < 16:
-            d -= timedelta(days=1)
+        # pykrx ticker list is unreliable for today (especially after-hours).
+        # Always start from the previous day to ensure valid trading date.
+        d -= timedelta(days=1)
         for attempt in range(1, MAX_RETRY + 1):
             while d.weekday() >= 5:
                 d -= timedelta(days=1)
@@ -142,12 +151,13 @@ def get_stock_list(market: str = "KOSPI",
             "[PYKRX_FAIL] get_market_ticker_list failed after %d retries", MAX_RETRY
         )
 
-    # Fallback: CSV directory
+    # Fallback: CSV directory (market 구분 불가 — 전체 종목 반환)
     if ohlcv_dir and ohlcv_dir.exists():
         tickers = sorted(f.stem for f in ohlcv_dir.glob("*.csv"))
         if tickers:
             logger.info(
-                "[PYKRX_FALLBACK] ticker list from CSV: %d stocks", len(tickers)
+                "[PYKRX_FALLBACK] ticker list from CSV: %d stocks "
+                "(market=%s ignored — CSV has no market info)", len(tickers), market
             )
             return tickers
 

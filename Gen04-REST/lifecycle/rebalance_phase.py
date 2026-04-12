@@ -21,9 +21,11 @@ from notify.helpers import _enrich_name_cache, _save_name_cache
 
 logger = logging.getLogger("gen4.live")
 
-# Kakao notifier (optional)
+# Telegram notifier (optional)
 try:
-    from notify.kakao_notify import notify_buy_blocked as _kakao_buy_blocked
+    from notify.telegram_bot import send as _tg_send
+    def _kakao_buy_blocked(reason):
+        _tg_send(f"<b>BUY BLOCKED</b>\n{reason}", "WARN")
     _KAKAO_OK = True
 except Exception:
     _KAKAO_OK = False
@@ -258,8 +260,54 @@ def run_rebalance(ctx: LiveContext) -> None:
                         time.sleep(5)
                     logger.info("[MARKET_WAIT] Market open — proceeding with rebalance orders")
 
+                # ── AUTO defer gates (before execution) ──
+                if need_rebalance:
+                    _defer_reason = None
+
+                    # Gate 1: Manual rebalance busy
+                    try:
+                        from web.rebalance_api import is_busy as _rebal_is_busy
+                        if _rebal_is_busy():
+                            _defer_reason = "manual_busy"
+                    except ImportError:
+                        pass
+
+                    # Gate 2: Open orders on broker
+                    if not _defer_reason:
+                        try:
+                            _open = provider.query_open_orders()
+                            if _open is None:
+                                _defer_reason = "open_orders_query_fail"
+                            elif len(_open) > 0:
+                                _defer_reason = f"open_orders={len(_open)}"
+                        except Exception:
+                            _defer_reason = "open_orders_query_error"
+
+                    # Gate 3: Pending external orders
+                    if not _defer_reason:
+                        _pe = state_mgr.load_pending_external()
+                        if _pe:
+                            _defer_reason = f"pending_external={len(_pe)}"
+
+                    if _defer_reason:
+                        logger.warning(f"[REBAL_DEFER] reason={_defer_reason} — "
+                                       f"auto rebalance deferred to next session")
+                        need_rebalance = False
+                        rt = state_mgr.load_runtime()
+                        rt["rebal_deferred_reason"] = _defer_reason
+                        rt["rebal_deferred_date"] = today_str
+                        # Clear stale preview from previous cycle
+                        rt.pop("rebal_preview_hash", None)
+                        state_mgr.save_runtime(rt)
+                        try:
+                            from web.rebalance_api import get_phase as _gp
+                            logger.info(f"[REBAL_DEFER_STATE] "
+                                        f"manual_phase={_gp()} auto_deferred=True")
+                        except ImportError:
+                            pass
+
                 if not need_rebalance:
-                    pass  # BLOCKED — skip to monitor
+                    pass  # BLOCKED/DEFERRED — skip to monitor
                 else:
                     try:
                         from main import _execute_rebalance_live

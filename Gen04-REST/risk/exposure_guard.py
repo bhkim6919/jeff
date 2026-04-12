@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("gen4.risk")
 
@@ -64,6 +64,15 @@ class ExposureGuard:
         self._opt10075_success_streak: int = 0
         self._pending_external_list: List[dict] = []
         self._blocked_since: Optional[datetime] = None  # BLOCKED 진입 시각
+
+        # REST latency / stale detection
+        self._rest_latency_ms: float = 0.0
+        self._rest_stale: bool = False        # True if latency > threshold
+        self._rest_unsafe: bool = False       # True if REST snapshot DEGRADED/PARTIAL
+        self._rest_latency_threshold_ms: float = 3000.0  # 3s
+
+        # Persistence callback: 상태 변경 시 호출 (state_manager.save_guard_state 연결)
+        self._on_state_change: Optional[Callable] = None
 
         # Phase 2: Recovery state machine
         # NORMAL → BLOCKED → RECOVERING → REDUCED → NORMAL (계단식)
@@ -413,9 +422,13 @@ class ExposureGuard:
 
         advance_recovery_state()를 먼저 호출해야 함.
         """
+        # 항상 BLOCKED 조건 우선 확인 (recovery_state 무관)
+        blocked_reason = self._check_blocked_conditions()
+        if blocked_reason:
+            return BuyPermission.BLOCKED, blocked_reason
+
         if self._recovery_state == "BLOCKED":
-            reason = self._check_blocked_conditions()
-            return BuyPermission.BLOCKED, reason or "BLOCKED"
+            return BuyPermission.BLOCKED, "BLOCKED (recovery pending)"
 
         if self._recovery_state == "RECOVERING":
             return BuyPermission.RECOVERING, \
@@ -432,6 +445,38 @@ class ExposureGuard:
 
         return BuyPermission.NORMAL, ""
 
+    # ── REST Latency / Stale State ──────────────────────────────
+
+    def update_rest_latency(self, latency_ms: float, status: str = "COMPLETE",
+                            consistency: str = "CLEAN") -> None:
+        """REST 조회 결과를 반영. RECON/account_summary 호출 후 사용.
+
+        Args:
+            latency_ms: REST batch 총 소요시간
+            status: COMPLETE / PARTIAL / FAILED
+            consistency: CLEAN / DEGRADED
+        """
+        self._rest_latency_ms = latency_ms
+        prev_stale = self._rest_stale
+        prev_unsafe = self._rest_unsafe
+
+        self._rest_stale = latency_ms > self._rest_latency_threshold_ms
+        self._rest_unsafe = status in ("PARTIAL", "FAILED") or consistency == "DEGRADED"
+
+        if self._rest_stale and not prev_stale:
+            logger.warning(
+                f"[REST_STALE] latency={latency_ms:.0f}ms > "
+                f"threshold={self._rest_latency_threshold_ms:.0f}ms"
+            )
+        if self._rest_unsafe and not prev_unsafe:
+            logger.warning(
+                f"[REST_UNSAFE] status={status} consistency={consistency}"
+            )
+        if not self._rest_stale and prev_stale:
+            logger.info("[REST_STALE_CLEARED] latency back to normal")
+        if not self._rest_unsafe and prev_unsafe:
+            logger.info("[REST_UNSAFE_CLEARED] snapshot quality restored")
+
     def _check_blocked_conditions(self) -> str:
         """BLOCKED 진입 조건 판정. 어떤 상태에서든 즉시 BLOCKED."""
         if self._safe_mode_level >= 3:
@@ -440,6 +485,10 @@ class ExposureGuard:
             return f"opt10075 {self._opt10075_fail_streak}연속 실패"
         if self._has_critical_pending_external():
             return f"pending_external {len(self._pending_external_list)}건 미해결"
+        # REST STALE + UNSAFE 동시 → BLOCKED (데이터 신뢰 불가)
+        if self._rest_stale and self._rest_unsafe:
+            return (f"REST_STALE({self._rest_latency_ms:.0f}ms) + REST_UNSAFE "
+                    f"- BUY blocked, SELL only")
         return ""  # no block
 
     def _check_reduced_conditions(self) -> str:
@@ -450,10 +499,28 @@ class ExposureGuard:
             return "opt10075 1회 실패"
         if self._has_significant_pending_external():
             return "pending_external 미해결"
+        # REST STALE만 (unsafe 아님) → REDUCED
+        if self._rest_stale:
+            return f"REST_STALE({self._rest_latency_ms:.0f}ms) - buy reduced"
+        # REST UNSAFE만 (stale 아님) → REDUCED
+        if self._rest_unsafe:
+            return "REST_UNSAFE - snapshot quality degraded"
         return ""  # no reduction
 
+    def set_state_change_callback(self, callback: Callable[[dict], bool]) -> None:
+        """상태 변경 시 영속화 콜백 등록. state_manager.save_guard_state 연결용."""
+        self._on_state_change = callback
+
+    def _persist_state(self) -> None:
+        """상태 변경 후 영속화 콜백 호출."""
+        if self._on_state_change:
+            try:
+                self._on_state_change(self.serialize_guard_state())
+            except Exception as e:
+                logger.error(f"[GUARD_PERSIST_FAIL] {e}")
+
     def _transition_to(self, new_state: str, reason: str) -> None:
-        """RecoveryState 전이 + 로그."""
+        """RecoveryState 전이 + 로그 + 영속화."""
         prev = self._recovery_state
         if prev == new_state:
             return
@@ -463,16 +530,18 @@ class ExposureGuard:
         if new_state == "BLOCKED":
             self._blocked_since = datetime.now()
             self._recovery_observation_sessions = 0
-            logger.critical(f"[RECOVERY_STATE] {prev}→BLOCKED: {reason}")
+            logger.critical(f"[RECOVERY_STATE] {prev}->BLOCKED: {reason}")
         elif new_state == "RECOVERING":
             self._recovery_observation_sessions = 0
-            logger.warning(f"[RECOVERY_STATE] {prev}→RECOVERING: {reason}")
+            logger.warning(f"[RECOVERY_STATE] {prev}->RECOVERING: {reason}")
         elif new_state == "REDUCED":
-            logger.info(f"[RECOVERY_STATE] {prev}→REDUCED: {reason}")
+            logger.info(f"[RECOVERY_STATE] {prev}->REDUCED: {reason}")
         elif new_state == "NORMAL":
             self._blocked_since = None
             self._recovery_observation_sessions = 0
-            logger.info(f"[RECOVERY_STATE] {prev}→NORMAL: {reason}")
+            logger.info(f"[RECOVERY_STATE] {prev}->NORMAL: {reason}")
+
+        self._persist_state()
 
     def update_blocked_tracking(self, permission: BuyPermission) -> None:
         """BLOCKED 진입/해제 시각 추적 (Phase 1 compat)."""
@@ -495,3 +564,61 @@ class ExposureGuard:
         if self._blocked_since is None:
             return 0.0
         return (datetime.now() - self._blocked_since).total_seconds() / 3600
+
+    # ── Recovery State Persistence ────────────────────────────
+
+    def serialize_guard_state(self) -> dict:
+        """영속화할 guard state를 dict로 반환."""
+        return {
+            "recovery_state": self._recovery_state,
+            "recovery_entered_at": (
+                self._recovery_entered_at.isoformat()
+                if self._recovery_entered_at else None
+            ),
+            "recovery_observation_sessions": self._recovery_observation_sessions,
+            "safe_mode_level": self._safe_mode_level,
+            "safe_mode_reason": self._safe_mode_reason,
+            "safe_mode_active": self._safe_mode_active,
+            "opt10075_fail_streak": self._opt10075_fail_streak,
+            "opt10075_success_streak": self._opt10075_success_streak,
+            "blocked_since": (
+                self._blocked_since.isoformat()
+                if self._blocked_since else None
+            ),
+        }
+
+    def restore_guard_state(self, state: dict) -> None:
+        """재시작 시 영속 state 복원. 없는 필드는 기본값 유지."""
+        if not state:
+            return
+
+        prev = self._recovery_state
+        self._recovery_state = state.get("recovery_state", "NORMAL")
+
+        entered = state.get("recovery_entered_at")
+        self._recovery_entered_at = (
+            datetime.fromisoformat(entered) if entered else None
+        )
+
+        self._recovery_observation_sessions = state.get(
+            "recovery_observation_sessions", 0)
+
+        self._safe_mode_level = state.get("safe_mode_level", 0)
+        self._safe_mode_reason = state.get("safe_mode_reason", "")
+        self._safe_mode_active = state.get("safe_mode_active", False)
+
+        self._opt10075_fail_streak = state.get("opt10075_fail_streak", 0)
+        self._opt10075_success_streak = state.get("opt10075_success_streak", 0)
+
+        blocked = state.get("blocked_since")
+        self._blocked_since = (
+            datetime.fromisoformat(blocked) if blocked else None
+        )
+
+        if self._recovery_state != prev:
+            logger.info(
+                f"[GUARD_RESTORED] recovery_state={self._recovery_state} "
+                f"safe_mode_level={self._safe_mode_level} "
+                f"opt10075_fail_streak={self._opt10075_fail_streak} "
+                f"observation_sessions={self._recovery_observation_sessions}"
+            )
