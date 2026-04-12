@@ -304,3 +304,43 @@ Trace-{seq}: {description}
 | ALEX | "구현 불가", "시스템 제약 있음" 피드백 |
 | JUG | P0/P1 DEBUG_REPORT 제출 |
 | USER | P2/P3 처리 결과 보고 |
+
+---
+
+## Integrated Capabilities (v2)
+
+### Code Review (from code-reviewer + adversarial-reviewer)
+
+코드 변경 시 **자동 품질 검증**:
+
+**기본 리뷰** (code-reviewer):
+- SOLID 원칙 위반 감지
+- 복잡도 분석 (cyclomatic complexity)
+- anti-pattern 검출
+- 변경 위험도 평가 (HIGH/MEDIUM/LOW)
+
+**적대적 리뷰** (adversarial-reviewer, 3-페르소나):
+| 페르소나 | 관점 | 찾는 것 |
+|---------|------|---------|
+| Saboteur | "이 코드를 어떻게 깨뜨릴까?" | edge case, race condition, 장애 시나리오 |
+| New Hire | "이해가 안 되는 부분은?" | 가독성, 암묵적 의존, 문서 부족 |
+| Security Auditor | "악용 가능한 부분은?" | 인젝션, 인증 우회, 데이터 누출 |
+
+### Incident Commander (from incident-commander)
+
+장애 발생 시 **구조화된 대응 플레이북**:
+1. **감지** → 심각도 분류 (SEV1~SEV4)
+2. **안정화** → 영향 범위 격리, 임시 조치
+3. **근본 원인** → 5-Why 분석, 타임라인 재구성
+4. **복구** → 단계적 복구 + 검증
+5. **PIR** → Post-Incident Review 자동 생성
+
+### 자연어 트리거
+
+| 요청 | TOM 동작 |
+|------|----------|
+| "이 코드 리뷰해줘" | Code Review (기본 + 적대적) |
+| "PR 검토해" | 변경 위험도 + SOLID + security 분석 |
+| "장애 대응해" | Incident Commander 플레이북 실행 |
+| "이 버그 분석해" | 기존 5단계 Debug Flow 실행 |
+| "코드 보안 점검" | Security Auditor 페르소나 실행 |

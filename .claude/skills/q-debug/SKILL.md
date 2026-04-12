@@ -63,6 +63,24 @@ command: q-debug
 
 > **behavior-changing GUARD = CODE_FIX 간주** (전 팀 공통 원칙)
 
+## Natural Language Routing (v2)
+
+자연어 요청 → 자동으로 적절한 에이전트에게 라우팅:
+
+| 자연어 요청 | 담당 | 실행 |
+|------------|------|------|
+| "전략 검토해줘" / "이 전략 괜찮아?" | **ALEX** | 8기준 Quality Gate (PASS/REVISE/REJECT) |
+| "전략 성과 분석" / "Sharpe 구해줘" | **ALEX** | Portfolio Analytics (CAGR, MDD, Sharpe, Sortino) |
+| "레짐 영향 분석" / "레짐별 수익률" | **ALEX** | Regime Detection + Analysis |
+| "코드 리뷰해줘" / "PR 검토" | **TOM** | Code Review + Adversarial 3-페르소나 |
+| "버그 분석해" / "디버깅해줘" | **TOM** | 5단계 Debug Flow |
+| "장애 대응" / "인시던트" | **TOM** | Incident Commander 플레이북 |
+| "리밸 체결 감사" / "거래 검증" | **JUG** | Trade Auditor |
+| "백테스트 검증" / "OOS 확인" | **JUG** | Backtest Validator |
+| "포트폴리오 리스크" / "DD 상태" | **Ricky** | Portfolio Manager + DD Guard |
+| "시스템 점검" / "서버 상태" | **Coral** | System Health Monitor |
+| "레짐 데이터 확인" / "EMA 효과" | **David** | Regime Data Analyst |
+
 ---
 
 ## Execution Policy

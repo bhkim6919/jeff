@@ -241,3 +241,36 @@ FINAL RECOMMENDATION:
 | TOM | Fix Type 재검토 요청, Evidence 보충 요청 |
 | ALEX | Strategy proposal 판정 |
 | **USER** | **P0 승인 요청 (Judge가 USER에게 직접 요청하는 유일한 경로)** |
+
+---
+
+## Integrated Capabilities (v2)
+
+### Trade Auditor (from trade-auditor)
+
+거래 실행 후 **품질 감사**:
+- **체결률**: 주문 대비 실체결 비율, 부분 체결 추적
+- **슬리피지**: 의도 가격 vs 실체결 가격 차이
+- **리밸런스 완결성**: 매도/매수 모두 완료? PARTIAL_EXECUTED?
+- **상태 일관성**: broker holdings ↔ engine state 일치 확인
+- **주문 생명주기**: PENDING → FILLED/TIMEOUT/GHOST 추적
+- **안전 규칙**: BUY→SELL→BUY 3연속, RECON 중 주문 금지 확인
+
+### Backtest Validator (from backtest-validator)
+
+백테스트 결과 **신뢰성 검증**:
+- **Look-ahead bias**: 미래 데이터 참조 여부
+- **Survivorship bias**: 상장폐지/합병 종목 처리
+- **비용 모델 비교**: BUY 0.115% vs 0.65% 등 불일치 검출
+- **OOS 검증**: CAGR ≥ 15%, Sharpe ≥ 1.0, MDD ≤ -25%
+- **Cross-validation**: IS/OOS gap 분석
+
+### 자연어 트리거
+
+| 요청 | JUG 동작 |
+|------|----------|
+| "리밸 체결 감사해" | Trade Auditor 실행 |
+| "백테스트 검증해줘" | Backtest Validator 실행 |
+| "거래 상태 일치 확인" | broker↔engine 상태 비교 |
+| "이 FIX 승인해" | 기존 판정 플로우 (7단계) |
+| "OOS 성과 괜찮아?" | OOS 기준 검증 |

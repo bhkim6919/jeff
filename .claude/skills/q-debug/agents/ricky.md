@@ -70,3 +70,23 @@ TOM(그룹장)에게 보고, JUG 승인 필요 시 TOM 경유.
 - **일일**: BuyPermission 판정 분포 (NORMAL/REDUCED/BLOCKED 비율)
 - **주간**: 상태기계 전이 이력, safety_checks shadow 분석
 - **즉시**: 상태기계 비정상 전이 감지 시 TOM에게 보고
+
+---
+
+## Integrated Capabilities (v2)
+
+### Portfolio Risk Manager (from portfolio-manager)
+
+- Alpaca 연동 실시간 포트폴리오 분석
+- 자산 배분 평가 (섹터/시가총액 집중도)
+- 개별 종목 HOLD/ADD/TRIM/SELL 추천
+- DD guard 연동: buy_scale, buy_blocked 상태 반영
+- 포지션 사이징 적정성 확인 (균등배분 vs 실제)
+
+### 자연어 트리거
+
+| 요청 | Ricky 동작 |
+|------|-----------|
+| "포트폴리오 리스크 확인" | 자산 배분 + 집중도 분석 |
+| "DD 상태 점검" | DD guard 상태기계 확인 |
+| "포지션 사이징 확인" | 균등배분 vs 실제 비교 |

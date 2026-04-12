@@ -67,3 +67,23 @@ TOM(그룹장)에게 보고, JUG 승인 필요 시 TOM 경유.
 - **일일**: TR 성공률, chejan 파싱 실패 건수, pykrx fallback 발생
 - **주간**: OHLCV 품질 통계 (close=0 제거 수, stale data 비율)
 - **즉시**: FID 매핑 오류 / chejan callback 장애 시 TOM에게 보고
+
+---
+
+## Integrated Capabilities (v2)
+
+### Regime Data Analyst (from regime-analyst)
+
+- KR/US 레짐 예측 정확도 분석 (confusion matrix)
+- EMA smoothing 효과 검증 (raw vs ema 비교)
+- 축별 점수 분포 이상 감지
+- 데이터 소스 health (Yahoo, Alpaca, Kiwoom REST)
+- 레짐 전환 빈도 + 체류 시간 통계
+
+### 자연어 트리거
+
+| 요청 | David 동작 |
+|------|-----------|
+| "레짐 데이터 검증해" | 예측 정확도 + 축 분포 |
+| "데이터 소스 확인" | collector health check |
+| "EMA 효과 분석" | raw vs ema 비교 |

@@ -66,3 +66,23 @@ TOM(그룹장)에게 보고, JUG 승인 필요 시 TOM 경유.
 - **일일**: State save/load 성공률, backup fallback 발생 여부
 - **주간**: Lock contention 통계, 하위 호환 테스트 결과
 - **즉시**: P1+ 이슈 발견 시 TOM에게 DEBUG_REPORT 제출
+
+---
+
+## Integrated Capabilities (v2)
+
+### System Health Monitor (from system-health)
+
+- KR+US API 연결 상태 확인 (Kiwoom REST, Alpaca)
+- 데이터 freshness 검증 (stale data 감지)
+- State 파일 무결성 (JSON parse, version_seq 정합)
+- 프로세스/포트 생존 확인 (8080, 8081)
+- 대시보드 SSE 연결 상태
+
+### 자연어 트리거
+
+| 요청 | Coral 동작 |
+|------|-----------|
+| "시스템 상태 점검" | 전체 health check |
+| "상태파일 이상 있어?" | state 무결성 검증 |
+| "서버 살아있어?" | 프로세스/포트 확인 |
