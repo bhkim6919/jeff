@@ -6,7 +6,7 @@ trail stop warnings, price updates, HWM tracking, fast reentry.
 
 Extracted from run_live() Phase 3 block.
 
-Changes from Gen04 original:
+Changes from kr-legacy original:
   - QEventLoop/QTimer replaced with time.sleep (1s granularity)
   - Ctrl+C handled via ctx.stop_requested
 """

@@ -40,9 +40,9 @@ logger = logging.getLogger("gen4.rest.web")
 WEB_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = WEB_DIR / "templates"
 STATIC_DIR = WEB_DIR / "static"
-_GEN04_STATE_DIR = Path(__file__).resolve().parent.parent.parent / "Gen04" / "state"
-_GEN04_REPORT_DIR = Path(__file__).resolve().parent.parent.parent / "Gen04" / "report" / "output"
-_GEN04_SECTOR_MAP_PATH = Path(__file__).resolve().parent.parent.parent / "Gen04" / "data" / "sector_map.json"
+_GEN04_STATE_DIR = Path(__file__).resolve().parent.parent.parent / "kr-legacy" / "state"
+_GEN04_REPORT_DIR = Path(__file__).resolve().parent.parent.parent / "kr-legacy" / "report" / "output"
+_GEN04_SECTOR_MAP_PATH = Path(__file__).resolve().parent.parent.parent / "kr-legacy" / "data" / "sector_map.json"
 
 # Sector map cache (loaded once)
 _sector_map_cache: dict = {"data": None, "ts": 0}
@@ -505,9 +505,9 @@ def create_app() -> FastAPI:
                     with open(sf, "r", encoding="utf-8") as f:
                         state = _json.load(f)
                     last_rebal = state.get("last_rebalance_date", "")
-                    # Also check Gen04 COM state
+                    # Also check kr-legacy COM state
                     # Runtime state has rebalance date
-                    com_rt = Path(__file__).resolve().parent.parent.parent / "Gen04" / "state" / "runtime_state_live.json"
+                    com_rt = Path(__file__).resolve().parent.parent.parent / "kr-legacy" / "state" / "runtime_state_live.json"
                     if com_rt.exists():
                         with open(com_rt, "r", encoding="utf-8") as f:
                             rt = _json.load(f)
@@ -816,7 +816,7 @@ def create_app() -> FastAPI:
         try:
             import csv
             from datetime import datetime, timedelta
-            log_dir = Path(__file__).resolve().parent.parent.parent / "Gen04" / "data" / "logs"
+            log_dir = Path(__file__).resolve().parent.parent.parent / "kr-legacy" / "data" / "logs"
             trades_file = log_dir / "trades.csv"
             result = {"day": 0, "week": 0, "month": 0, "year": 0, "fees": 0}
             if not trades_file.exists():
@@ -2119,7 +2119,7 @@ async def _sse_generator(
                     if not hasattr(_sse_generator, '_base_equity'):
                         _sse_generator._base_equity = 0
                     if _sse_generator._base_equity <= 0:
-                        # prev_close_equity from Gen04 LIVE state file
+                        # prev_close_equity from kr-legacy LIVE state file
                         _dd = _portfolio_cache.get("dd_guard") or {}
                         _prev = _dd.get("source_prev_close", 0)
                         if _prev and _prev > 0:

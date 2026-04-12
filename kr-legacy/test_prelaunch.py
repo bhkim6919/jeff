@@ -12,7 +12,7 @@ import inspect
 from pathlib import Path
 from datetime import date, datetime, timedelta
 
-# Ensure Gen04 is importable
+# Ensure kr-legacy is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from config import Gen4Config

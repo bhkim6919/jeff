@@ -75,7 +75,7 @@ def main() -> int:
         passed += 1
 
         # Compare with COM state
-        com_state_file = Path(__file__).resolve().parent.parent.parent / "Gen04" / "state" / "portfolio_state_live.json"
+        com_state_file = Path(__file__).resolve().parent.parent.parent / "kr-legacy" / "state" / "portfolio_state_live.json"
         if com_state_file.exists():
             with open(com_state_file, "r", encoding="utf-8") as f:
                 com_state = json.load(f)

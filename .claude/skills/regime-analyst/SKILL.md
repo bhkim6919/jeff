@@ -178,7 +178,7 @@ Analyze and validate the regime prediction system across KR (domestic) and US ma
 
 1. **Check regime integration**:
    - Read `regime_detector.py` (KR) for how regime affects trading
-   - Gen04 confirmed decision: regime NOT used for position sizing (BEAR still +23.3%)
+   - kr-legacy confirmed decision: regime NOT used for position sizing (BEAR still +23.3%)
    - Verify regime is informational only, not blocking trades incorrectly
    - Check if Strategy Lab uses regime for strategy selection
 
@@ -209,6 +209,6 @@ Strategy impact               [INFO-ONLY/BLOCKING]      ...
 ## Safety Rules
 
 - **Read-only analysis** -- never modify regime model parameters
-- Regime is currently informational for Gen04 core strategy (do not change this)
+- Regime is currently informational for kr-legacy core strategy (do not change this)
 - If regime data collectors fail, note it but do not retry API calls
 - Historical regime data may be stored in DB (PostgreSQL) -- use read-only queries only

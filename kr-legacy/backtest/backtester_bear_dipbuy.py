@@ -16,7 +16,7 @@ Key safeguards (user-specified):
   6. 1 dipbuy per position, 3-day cooldown
 
 Usage:
-    cd Gen04
+    cd kr-legacy
     python -m backtest.backtester_bear_dipbuy
 """
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """
 signals.py — Gen3 v7 signal generation (RS, ATR, breakout, gap, CVaR)
 ======================================================================
-Isolated from Gen04. Uses only pandas/numpy.
+Isolated from kr-legacy. Uses only pandas/numpy.
 """
 from __future__ import annotations
 import numpy as np

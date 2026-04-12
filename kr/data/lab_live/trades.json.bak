@@ -1,0 +1,54 @@
+[
+  {
+    "strategy": "sector_rotation",
+    "ticker": "215790",
+    "name": "이노인스트루먼트",
+    "entry_date": "2026-04-10",
+    "exit_date": "2026-04-10",
+    "entry_price": 3420.0,
+    "exit_price": 2925.0,
+    "qty": 1460,
+    "pnl_pct": -14.82,
+    "pnl_amount": -741040,
+    "exit_reason": "TRAIL"
+  },
+  {
+    "strategy": "sector_rotation",
+    "ticker": "065770",
+    "name": "CS",
+    "entry_date": "2026-04-10",
+    "exit_date": "2026-04-10",
+    "entry_price": 2995.0,
+    "exit_price": 2605.0,
+    "qty": 1667,
+    "pnl_pct": -13.38,
+    "pnl_amount": -668682,
+    "exit_reason": "TRAIL"
+  },
+  {
+    "strategy": "sector_rotation",
+    "ticker": "215790",
+    "name": "이노인스트루먼트",
+    "entry_date": "2026-04-10",
+    "exit_date": "2026-04-10",
+    "entry_price": 3420.0,
+    "exit_price": 2925.0,
+    "qty": 1460,
+    "pnl_pct": -14.82,
+    "pnl_amount": -741040,
+    "exit_reason": "TRAIL"
+  },
+  {
+    "strategy": "sector_rotation",
+    "ticker": "065770",
+    "name": "CS",
+    "entry_date": "2026-04-10",
+    "exit_date": "2026-04-10",
+    "entry_price": 2995.0,
+    "exit_price": 2605.0,
+    "qty": 1667,
+    "pnl_pct": -13.38,
+    "pnl_amount": -668682,
+    "exit_reason": "TRAIL"
+  }
+]

@@ -121,7 +121,7 @@ def load_csv_ranking(date_str: str = "", top_n: int = 20) -> List[Dict]:
     import csv
     from pathlib import Path
 
-    ranking_dir = Path(__file__).resolve().parent.parent.parent / "Gen04" / "data" / "swing" / "ranking"
+    ranking_dir = Path(__file__).resolve().parent.parent.parent / "kr-legacy" / "data" / "swing" / "ranking"
 
     if not date_str:
         # Find latest CSV
@@ -176,7 +176,7 @@ def load_csv_ranking(date_str: str = "", top_n: int = 20) -> List[Dict]:
 def available_csv_dates() -> List[str]:
     """Return list of available CSV dates for Lab selector."""
     from pathlib import Path
-    ranking_dir = Path(__file__).resolve().parent.parent.parent / "Gen04" / "data" / "swing" / "ranking"
+    ranking_dir = Path(__file__).resolve().parent.parent.parent / "kr-legacy" / "data" / "swing" / "ranking"
     if not ranking_dir.exists():
         return []
     return sorted([f.stem for f in ranking_dir.glob("*.csv")], reverse=True)

@@ -12,7 +12,7 @@ Analyses:
   5. Timing analysis (next-day return after entry/exit)
 
 Usage:
-  cd Gen04
+  cd kr-legacy
   python -m report.trade_quality_analyzer
   python -m report.trade_quality_analyzer --period 2026-03
   python -m report.trade_quality_analyzer --html

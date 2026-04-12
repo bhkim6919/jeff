@@ -1,7 +1,7 @@
 """
 backtester.py — Gen3 v7 + LTR v2 Backtester
 =============================================
-Isolated from Gen04. Reproduces the strategy spec for cross-validation.
+Isolated from kr-legacy. Reproduces the strategy spec for cross-validation.
 
 Usage:
     cd C:\\Q-TRON-32_ARCHIVE
@@ -24,7 +24,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-# Isolated imports — no Gen04 references
+# Isolated imports — no kr-legacy references
 from backtest.gen3v7.signals import (
     calc_signals, rank_rs_universe, calc_cvar, rank_cvar_universe,
 )

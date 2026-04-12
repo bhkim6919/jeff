@@ -1,7 +1,7 @@
 """Phase 4 Validation - Intraday Risk Analyzer end-to-end tests.
 
 Run:
-    cd Gen04
+    cd kr-legacy
     python -m advisor.tests.validate_phase4
 """
 from __future__ import annotations

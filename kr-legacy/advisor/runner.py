@@ -2,7 +2,7 @@
 Advisor Runner - CLI entry point for daily analysis.
 
 Usage:
-    cd Gen04
+    cd kr-legacy
     python -m advisor.runner --date 20260401 --mode paper
     python -m advisor.runner --date 20260401 --mode paper_test
 """
@@ -15,7 +15,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-# Ensure Gen04 is on path
+# Ensure kr-legacy is on path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 

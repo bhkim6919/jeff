@@ -186,7 +186,7 @@ def build_pdf(output_path: str):
     story.append(make_table(
         ["Subsystem", "Market", "Broker/API", "Python", "Status"],
         [
-            ["Gen04", "KR (KOSPI/KOSDAQ)", "Kiwoom OpenAPI+ (COM)", "3.9 32-bit", "LIVE (REST migration)"],
+            ["kr-legacy", "KR (KOSPI/KOSDAQ)", "Kiwoom OpenAPI+ (COM)", "3.9 32-bit", "LIVE (REST migration)"],
             ["kr", "KR (Lab + REST)", "pykrx / DB", "3.12 64-bit", "ACTIVE"],
             ["us", "US (Russell 1000+)", "Alpaca REST", "3.12 64-bit", "ACTIVE (Paper)"],
         ],
@@ -300,7 +300,7 @@ def build_pdf(output_path: str):
     story.append(Spacer(1, 4*mm))
     story.append(Paragraph("Manual Commands", S_H2))
     story.append(Paragraph(
-        "cd C:\\Q-TRON-32_ARCHIVE\\Gen04<br/><br/>"
+        "cd C:\\Q-TRON-32_ARCHIVE\\kr-legacy<br/><br/>"
         "# Batch (OHLCV + scoring + target)<br/>"
         "..\\.venv\\Scripts\\python.exe main.py --batch<br/><br/>"
         "# Fast batch (signal only, skip reports)<br/>"
@@ -488,7 +488,7 @@ def build_pdf(output_path: str):
     story.append(PageBreak())
     story.append(Paragraph("9. Monitoring", S_H1))
 
-    story.append(Paragraph("Monitor GUI v2 (Gen04)", S_H2))
+    story.append(Paragraph("Monitor GUI v2 (kr-legacy)", S_H2))
     story.append(Paragraph(
         "File: kr-legacy/monitor_gui_v2.py (1,736 lines)<br/>"
         "Launch: python monitor_gui_v2.py --mode live<br/>"
@@ -552,10 +552,10 @@ def build_pdf(output_path: str):
 
     story.append(Paragraph("Commands", S_H2))
     story.append(Paragraph(
-        "# Gen04 backtest (KR, 7yr)<br/>"
-        "cd Gen04<br/>"
+        "# kr-legacy backtest (KR, 7yr)<br/>"
+        "cd kr-legacy<br/>"
         "..\\.venv\\Scripts\\python.exe main.py --backtest --start 2019-01-02<br/><br/>"
-        "# Gen04 backtester module (direct)<br/>"
+        "# kr-legacy backtester module (direct)<br/>"
         "..\\.venv\\Scripts\\python.exe -m backtest.backtester<br/><br/>"
         "# Lab runner (multi-strategy comparison, KR)<br/>"
         "cd kr<br/>"
@@ -621,7 +621,7 @@ def build_pdf(output_path: str):
     story.append(PageBreak())
     story.append(Paragraph("13. Command Reference", S_H1))
 
-    story.append(Paragraph("Gen04 (KR)", S_H2))
+    story.append(Paragraph("kr-legacy (KR)", S_H2))
     story.append(make_table(
         ["Command", "Description"],
         [

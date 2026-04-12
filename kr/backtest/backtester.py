@@ -13,7 +13,7 @@ Fixes applied (2026-03-23):
   7. Output to backtest/results/gen4_core/
 
 Usage:
-    cd Gen04
+    cd kr-legacy
     python -m backtest.backtester [--start 2019-01-02] [--end 2026-03-20]
 """
 from __future__ import annotations

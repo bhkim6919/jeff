@@ -4,7 +4,7 @@
     {
       "name": "report-preview",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8765", "--directory", "Gen04/report/output"],
+      "runtimeArgs": ["-m", "http.server", "8765", "--directory", "kr-legacy/report/output"],
       "port": 8765,
       "autoPort": false
     },

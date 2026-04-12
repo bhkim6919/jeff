@@ -14,7 +14,7 @@ KOSPI + KOSDAQ 전종목 OHLCV를 pykrx로 다운로드 후 CSV 저장.
   - 완료 후 통계 출력
 
 Usage:
-    cd C:\\Q-TRON-32_ARCHIVE\\Gen04
+    cd C:\\Q-TRON-32_ARCHIVE\\kr-legacy
     ..\\.venv\\Scripts\\python.exe -u backtest\\ohlcv_collector.py
     ..\\.venv\\Scripts\\python.exe -u backtest\\ohlcv_collector.py --start 20190102 --delay 0.5
     ..\\.venv\\Scripts\\python.exe -u backtest\\ohlcv_collector.py --retry-failed
@@ -42,7 +42,7 @@ except ImportError:
 # ── 경로 설정 ─────────────────────────────────────────────────────────────────
 BASE_DIR      = Path(__file__).resolve().parent.parent.parent  # Q-TRON-32_ARCHIVE/
 OUTPUT_DIR    = BASE_DIR / "backtest" / "data_full" / "ohlcv_expanded"
-LOG_DIR       = BASE_DIR / "Gen04" / "data" / "logs"
+LOG_DIR       = BASE_DIR / "kr-legacy" / "data" / "logs"
 FAILED_LOG    = LOG_DIR / "collector_failed.log"
 PROGRESS_FILE = OUTPUT_DIR / "_progress.txt"  # 완료된 종목 목록
 

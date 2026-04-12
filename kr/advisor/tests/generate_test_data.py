@@ -7,7 +7,7 @@ Creates:
   - report/output_test/reconcile_log.csv (a few recon events)
 
 Run:
-    cd Gen04
+    cd kr-legacy
     python -m advisor.tests.generate_test_data
 """
 from __future__ import annotations

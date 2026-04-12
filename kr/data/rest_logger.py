@@ -3,7 +3,7 @@ rest_logger.py -- REST API logging with daily rotation + auto-cleanup
 =====================================================================
 - Daily log file: rest_api_YYYYMMDD.log
 - Auto-delete files older than RETENTION_DAYS (default 30)
-- gen4.rest.* namespace (Gen04 LIVE log와 분리)
+- gen4.rest.* namespace (kr-legacy LIVE log와 분리)
 - gen4.live / gen4.state 등 전체 로거에도 동일 rotation 적용
 """
 from __future__ import annotations

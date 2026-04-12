@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 > nul
-set LOGFILE=C:\Q-TRON-32_ARCHIVE\Gen04\data\logs\eod_shutdown.log
+set LOGFILE=C:\Q-TRON-32_ARCHIVE\kr-legacy\data\logs\eod_shutdown.log
 
 echo ============================================================ >> "%LOGFILE%"
 echo  [EOD_SHUTDOWN] %DATE% %TIME% >> "%LOGFILE%"

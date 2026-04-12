@@ -15,20 +15,8 @@
     <script src="/static/nav.js"></script>
     <script>window.__qtronNav.renderNav(document.getElementById('qtron-nav'));</script>
 
-    <!-- ── Sub-Header (KR-specific) ──────────────────────── -->
-    <header id="header" style="padding:6px 20px;">
-        <div class="header-left">
-            <span id="server-badge" class="badge badge-unknown">--</span>
-            <span id="status-led" class="status-led led-black" title="시스템 상태"></span>
-        </div>
-        <div class="header-right">
-            <div class="mode-switch" id="mode-switch">
-                <button class="mode-btn active" data-mode="basic">Basic</button>
-                <button class="mode-btn" data-mode="operator">Operator</button>
-                <button class="mode-btn" data-mode="debug">Debug</button>
-            </div>
-        </div>
-    </header>
+    <!-- Sub-header badges moved to nav bar -->
+    <!-- Mode switch rendered in qnav-badges by dashboard.js -->
 
     <!-- ── SSE Connection Bar ─────────────────────────────── -->
     <div id="sse-bar" class="sse-bar sse-connecting">

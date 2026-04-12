@@ -7,7 +7,7 @@ Returns fully initialized LiveContext.
 Replaces Phase 0 (QApplication + Kiwoom Login) and Phase 1 (State Restore +
 Broker Sync) from the monolithic run_live().
 
-Changes from Gen04 original:
+Changes from kr-legacy original:
   - QApplication/QEventLoop removed (REST doesn't need Qt)
   - Gen4KiwoomProvider → KiwoomRestProvider (dynamic based on config)
   - time.sleep replaces QEventLoop waits

@@ -210,7 +210,7 @@ def _api(path, timeout=5):
 
 
 def _default_commands():
-    """Register built-in commands (Gen04 호환 + 신규)."""
+    """Register built-in commands (kr-legacy 호환 + 신규)."""
 
     def cmd_help(chat_id, args):
         return (

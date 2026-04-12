@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("gen4.crosscheck")
 
-_GEN04_STATE = Path(__file__).resolve().parent.parent.parent / "Gen04" / "state"
+_GEN04_STATE = Path(__file__).resolve().parent.parent.parent / "kr-legacy" / "state"
 
 
 def compare_engine_vs_broker(provider: Any) -> Dict[str, Any]:

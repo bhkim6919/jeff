@@ -16,7 +16,7 @@ Runs 6 configurations × IS/OOS split for comparison.
 Does NOT modify existing backtester.py.
 
 Usage:
-    cd Gen04
+    cd kr-legacy
     python -m backtest.backtester_regime
 """
 from __future__ import annotations

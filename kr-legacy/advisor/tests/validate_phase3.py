@@ -5,7 +5,7 @@ then walks the full lifecycle: recommendation → approval → override → post
 verdict → drift guard detection.
 
 Run:
-    cd Gen04
+    cd kr-legacy
     python -m advisor.tests.validate_phase3
 
 Exit code 0 = all pass, 1 = failures.

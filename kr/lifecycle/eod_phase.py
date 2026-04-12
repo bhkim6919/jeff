@@ -5,7 +5,7 @@ Wait until 15:30, trail stop execution, EOD reports, settlement, shutdown.
 
 Extracted from run_live() Phase 4 block.
 
-Changes from Gen04 original:
+Changes from kr-legacy original:
   - QEventLoop/QTimer replaced with time.sleep (1s granularity)
   - QApplication.quit() removed (REST doesn't need Qt)
 """

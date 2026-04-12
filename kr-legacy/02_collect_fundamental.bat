@@ -6,7 +6,7 @@ echo  %date% %time%
 echo ============================================================
 echo.
 
-cd /d "C:\Q-TRON-32_ARCHIVE\Gen04"
+cd /d "C:\Q-TRON-32_ARCHIVE\kr-legacy"
 set PYTHON=C:\Q-TRON-32_ARCHIVE\.venv\Scripts\python.exe
 
 echo [1] Daily snapshot (today)

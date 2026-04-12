@@ -199,13 +199,7 @@
 <script src="/static/nav.js"></script>
 <script>window.__qtronNav.renderNav(document.getElementById('qtron-nav'));</script>
 
-<header style="padding:6px 24px;background:var(--card);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
-    <div style="display:flex;align-items:center;gap:12px;">
-        <span id="server-badge" class="badge badge-paper">--</span>
-        <span id="market-badge" class="badge badge-closed">--</span>
-        <span id="header-dot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;"></span>
-    </div>
-</header>
+<!-- Badges moved to nav bar -->
 
 <main>
     <!-- Status Bar (KR-style) -->
@@ -450,9 +444,17 @@ async function refresh() {
     $('server-badge').className = 'badge ' + (h.server_type === 'PAPER' ? 'badge-paper' : 'badge-live');
     $('market-badge').textContent = h.is_market_open ? 'OPEN' : 'CLOSED';
     $('market-badge').className = 'badge ' + (h.is_market_open ? 'badge-open' : 'badge-closed');
-    // Header dot (small indicator next to badges)
-    const hdot = $('header-dot');
-    if (hdot) hdot.style.background = h.status === 'OK' ? 'var(--green)' : 'var(--red)';
+    // Nav badges (moved from separate header)
+    const nb = document.getElementById('qnav-badges');
+    if (nb) {
+        const svr = h.server_type || 'PAPER';
+        const mkt = h.is_market_open ? 'OPEN' : 'CLOSED';
+        const dotCls = h.status === 'OK' ? 'ok' : 'err';
+        nb.innerHTML =
+            `<span class="qnav-badge qnav-badge-${svr.toLowerCase()}">${svr}</span>` +
+            `<span class="qnav-badge qnav-badge-${mkt.toLowerCase()}">${mkt}</span>` +
+            `<span class="qnav-dot ${dotCls}"></span>`;
+    }
 
     // Portfolio
     const p = await apiFetch('/api/portfolio');

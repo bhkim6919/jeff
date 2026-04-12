@@ -19,7 +19,7 @@ Signal/execution timing:
   - This matches backtester_regime.py conventions
 
 Usage:
-    cd Gen04
+    cd kr-legacy
     python -m backtest.backtester_regime_v3
 """
 from __future__ import annotations

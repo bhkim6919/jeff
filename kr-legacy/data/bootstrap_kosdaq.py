@@ -5,7 +5,7 @@ Fetches 7-year OHLCV for all KOSDAQ stocks listed in sector_map.json
 and saves to backtest/data_full/ohlcv/.
 
 Usage:
-    cd Gen04
+    cd kr-legacy
     python -m data.bootstrap_kosdaq          # download missing only
     python -m data.bootstrap_kosdaq --force   # re-download all
 """

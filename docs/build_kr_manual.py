@@ -199,7 +199,7 @@ def build():
 
     story.append(h2("1.3 Open API vs REST API 비교"))
     story.append(make_table(
-        ["항목", "Open API (Gen04, 삭제 예정)", "REST API (Gen05)"],
+        ["항목", "Open API (kr-legacy, 삭제 예정)", "REST API (Gen05)"],
         [
             ["연결 방식", "Qt QAxWidget (COM)", "HTTP + WebSocket"],
             ["로그인", "COM 라이선스", "OAuth 토큰 (자동 갱신)"],

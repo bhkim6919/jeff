@@ -45,7 +45,7 @@ Systematically validate backtesting results for the Q-TRON trading system. Check
 - **Scoring**: `C:/Q-TRON-32_ARCHIVE/us/strategy/scoring.py`
 
 ### Legacy / Reference
-- **Gen04 backtester**: `C:/Q-TRON-32_ARCHIVE/kr-legacy/backtest/backtester.py`
+- **kr-legacy backtester**: `C:/Q-TRON-32_ARCHIVE/kr-legacy/backtest/backtester.py`
 - **Gen3 v7 repro**: `C:/Q-TRON-32_ARCHIVE/backtest/gen3v7/backtester.py`
 - **Cross-strategy compare**: `C:/Q-TRON-32_ARCHIVE/backtest/compare_strategies.py`
 - **Full backtest data**: `C:/Q-TRON-32_ARCHIVE/backtest/data_full/` (2561 symbols, 2019-2026)

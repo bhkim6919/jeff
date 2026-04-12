@@ -1461,7 +1461,7 @@ add_text(slide, "CONFIDENTIAL", Inches(10.0), SH - Inches(0.65), Inches(2.5), In
 
 
 # ── SAVE ──
-output_path = r"C:\Q-TRON-32_ARCHIVE\Gen04\docs\Q-TRON_Design_Concept_Proposal.pptx"
+output_path = r"C:\Q-TRON-32_ARCHIVE\kr-legacy\docs\Q-TRON_Design_Concept_Proposal.pptx"
 prs.save(output_path)
 print(f"Saved to {output_path}")
 print(f"Total slides: {len(prs.slides)}")

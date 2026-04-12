@@ -209,16 +209,40 @@ function updateHero(data) {
         syncEl.textContent = '대기 중';
     }
 
-    // Server badge
+    // Server badge + LED → nav bar
     const badge = document.getElementById('server-badge');
-    badge.textContent = data.server.type;
-    badge.className = 'badge badge-' + data.server.type.toLowerCase();
-
-    // Status LED
+    if (badge) {
+        badge.textContent = data.server.type;
+        badge.className = 'badge badge-' + data.server.type.toLowerCase();
+    }
     const led = document.getElementById('status-led');
     if (led) {
         const ledClass = {green:'led-green', yellow:'led-yellow', red:'led-red', black:'led-black'}[statusLower] || 'led-black';
         led.className = 'status-led ' + ledClass;
+    }
+
+    // Nav badges (REAL + dot + mode switch)
+    const nb = document.getElementById('qnav-badges');
+    if (nb && !nb._initialized) {
+        const svr = data.server?.type || 'REAL';
+        const dotCls = statusLower === 'green' ? 'ok' : statusLower === 'red' ? 'err' : '';
+        nb.innerHTML =
+            `<span class="qnav-badge qnav-badge-${svr.toLowerCase()}">${svr}</span>` +
+            `<span id="nav-dot" class="qnav-dot ${dotCls}"></span>` +
+            `<div class="qnav-mode-toggle" id="nav-mode-switch">` +
+                `<button class="qnav-mode" data-mode="basic" onclick="switchMode('basic')">Basic</button>` +
+                `<button class="qnav-mode" data-mode="operator" onclick="switchMode('operator')">Operator</button>` +
+                `<button class="qnav-mode" data-mode="debug" onclick="switchMode('debug')">Debug</button>` +
+            `</div>`;
+        nb._initialized = true;
+        // Sync active mode button
+        nb.querySelectorAll('.qnav-mode').forEach(b => {
+            b.classList.toggle('active', b.dataset.mode === currentMode);
+        });
+    } else if (nb) {
+        // Update dot color only
+        const navDot = document.getElementById('nav-dot');
+        if (navDot) navDot.className = 'qnav-dot ' + (statusLower === 'green' ? 'ok' : statusLower === 'red' ? 'err' : '');
     }
 }
 
@@ -1174,8 +1198,11 @@ function switchMode(mode) {
     // Body class for CSS mode hiding
     document.body.className = 'mode-' + mode;
 
-    // Button states
+    // Button states (original + nav)
     document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+    document.querySelectorAll('.qnav-mode').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.mode === mode);
     });
 

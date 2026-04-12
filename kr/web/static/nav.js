@@ -71,6 +71,7 @@
                         <button class="qnav-market ${market === 'US' ? 'active' : ''}"
                                 onclick="window.__qtronNav.switchMarket('US')">US</button>
                     </div>
+                    <div class="qnav-badges" id="qnav-badges"></div>
                 </div>
                 <nav class="qnav-menu">
                     <button class="qnav-item ${page === 'dashboard' ? 'active' : ''}"

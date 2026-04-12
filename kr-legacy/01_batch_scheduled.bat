@@ -1,8 +1,8 @@
 @echo off
 chcp 65001 > nul
-cd /d "C:\Q-TRON-32_ARCHIVE\Gen04"
+cd /d "C:\Q-TRON-32_ARCHIVE\kr-legacy"
 set PYTHON=C:\Q-TRON-32_ARCHIVE\.venv\Scripts\python.exe
-set LOGFILE=C:\Q-TRON-32_ARCHIVE\Gen04\data\logs\batch_scheduled.log
+set LOGFILE=C:\Q-TRON-32_ARCHIVE\kr-legacy\data\logs\batch_scheduled.log
 
 :: ── Skip check: if today's target already exists, skip batch ──
 :: This allows manual evening batch to prevent redundant morning run
