@@ -527,6 +527,74 @@ class PortfolioManagerUS:
         """Estimated equity = cash + sum(market_value)."""
         return self.cash + sum(p.market_value for p in self.positions.values())
 
+    # ── DD Metrics (P0 fix: fail-closed) ───────────────────
+
+    def get_daily_pnl_pct(self) -> float:
+        """
+        Daily P&L % = (current_equity / day_open_equity - 1).
+        Source of truth: _day_open_equity (set at market open or first price update).
+        Fail-closed: returns -999 if calculation impossible → triggers DD block.
+        """
+        try:
+            if not hasattr(self, "_day_open_equity") or self._day_open_equity <= 0:
+                logger.warning("[US_DD_CALC_FAIL] _day_open_equity not set → fail-closed")
+                return -999.0  # fail-closed: block buys
+            equity = self.get_equity()
+            if equity <= 0:
+                return -999.0
+            return equity / self._day_open_equity - 1
+        except Exception as e:
+            logger.error(f"[US_DD_CALC_FAIL] daily: {e}")
+            return -999.0  # fail-closed
+
+    def get_monthly_dd_pct(self) -> float:
+        """
+        Monthly drawdown % = (current_equity / month_peak_equity - 1).
+        Source of truth: _month_peak_equity (tracked continuously, reset on month change).
+        Fail-closed: returns -999 if calculation impossible → triggers DD block.
+        """
+        try:
+            if not hasattr(self, "_month_peak_equity") or self._month_peak_equity <= 0:
+                logger.warning("[US_DD_CALC_FAIL] _month_peak_equity not set → fail-closed")
+                return -999.0
+            equity = self.get_equity()
+            if equity <= 0:
+                return -999.0
+            return equity / self._month_peak_equity - 1
+        except Exception as e:
+            logger.error(f"[US_DD_CALC_FAIL] monthly: {e}")
+            return -999.0
+
+    def init_dd_tracking(self, equity: float = 0) -> None:
+        """Initialize DD tracking. Call at startup and market open."""
+        eq = equity if equity > 0 else self.get_equity()
+        if eq <= 0:
+            eq = self.cash if self.cash > 0 else 1.0  # safety fallback
+        self._day_open_equity = eq
+        self._month_peak_equity = getattr(self, "_month_peak_equity", 0)
+        if self._month_peak_equity <= 0:
+            self._month_peak_equity = eq
+        self._current_month = datetime.now().month
+        logger.info(
+            f"[US_DD_INIT] day_open={self._day_open_equity:.2f} "
+            f"month_peak={self._month_peak_equity:.2f}"
+        )
+
+    def update_dd_tracking(self) -> None:
+        """Update month peak. Call after each price update."""
+        equity = self.get_equity()
+        if equity <= 0:
+            return
+
+        # Month change → reset peak
+        now_month = datetime.now().month
+        if hasattr(self, "_current_month") and now_month != self._current_month:
+            self._month_peak_equity = equity
+            self._current_month = now_month
+            logger.info(f"[US_DD_MONTH_RESET] new peak={equity:.2f}")
+        elif equity > getattr(self, "_month_peak_equity", 0):
+            self._month_peak_equity = equity
+
     def __repr__(self) -> str:
         return (
             f"PortfolioUS(cash=${self.cash:,.2f}, "

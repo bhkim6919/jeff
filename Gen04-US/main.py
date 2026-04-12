@@ -366,6 +366,14 @@ def run_live():
     runtime_data = state_mgr.mark_startup()
     runtime_data["broker_snapshot_at"] = portfolio.broker_snapshot_at
     runtime_data["last_price_update_at"] = ""
+
+    # P0 fix: DD tracking 초기화 (fail-closed: 미초기화 시 buy 차단)
+    portfolio.init_dd_tracking()
+
+    # P0 fix: stale execute_lock 정리 (이전 크래시 잔여 lock 해제)
+    if state_mgr.clear_stale_execute_lock():
+        logger.info("[STARTUP] Stale execute_lock cleared from previous crash")
+
     state_mgr.save_all(portfolio.to_dict(), runtime_data)
 
     notify.send(
@@ -466,10 +474,11 @@ def run_live():
                     else:
                         logger.warning("[STARTUP_BLOCK_HELD] late fill detected in 2nd pass")
 
-            # 5.5 DD Guard — buy_blocked evaluation
+            # 5.5 DD Guard — buy_blocked evaluation (P0 fix: fail-closed)
             _equity = portfolio.get_equity()
-            _daily_pnl = portfolio.get_daily_pnl_pct() if hasattr(portfolio, 'get_daily_pnl_pct') else 0
-            _monthly_dd = portfolio.get_monthly_dd_pct() if hasattr(portfolio, 'get_monthly_dd_pct') else 0
+            portfolio.update_dd_tracking()  # month peak 갱신
+            _daily_pnl = portfolio.get_daily_pnl_pct()
+            _monthly_dd = portfolio.get_monthly_dd_pct()
             _buy_scale = 1.0
             _dd_label = "NORMAL"
 

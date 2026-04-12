@@ -1131,7 +1131,7 @@ def create_app() -> FastAPI:
                 for s in sells:
                     try:
                         r = p.send_order(s.ticker, "SELL", s.quantity)
-                        ok = r.get("ok", False) if isinstance(r, dict) else True
+                        ok = ("order_no" in r and "error" not in r) if isinstance(r, dict) else False
                         sell_results.append({"symbol": s.ticker, "qty": s.quantity, "ok": ok})
                         if ok:
                             sell_ok_count += 1
@@ -1152,7 +1152,7 @@ def create_app() -> FastAPI:
                             continue
                         try:
                             r = p.send_order(b.ticker, "BUY", scaled_qty)
-                            ok = r.get("ok", False) if isinstance(r, dict) else True
+                            ok = ("order_no" in r and "error" not in r) if isinstance(r, dict) else False
                             buy_results.append({"symbol": b.ticker, "qty": scaled_qty, "ok": ok})
                             if ok:
                                 buy_ok_count += 1
