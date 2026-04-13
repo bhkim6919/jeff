@@ -295,6 +295,9 @@ class ForwardTrader:
             db = DbProviderUS()
             ohlcv_dict = db.load_ohlcv_dict_research(min_history=20, symbols=list(close_dict.keys()))
             full_close_dict = db.load_close_dict_research(min_history=20, symbols=list(close_dict.keys()))
+            # Meta layer: SPY + sector_map (same DB session, same snapshot)
+            _spy_series = db.get_index("SPY")["close"] if hasattr(db, "get_index") else None
+            _sector_map = db.get_sector_map() if hasattr(db, "get_sector_map") else {}
 
             # Create new version directory
             version_dir = VERSIONS_DIR / run_id
@@ -302,6 +305,7 @@ class ForwardTrader:
 
             processed = []
             snapshot_bundle = {}
+            _runtime_states = {}  # for meta layer
 
             for strat_name, strat_config in STRATEGY_CONFIGS.items():
                 try:
@@ -466,7 +470,9 @@ class ForwardTrader:
                     state.last_run_status = "DONE"
 
                     # Save to version directory
-                    _atomic_write(version_dir / f"{strat_name}.json", state.to_dict())
+                    state_dict = state.to_dict()
+                    _atomic_write(version_dir / f"{strat_name}.json", state_dict)
+                    _runtime_states[strat_name] = state_dict
                     processed.append(strat_name)
 
                     snapshot_bundle[strat_name] = {
@@ -497,6 +503,22 @@ class ForwardTrader:
             run_record["strategies_processed"] = processed
             run_record["snapshots"] = snapshot_bundle
             _atomic_write(run_path, run_record)
+
+            # ── Meta Layer Phase 0 ──
+            try:
+                from lab.meta_collector import collect_meta_us
+                collect_meta_us(
+                    eod_date=eod_date,
+                    close_dict=close_dict,
+                    full_close_dict=full_close_dict,
+                    ohlcv_dict=ohlcv_dict,
+                    strategies=STRATEGY_CONFIGS,
+                    runtime_states=_runtime_states,
+                    spy_series=_spy_series,
+                    sector_map=_sector_map,
+                )
+            except Exception as e:
+                logger.warning(f"[META] Collection failed (non-fatal): {e}")
 
             logger.info(f"[FORWARD] EOD {eod_date} done: {len(processed)} strategies")
             return run_record

@@ -530,6 +530,25 @@ class LabLiveSimulator:
             data_snap_id = _compute_data_snapshot_id(close, dates)
             self._data_snapshot_id = data_snap_id
 
+            # ── Meta Layer Phase 0: collect & store ──
+            try:
+                from web.lab_live.meta_collector import collect_meta
+                collect_meta(
+                    today_date=today_date,
+                    today_idx=today_idx,
+                    close=close, high=high, vol=vol,
+                    universe=univ,
+                    sector_map=self._sector_map,
+                    index_series=idx_close,
+                    fundamental=fund_df,
+                    lanes=self._lanes,
+                    new_trades=new_trades,
+                    data_snapshot_id=data_snap_id,
+                    config=self.config,
+                )
+            except Exception as e:
+                logger.warning(f"[META] Collection failed (non-fatal): {e}")
+
             return {
                 "ok": True,
                 "date": today_date,

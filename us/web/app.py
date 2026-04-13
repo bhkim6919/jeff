@@ -832,6 +832,23 @@ def create_app() -> FastAPI:
         from lab.forward import ForwardTrader
         return {"runs": ForwardTrader().get_runs()}
 
+    @app.get("/api/lab/forward/meta")
+    async def forward_meta():
+        """Meta Layer summary for UI (observer-only)."""
+        try:
+            from lab.meta_summary import build_daily_summary_us
+            from lab.forward import _load_meta
+            meta = _load_meta()
+            trade_date = meta.get("last_successful_eod_date", "")
+            if not trade_date:
+                return {"ok": False}
+            summary = build_daily_summary_us(trade_date)
+            if not summary:
+                return {"ok": False}
+            return {"ok": True, **summary}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     @app.post("/api/lab/forward/reset")
     async def forward_reset():
         from lab.forward import ForwardTrader

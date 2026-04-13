@@ -1381,6 +1381,24 @@ def create_app() -> FastAPI:
                 return {"initialized": False, "lanes": []}
         return sim.get_state()
 
+    @application.get("/api/lab/live/meta")
+    async def lab_live_meta():
+        """Meta Layer summary for UI (observer-only)."""
+        try:
+            from web.lab_live.meta_summary import build_daily_summary
+            sim = _lab_live_sim.get("sim")
+            if not sim or not sim._initialized:
+                return {"ok": False}
+            trade_date = sim._last_run_date
+            if not trade_date:
+                return {"ok": False}
+            summary = build_daily_summary(trade_date)
+            if not summary:
+                return {"ok": False}
+            return {"ok": True, **summary}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     @application.get("/api/lab/live/trades")
     async def lab_live_trades(limit: int = Query(50, ge=1, le=500)):
         """Recent trades from Lab Live."""

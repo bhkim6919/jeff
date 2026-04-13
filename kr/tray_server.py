@@ -67,6 +67,9 @@ ID_US_LIVE_START = 1024
 ID_US_LIVE_STOP = 1025
 ID_UNIFIED = 1026
 ID_US_AUTO_TOGGLE = 1027
+ID_US_RESTART = 1028
+ID_RESTART_ALL = 1029
+ID_US_LOG_DIR = 1030
 
 
 class Win32TrayServer:
@@ -93,7 +96,42 @@ class Win32TrayServer:
         # US live state
         self._us_live_process: Optional[subprocess.Popen] = None
         self._us_live_running = False
+        # Restart guards
+        self._kr_restarting = False
+        self._us_restarting = False
         self._logger = self._setup_logging()
+
+    # ── Process-truth status ────────────────────────────────────
+    def _is_us_process_alive(self) -> bool:
+        """US 서버 프로세스가 실제로 살아있는지 확인."""
+        if self._us_process is None:
+            return False
+        return self._us_process.poll() is None
+
+    def _is_us_live_alive(self) -> bool:
+        """US Live 프로세스가 실제로 살아있는지 확인."""
+        if self._us_live_process is None:
+            return False
+        return self._us_live_process.poll() is None
+
+    def _get_kr_status(self) -> str:
+        return "Running" if self._running else "Stopped"
+
+    def _get_us_status(self) -> str:
+        if self._is_us_process_alive():
+            return "Running"
+        # Sync flag if process died
+        if self._us_running:
+            self._us_running = False
+        return "Stopped"
+
+    def _wait_process_exit(self, check_fn, timeout=5.0) -> bool:
+        """프로세스 종료를 실제로 확인 (sleep 대신 polling)."""
+        for _ in range(int(timeout / 0.5)):
+            if not check_fn():
+                return True
+            time.sleep(0.5)
+        return False
 
     def _setup_logging(self) -> logging.Logger:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -322,23 +360,20 @@ class Win32TrayServer:
         actions = {
             ID_STATUS: self._action_status,
             ID_DASHBOARD: self._action_dashboard,
-            ID_XVAL: self._action_xval,
-            ID_OPEN_LOG: self._action_open_log,
             ID_OPEN_LOG_DIR: self._action_open_log_dir,
-            ID_COPY_LOG: self._action_copy_log,
             ID_BATCH_NOW: self._action_batch_now,
             ID_BATCH_TOGGLE: self._action_batch_toggle,
             ID_RESTART: self._action_restart,
             ID_QUIT: self._action_quit,
             # US
             ID_US_DASHBOARD: self._action_us_dashboard,
-            ID_US_START: self._action_us_start,
-            ID_US_STOP: self._action_us_stop,
             ID_US_BATCH: self._action_us_batch,
-            ID_US_LIVE_START: self._action_us_live_start,
-            ID_US_LIVE_STOP: self._action_us_live_stop,
             ID_US_AUTO_TOGGLE: self._action_us_auto_toggle,
+            ID_US_RESTART: self._action_us_restart,
+            ID_US_LOG_DIR: self._action_us_log_dir,
+            # Global
             ID_UNIFIED: self._action_unified,
+            ID_RESTART_ALL: self._action_restart_all,
         }
         action = actions.get(cmd_id)
         if action:
@@ -348,12 +383,12 @@ class Win32TrayServer:
     def _on_destroy(self, hwnd, msg, wparam, lparam):
         # Cleanup: stop US server + KR server before exit
         self._running = False
-        if self._us_live_running:
+        if self._is_us_live_alive():
             try:
                 self._action_us_live_stop()
             except Exception:
                 pass
-        if self._us_running and self._us_process:
+        if self._is_us_process_alive():
             try:
                 self._us_process.terminate()
                 self._us_process.wait(timeout=3)
@@ -370,56 +405,49 @@ class Win32TrayServer:
 
     def _show_context_menu(self):
         menu = win32gui.CreatePopupMenu()
-        win32gui.AppendMenu(menu, win32con.MF_STRING, ID_STATUS,
-                            f"Status ({self._uptime_str()})")
-        win32gui.AppendMenu(menu, win32con.MF_SEPARATOR, 0, "")
-        win32gui.AppendMenu(menu, win32con.MF_STRING, ID_DASHBOARD,
-                            "Open Dashboard")
-        win32gui.AppendMenu(menu, win32con.MF_STRING, ID_XVAL,
-                            "XVAL Report")
-        win32gui.AppendMenu(menu, win32con.MF_SEPARATOR, 0, "")
-        win32gui.AppendMenu(menu, win32con.MF_STRING, ID_OPEN_LOG,
-                            "Open Log File")
-        win32gui.AppendMenu(menu, win32con.MF_STRING, ID_OPEN_LOG_DIR,
-                            "Open Log Folder")
-        win32gui.AppendMenu(menu, win32con.MF_STRING, ID_COPY_LOG,
-                            "Copy Log Path")
-        win32gui.AppendMenu(menu, win32con.MF_SEPARATOR, 0, "")
-        # Batch
-        batch_label = "Run Batch Now" + (" (running...)" if self._batch_running else "")
-        flags = win32con.MF_STRING | (win32con.MF_GRAYED if self._batch_running else 0)
-        win32gui.AppendMenu(menu, flags, ID_BATCH_NOW, batch_label)
-        auto_label = f"Auto Batch {BATCH_HOUR:02d}:{BATCH_MINUTE:02d} [{'ON' if self._batch_auto else 'OFF'}]"
-        win32gui.AppendMenu(menu, win32con.MF_STRING, ID_BATCH_TOGGLE, auto_label)
-        # ── US Market ──
-        win32gui.AppendMenu(menu, win32con.MF_SEPARATOR, 0, "")
+        MF = win32con.MF_STRING
+        MF_SEP = win32con.MF_SEPARATOR
+        MF_GRAY = win32con.MF_GRAYED
+        MF_POP = win32con.MF_POPUP
+
+        # ── KR Market submenu ──
+        kr_sub = win32gui.CreatePopupMenu()
+        win32gui.AppendMenu(kr_sub, MF, ID_DASHBOARD, "Open Dashboard")
+        win32gui.AppendMenu(kr_sub, MF, ID_OPEN_LOG_DIR, "Open Log Folder")
+        win32gui.AppendMenu(kr_sub, MF_SEP, 0, "")
+        kr_batch_flags = MF | (MF_GRAY if self._batch_running else 0)
+        kr_batch_label = "Run Batch Now" + (" (running...)" if self._batch_running else "")
+        win32gui.AppendMenu(kr_sub, kr_batch_flags, ID_BATCH_NOW, kr_batch_label)
+        kr_auto_label = f"Auto Batch [{'ON' if self._batch_auto else 'OFF'}]"
+        win32gui.AppendMenu(kr_sub, MF, ID_BATCH_TOGGLE, kr_auto_label)
+        win32gui.AppendMenu(kr_sub, MF_SEP, 0, "")
+        kr_restart_flags = MF | (MF_GRAY if self._kr_restarting else 0)
+        win32gui.AppendMenu(kr_sub, kr_restart_flags, ID_RESTART, "Restart Server")
+        kr_status = self._get_kr_status()
+        win32gui.AppendMenu(menu, MF_POP, kr_sub, f"KR Market [{kr_status}]")
+
+        # ── US Market submenu ──
         us_sub = win32gui.CreatePopupMenu()
-        us_status = "Running" if self._us_running else "Stopped"
-        win32gui.AppendMenu(us_sub, win32con.MF_STRING, ID_US_DASHBOARD,
-                            f"Open US Dashboard :{US_PORT}")
-        if self._us_running:
-            win32gui.AppendMenu(us_sub, win32con.MF_GRAYED, ID_US_START, "Start US Server")
-            win32gui.AppendMenu(us_sub, win32con.MF_STRING, ID_US_STOP, "Stop US Server")
-        else:
-            win32gui.AppendMenu(us_sub, win32con.MF_STRING, ID_US_START, "Start US Server")
-            win32gui.AppendMenu(us_sub, win32con.MF_GRAYED, ID_US_STOP, "Stop US Server")
-        win32gui.AppendMenu(us_sub, win32con.MF_STRING, ID_US_BATCH, "Run US Batch")
-        us_auto_label = f"Auto Batch/Rebal [{'ON' if self._us_batch_auto else 'OFF'}]"
-        win32gui.AppendMenu(us_sub, win32con.MF_STRING, ID_US_AUTO_TOGGLE, us_auto_label)
-        win32gui.AppendMenu(us_sub, win32con.MF_SEPARATOR, 0, "")
-        # US Live (auto-managed: starts with server, stops with server)
-        live_status = "Live Running" if self._us_live_running else "Live Stopped"
-        live_label = f"Live: {'Running' if self._us_live_running else 'Stopped'} (auto)"
-        win32gui.AppendMenu(us_sub, win32con.MF_GRAYED, 0, live_label)
-        win32gui.AppendMenu(menu, win32con.MF_POPUP, us_sub,
-                            f"US Market [{us_status}] [{live_status}]")
-        win32gui.AppendMenu(menu, win32con.MF_SEPARATOR, 0, "")
-        win32gui.AppendMenu(menu, win32con.MF_STRING, ID_UNIFIED,
-                            "Open Unified Dashboard")
-        win32gui.AppendMenu(menu, win32con.MF_STRING, ID_RESTART,
-                            "Restart KR Server")
-        win32gui.AppendMenu(menu, win32con.MF_STRING, ID_QUIT,
-                            "Shutdown All")
+        win32gui.AppendMenu(us_sub, MF, ID_US_DASHBOARD, "Open Dashboard")
+        win32gui.AppendMenu(us_sub, MF, ID_US_LOG_DIR, "Open Log Folder")
+        win32gui.AppendMenu(us_sub, MF_SEP, 0, "")
+        us_batch_flags = MF | (MF_GRAY if self._us_batch_running else 0)
+        us_batch_label = "Run Batch Now" + (" (running...)" if self._us_batch_running else "")
+        win32gui.AppendMenu(us_sub, us_batch_flags, ID_US_BATCH, us_batch_label)
+        us_auto_label = f"Auto Batch [{'ON' if self._us_batch_auto else 'OFF'}]"
+        win32gui.AppendMenu(us_sub, MF, ID_US_AUTO_TOGGLE, us_auto_label)
+        win32gui.AppendMenu(us_sub, MF_SEP, 0, "")
+        us_restart_flags = MF | (MF_GRAY if self._us_restarting else 0)
+        win32gui.AppendMenu(us_sub, us_restart_flags, ID_US_RESTART, "Restart Server")
+        us_status = self._get_us_status()
+        live_tag = " [Live]" if self._is_us_live_alive() else ""
+        win32gui.AppendMenu(menu, MF_POP, us_sub, f"US Market [{us_status}]{live_tag}")
+
+        # ── Global ──
+        win32gui.AppendMenu(menu, MF_SEP, 0, "")
+        win32gui.AppendMenu(menu, MF, ID_UNIFIED, "Open Unified Dashboard")
+        win32gui.AppendMenu(menu, MF, ID_RESTART_ALL, "Restart All")
+        win32gui.AppendMenu(menu, MF, ID_QUIT, "Shutdown All")
 
         # Required for menu to work properly
         win32gui.SetForegroundWindow(self._hwnd)
@@ -541,21 +569,83 @@ class Win32TrayServer:
                 self._stop_blink("ok")
 
     def _action_restart(self):
-        self._logger.info("[TRAY] Restart requested")
-        self._show_balloon("Q-TRON", "Restarting server...")
-        self._stop_server()
-        time.sleep(2)
-        self._start_server()
-        self._show_balloon("Q-TRON", "Server restarted.")
+        if self._kr_restarting:
+            return
+        self._kr_restarting = True
+        self._logger.info("[TRAY] KR Restart requested")
+        self._show_balloon("Q-TRON KR", "Restarting KR server...")
+        try:
+            self._stop_server()
+            # uvicorn은 in-process이므로 _running 플래그로 확인
+            for _ in range(10):
+                if not self._running:
+                    break
+                time.sleep(0.5)
+            self._start_server()
+            self._show_balloon("Q-TRON KR", "KR server restarted.")
+        finally:
+            self._kr_restarting = False
+
+    def _action_us_restart(self):
+        if self._us_restarting:
+            return
+        self._us_restarting = True
+        self._logger.info("[TRAY] US Restart requested")
+        self._show_balloon("Q-TRON US", "Restarting US server...")
+        try:
+            self._action_us_stop()
+            if not self._wait_process_exit(self._is_us_process_alive, timeout=5.0):
+                self._logger.warning("[US] Process did not exit within 5s")
+            self._action_us_start()
+            self._show_balloon("Q-TRON US", "US server restarted.")
+        finally:
+            self._us_restarting = False
+
+    def _action_restart_all(self):
+        if self._kr_restarting or self._us_restarting:
+            self._show_balloon("Q-TRON", "Restart already in progress.")
+            return
+        self._kr_restarting = True
+        self._us_restarting = True
+        self._logger.info("[TRAY] Restart All requested")
+        self._show_balloon("Q-TRON", "Restarting all servers...")
+        try:
+            # Stop both
+            self._action_us_stop()
+            self._stop_server()
+            # Wait for actual exit
+            self._wait_process_exit(self._is_us_process_alive, timeout=5.0)
+            for _ in range(10):
+                if not self._running:
+                    break
+                time.sleep(0.5)
+            # Start both
+            self._start_server()
+            self._action_us_start()
+            self._show_balloon("Q-TRON", "All servers restarted.")
+        finally:
+            self._kr_restarting = False
+            self._us_restarting = False
+
+    def _action_us_log_dir(self):
+        us_log_dir = US_BASE_DIR / "logs"
+        if us_log_dir.exists():
+            os.startfile(str(us_log_dir))
+        elif LOG_DIR.exists():
+            # Fallback to KR log dir
+            os.startfile(str(LOG_DIR))
+            self._show_balloon("Q-TRON US", f"US log folder not found.\nOpened KR logs instead.")
+        else:
+            self._show_balloon("Q-TRON US", "Log folder not found.")
 
     def _action_quit(self):
         self._logger.info("[TRAY] Shutdown All requested")
         self._running = False
         # Stop US live first
-        if self._us_live_running:
+        if self._is_us_live_alive():
             self._action_us_live_stop()
         # Stop US server
-        if self._us_running:
+        if self._is_us_process_alive():
             self._action_us_stop()
         self._stop_server()
         win32gui.DestroyWindow(self._hwnd)
@@ -986,16 +1076,18 @@ class Win32TrayServer:
 
                 # US Auto-batch: ET 18:00~18:30 (close + 2h)
                 if (self._us_batch_auto and not self._us_batch_running
-                        and self._us_running and self._is_us_batch_time()):
+                        and self._is_us_process_alive() and self._is_us_batch_time()):
                     self._logger.info("[US_BATCH_AUTO] Scheduled batch triggered")
                     threading.Thread(target=self._run_us_batch_and_rebal, daemon=True).start()
 
-                # US process health check
-                if self._us_running and self._us_process:
-                    if self._us_process.poll() is not None:
-                        self._us_running = False
-                        self._logger.warning("[US] Process exited unexpectedly")
-                        self._show_balloon("Q-TRON US", "US server stopped unexpectedly!")
+                # US process health check (process-truth)
+                if self._us_running and not self._is_us_process_alive():
+                    self._us_running = False
+                    self._logger.warning("[US] Process exited unexpectedly")
+                    self._show_balloon("Q-TRON US", "US server stopped unexpectedly!")
+                if self._us_live_running and not self._is_us_live_alive():
+                    self._us_live_running = False
+                    self._logger.warning("[US_LIVE] Process exited unexpectedly")
 
         threading.Thread(target=_background_scheduler, daemon=True).start()
 

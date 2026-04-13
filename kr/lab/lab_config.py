@@ -44,6 +44,7 @@ class StrategyConfig:
     fill_timing: FillTiming = FillTiming.NEXT_OPEN
     min_expected_hold: int = 10          # avg_hold_days 하한 (검증용, warn)
     group: str = "rebal"
+    version: str = "v1"                  # 전략 로직 변경 시 bump (meta DB 추적용)
 
 
 # ── Per-strategy config map ──────────────────────────────────────

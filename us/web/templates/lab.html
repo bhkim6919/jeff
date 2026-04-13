@@ -191,6 +191,12 @@
         <div id="fwd-msg" style="font-size:12px;color:var(--muted);"></div>
     </div>
 
+    <!-- Forward Meta Bar -->
+    <div id="fwd-meta-bar" style="display:none;justify-content:space-between;align-items:center;padding:8px 14px;margin-bottom:12px;background:var(--card);border-radius:8px;border:1px solid var(--border);font-size:12px;">
+        <span id="fwd-meta-tags" style="color:var(--muted);"></span>
+        <span id="fwd-meta-conf" style="font-weight:600;"></span>
+    </div>
+
     <!-- Forward Strategy Cards -->
     <div class="section-title">Strategy Performance</div>
     <div id="fwd-grid" class="strat-grid">No data. Click Initialize → Run EOD.</div>
@@ -474,7 +480,7 @@ async function loadForwardState() {
             const s = strategies[name];
             const pnlColor = (s.pnl_pct||0) >= 0 ? 'metric-pos' : 'metric-neg';
             const mddColor = 'metric-neg';
-            return `<div class="strat-card done">
+            return `<div class="strat-card done" data-strategy="${name}">
                 <div class="strat-name">${name}</div>
                 <div class="strat-metrics">
                     <div class="metric-item"><span class="metric-label">Equity:</span> <span class="metric-value">$${(s.equity||100000).toLocaleString('en-US',{maximumFractionDigits:0})}</span></div>
@@ -486,6 +492,52 @@ async function loadForwardState() {
                 </div>
             </div>`;
         }).join('');
+
+        // Meta Layer (non-blocking)
+        try {
+            const mr = await fetch('/api/lab/forward/meta');
+            const meta = await mr.json();
+            if (meta.ok) {
+                // Market bar
+                const bar = $('fwd-meta-bar');
+                bar.style.display = 'flex';
+                const tags = (meta.market_tags || []).join(' | ');
+                const conf = (meta.confidence || 'LOW');
+                const days = meta.data_days || 0;
+                const warn = days < 30 ? ' (ref only)' : '';
+                const confColor = conf === 'HIGH' ? 'var(--green)' : conf === 'LOW' ? 'var(--red)' : 'var(--yellow)';
+                $('fwd-meta-tags').textContent = tags || 'Collecting data...';
+                $('fwd-meta-conf').textContent = `Confidence: ${conf}${warn} (${days}d)`;
+                $('fwd-meta-conf').style.color = confColor;
+
+                // Strategy fit boxes
+                document.querySelectorAll('#fwd-grid .strat-card').forEach(card => {
+                    const key = card.dataset.strategy;
+                    const fit = meta.strategy_fit?.[key];
+                    if (!fit) return;
+                    card.querySelector('.meta-fit-box')?.remove();
+                    const box = document.createElement('div');
+                    box.className = 'meta-fit-box';
+                    const bgColor = fit.score === 'HIGH' ? 'rgba(0,255,136,0.15)' :
+                                    fit.score === 'LOW' ? 'rgba(255,51,68,0.15)' : 'rgba(255,221,0,0.15)';
+                    const txtColor = fit.score === 'HIGH' ? '#00ff88' :
+                                     fit.score === 'LOW' ? '#ff3344' : '#ffdd00';
+                    const reasons = (fit.reasons || []).map(r => {
+                        const c = r.sign === '+' ? '#00ff88' : '#ff3344';
+                        return `<span style="color:${c};font-size:10px;">${r.sign} ${r.text}</span>`;
+                    }).join('<br>');
+                    box.innerHTML = `
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+                            <span style="font-size:10px;color:var(--muted);">Fit</span>
+                            <span style="font-size:10px;font-weight:700;padding:1px 8px;border-radius:4px;background:${bgColor};color:${txtColor};">${fit.score}</span>
+                        </div>
+                        ${reasons || '<span style="font-size:10px;opacity:0.5;">No data</span>'}
+                    `;
+                    box.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px solid var(--border);';
+                    card.appendChild(box);
+                });
+            }
+        } catch(e) {}
 
         // Load runs
         const rr = await fetch('/api/lab/forward/runs');

@@ -125,6 +125,7 @@
             const retClass = lane.total_return >= 0 ? 'stlab-val-pos' : 'stlab-val-neg';
             const card = document.createElement('div');
             card.className = 'stlab-card';
+            card.dataset.strategy = lane.name;
             card.innerHTML = `
                 <div class="stlab-card-header">
                     <span class="stlab-card-name">${lane.name}</span>
@@ -144,6 +145,70 @@
                 <div class="stlab-card-row"><span>Cash</span><span>${(lane.cash/1e6).toFixed(1)}M</span></div>
             `;
             container.appendChild(card);
+        });
+
+        // Meta Layer (non-blocking)
+        loadMeta();
+    }
+
+    async function loadMeta() {
+        try {
+            const resp = await fetch('/api/lab/live/meta');
+            const meta = await resp.json();
+            if (!meta.ok) return;
+            renderMarketBar(meta);
+            renderStrategyFit(meta);
+        } catch(e) {}
+    }
+
+    function renderMarketBar(meta) {
+        let bar = document.getElementById('meta-market-bar');
+        if (!bar) {
+            bar = document.createElement('div');
+            bar.id = 'meta-market-bar';
+            bar.className = 'meta-market-bar';
+            const cards = document.getElementById('live-cards');
+            cards.parentElement.insertBefore(bar, cards);
+        }
+        const tags = (meta.market_tags || []).join(' | ');
+        const conf = (meta.confidence || 'LOW').toLowerCase();
+        const days = meta.data_days || 0;
+        const warn = days < 30 ? ' (참고용)' : '';
+        bar.innerHTML = `
+            <span class="meta-market-tags">${tags || '데이터 수집 중'}</span>
+            <span class="meta-confidence meta-conf-${conf}">
+                신뢰도: ${meta.confidence}${warn} (${days}일)
+            </span>
+        `;
+    }
+
+    function renderStrategyFit(meta) {
+        document.querySelectorAll('.stlab-card').forEach(card => {
+            const key = card.dataset.strategy;
+            const fit = meta.strategy_fit?.[key];
+            if (!fit) return;
+
+            card.querySelector('.meta-box')?.remove();
+
+            const box = document.createElement('div');
+            box.className = 'meta-box';
+            const scoreCls = fit.score === 'HIGH' ? 'meta-high'
+                           : fit.score === 'LOW'  ? 'meta-low'
+                           : 'meta-mid';
+
+            const reasons = (fit.reasons || []).map(r => {
+                const cls = r.sign === '+' ? 'meta-reason-pos' : 'meta-reason-neg';
+                return `<span class="${cls}">${r.sign} ${r.text}</span>`;
+            }).join('');
+
+            box.innerHTML = `
+                <div class="meta-fit-header">
+                    <span class="meta-fit-label">적합도</span>
+                    <span class="meta-fit-score ${scoreCls}">${fit.score}</span>
+                </div>
+                <div class="meta-reasons">${reasons || '<span style="opacity:0.5">데이터 부족</span>'}</div>
+            `;
+            card.appendChild(box);
         });
     }
 
