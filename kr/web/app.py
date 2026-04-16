@@ -35,6 +35,12 @@ from web.api_state import tracker
 
 logger = logging.getLogger("gen4.rest.web")
 
+# ── Ensure project root in sys.path (for shared/ imports) ────
+import sys as _sys
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent)
+if _PROJECT_ROOT not in _sys.path:
+    _sys.path.insert(0, _PROJECT_ROOT)
+
 # ── Paths ─────────────────────────────────────────────────────
 
 WEB_DIR = Path(__file__).resolve().parent
