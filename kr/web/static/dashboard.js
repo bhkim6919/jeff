@@ -17,12 +17,13 @@ const SSE_RECONNECT_DELAY = 3000;
 const startTime = Date.now();
 let lastState = null;
 let prevState = null;     // for diff tracking
+let lastSnapshotId = -1;  // out-of-order drop용
 let diffEntries = [];     // state diff log (debug mode)
 const MAX_DIFF_ENTRIES = 50;
 
 // ── Initialization ───────────────────────────────────────────
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     initModeSwitcher();
     initClock();
     initLogRefresh();
@@ -31,6 +32,17 @@ document.addEventListener('DOMContentLoaded', () => {
     initCopyJson();
     initProfitTabs();
     initTestOrder();
+
+    // SSE 연결 전 캐시 스냅샷 선호출 → 빈 화면 제거
+    try {
+        const r = await fetch('/api/state');
+        const d = await r.json();
+        if (d && !d.error && !d.loading) {
+            if (d.snapshot_id !== undefined) lastSnapshotId = d.snapshot_id;
+            updateDashboard(d);
+        }
+    } catch (_) {}
+
     connectSSE();
     setInterval(updateUptime, 1000);
 });
@@ -46,6 +58,11 @@ function connectSSE() {
     sseSource.addEventListener('state', (e) => {
         try {
             const data = JSON.parse(e.data);
+            // out-of-order drop: 역전된 패킷만 버림 (동일 id는 허용)
+            if (lastSnapshotId !== -1
+                && data.snapshot_id !== undefined
+                && data.snapshot_id < lastSnapshotId) return;
+            if (data.snapshot_id !== undefined) lastSnapshotId = data.snapshot_id;
             prevState = lastState;
             lastState = data;
             sseReconnectCount = 0;
@@ -613,7 +630,18 @@ function rebalConfirmOk() {
     _rebalConfirmAction = null;
 }
 
+// P1-4: global in-flight lock — prevents duplicate fires of batch/rebal POST
+// actions from rapid double-clicks (same or different buttons).
+window._qtronExecuting = window._qtronExecuting || false;
+
 function _execRebalCmd(url, body, resultEl) {
+    if (window._qtronExecuting) {
+        resultEl.style.display = 'block';
+        resultEl.className = 'rebal-result error';
+        resultEl.textContent = 'Another action is in progress — please wait';
+        return;
+    }
+    window._qtronExecuting = true;
     resultEl.style.display = 'block';
     resultEl.className = 'rebal-result';
     resultEl.textContent = 'Executing...';
@@ -639,6 +667,9 @@ function _execRebalCmd(url, body, resultEl) {
         .catch(e => {
             resultEl.className = 'rebal-result error';
             resultEl.textContent = e.message;
+        })
+        .finally(() => {
+            window._qtronExecuting = false;
         });
 }
 
@@ -764,12 +795,22 @@ function updateHoldingsList(data) {
         const barColor = isPositive ? '#F04452' : isNegative ? '#3182F6' : 'var(--border)';
         const barWidth = Math.min(Math.abs(pnlRate) * 5, 100);
 
+        // 전일대비 등락률
+        const dayChg = h.day_change_pct;
+        const dayReason = h.day_change_reason;
+        const dayChgStr = dayChg != null
+            ? `${dayChg >= 0 ? '+' : ''}${dayChg.toFixed(1)}%`
+            : 'N/A';
+        const dayColor = dayChg > 0 ? '#F04452' : dayChg < 0 ? '#3182F6' : 'var(--text-dim)';
+        const dayTitle = dayReason ? `reason: ${dayReason}` : '전일종가 대비';
+
         html += `
         <div class="mini-card" data-code="${code}">
             <div class="mini-top">
                 <span class="mini-name">${name}</span>
                 <span class="mini-pnl ${colorClass}">${sign}${pnlRate.toFixed(1)}%</span>
             </div>
+            <div class="mini-day-chg" style="color:${dayColor}" title="${dayTitle}">전일 ${dayChgStr}</div>
             <div class="mini-bar"><div class="mini-bar-fill" style="width:${barWidth}%;background:${barColor}"></div></div>
             <div class="mini-bottom">
                 <span class="mini-eval">${formatKRW(evalAmt)}</span>
@@ -1211,9 +1252,15 @@ function switchMode(mode) {
 
     // Show/hide sections — each mode shows ONLY its own sections
     document.querySelectorAll('.mode-operator').forEach(el => {
-        el.hidden = mode !== 'operator';
+        // operator OR debug 모드에서 보이는 요소 (analytics 등)
+        if (el.classList.contains('mode-debug')) {
+            el.hidden = (mode !== 'operator' && mode !== 'debug');
+        } else {
+            el.hidden = mode !== 'operator';
+        }
     });
     document.querySelectorAll('.mode-debug').forEach(el => {
+        if (el.classList.contains('mode-operator')) return; // 위에서 처리됨
         el.hidden = mode !== 'debug';
     });
 
