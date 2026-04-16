@@ -1271,6 +1271,12 @@ function switchMode(mode) {
         loadDbHealth();
     }
 
+    if (mode === 'operator' || mode === 'debug') {
+        if (typeof loadEquityCurve === 'function') loadEquityCurve();
+        if (typeof loadLabComparison === 'function') loadLabComparison();
+        if (typeof loadTradeHistory === 'function') loadTradeHistory();
+    }
+
     if (mode === 'operator') {
         loadRebalPreview();
     }
