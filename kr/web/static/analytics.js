@@ -309,6 +309,136 @@ async function loadPositionDetail(code) {
     }
 }
 
+// ── Risk Metrics ─────────────────────────────────────────────
+
+async function loadRiskMetrics() {
+    const days = document.getElementById('risk-days')?.value || 60;
+    try {
+        const r = await fetch(`/api/risk/metrics?days=${days}`);
+        const d = await r.json();
+        const container = document.getElementById('risk-cards');
+        const empty = document.getElementById('risk-empty');
+        if (!container) return;
+
+        if (d.error) {
+            container.innerHTML = '';
+            if (empty) empty.textContent = d.error === 'insufficient data'
+                ? 'Equity 데이터 부족 (실거래 후 표시됩니다)'
+                : d.error;
+            return;
+        }
+        if (empty) empty.textContent = '';
+
+        const metrics = [
+            { label: 'Sharpe', value: d.sharpe, fmt: v => v.toFixed(2), color: v => v >= 1 ? '#34d399' : v >= 0.5 ? '#fbbf24' : '#f87171' },
+            { label: 'Sortino', value: d.sortino, fmt: v => v.toFixed(2), color: v => v >= 1.5 ? '#34d399' : v >= 0.7 ? '#fbbf24' : '#f87171' },
+            { label: 'MDD', value: d.mdd, fmt: v => v.toFixed(2) + '%', color: v => v > -10 ? '#34d399' : v > -20 ? '#fbbf24' : '#f87171' },
+            { label: 'CAGR', value: d.cagr, fmt: v => v.toFixed(1) + '%', color: v => v > 15 ? '#34d399' : v > 5 ? '#fbbf24' : '#f87171' },
+            { label: 'Win Rate', value: d.win_rate, fmt: v => v.toFixed(0) + '%', color: v => v >= 50 ? '#34d399' : '#f87171' },
+            { label: 'Volatility', value: d.volatility, fmt: v => v.toFixed(1) + '%', color: () => '#9ca3af' },
+            { label: 'Cum Return', value: d.cum_return, fmt: v => v.toFixed(2) + '%', color: v => v > 0 ? '#34d399' : '#f87171' },
+            { label: 'KOSPI', value: d.kospi_return, fmt: v => v != null ? v.toFixed(2) + '%' : '-', color: v => v > 0 ? '#f87171' : '#60a5fa' },
+        ];
+
+        container.innerHTML = metrics.map(m => {
+            const val = m.value != null ? m.value : null;
+            const display = val != null ? m.fmt(val) : '-';
+            const clr = val != null ? m.color(val) : '#6b7280';
+            return `<div style="background:rgba(75,85,99,0.15);border-radius:8px;padding:10px 12px;text-align:center;">
+                <div style="font-size:10px;color:#9ca3af;margin-bottom:4px;">${m.label}</div>
+                <div style="font-size:18px;font-weight:700;color:${clr};">${display}</div>
+            </div>`;
+        }).join('');
+
+        if (d.period) {
+            container.innerHTML += `<div style="grid-column:1/-1;font-size:10px;color:#6b7280;text-align:right;margin-top:2px;">${d.period} (${d.days}d)</div>`;
+        }
+    } catch (e) {
+        console.warn('[Analytics] risk metrics error:', e);
+    }
+}
+
+// ── Rebalance History ────────────────────────────────────────
+
+async function loadRebalHistory() {
+    try {
+        const r = await fetch('/api/rebalance/history?limit=10');
+        const d = await r.json();
+        const div = document.getElementById('rebal-history');
+        if (!div) return;
+
+        if (!d.rebalances || d.rebalances.length === 0) {
+            div.innerHTML = '<div style="color:#6b7280;font-size:12px;">No rebalance history (실거래 후 표시됩니다)</div>';
+            return;
+        }
+
+        let html = '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+            + '<tr style="border-bottom:1px solid var(--border-color);">'
+            + '<th style="text-align:left;padding:3px 6px;">Date</th>'
+            + '<th style="text-align:right;padding:3px 6px;">BUY</th>'
+            + '<th style="text-align:right;padding:3px 6px;">SELL</th>'
+            + '<th style="text-align:right;padding:3px 6px;">Closed</th>'
+            + '<th style="text-align:right;padding:3px 6px;">Win</th>'
+            + '<th style="text-align:right;padding:3px 6px;">Avg P&L</th>'
+            + '<th style="text-align:right;padding:3px 6px;">Avg Hold</th>'
+            + '<th style="text-align:right;padding:3px 6px;">Cost</th></tr>';
+
+        d.rebalances.forEach(rb => {
+            const winRate = rb.closed > 0 ? Math.round(rb.close_wins / rb.closed * 100) : 0;
+            const pnlColor = (rb.avg_pnl || 0) >= 0 ? '#34d399' : '#f87171';
+            html += `<tr style="border-bottom:1px solid rgba(75,85,99,0.15);">`
+                + `<td style="padding:3px 6px;">${rb.date}</td>`
+                + `<td style="text-align:right;padding:3px 6px;color:#f87171;">${rb.buys}</td>`
+                + `<td style="text-align:right;padding:3px 6px;color:#60a5fa;">${rb.sells}</td>`
+                + `<td style="text-align:right;padding:3px 6px;">${rb.closed}</td>`
+                + `<td style="text-align:right;padding:3px 6px;">${winRate}%</td>`
+                + `<td style="text-align:right;padding:3px 6px;color:${pnlColor};">${rb.avg_pnl}%</td>`
+                + `<td style="text-align:right;padding:3px 6px;">${rb.avg_hold}d</td>`
+                + `<td style="text-align:right;padding:3px 6px;">${Number(rb.total_cost).toLocaleString()}</td></tr>`;
+        });
+        html += '</table>';
+        div.innerHTML = html;
+    } catch (e) {
+        console.warn('[Analytics] rebal history error:', e);
+    }
+}
+
+// ── Alert History ────────────────────────────────────────────
+
+async function loadAlertHistory() {
+    try {
+        const r = await fetch('/api/alerts/history?limit=30');
+        const d = await r.json();
+        const div = document.getElementById('alert-history');
+        if (!div) return;
+
+        if (!d.alerts || d.alerts.length === 0) {
+            div.innerHTML = '<div style="color:#6b7280;font-size:12px;">No alert history</div>';
+            return;
+        }
+
+        let html = '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+            + '<tr style="border-bottom:1px solid var(--border-color);">'
+            + '<th style="text-align:left;padding:3px 6px;">Alert Key</th>'
+            + '<th style="text-align:right;padding:3px 6px;">Count</th>'
+            + '<th style="text-align:right;padding:3px 6px;">Suppressed</th>'
+            + '<th style="text-align:right;padding:3px 6px;">Last Sent</th></tr>';
+
+        d.alerts.forEach(a => {
+            const lastSent = a.last_sent ? a.last_sent.substring(0, 19) : '-';
+            html += `<tr style="border-bottom:1px solid rgba(75,85,99,0.15);">`
+                + `<td style="padding:3px 6px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${a.alert_key}</td>`
+                + `<td style="text-align:right;padding:3px 6px;">${a.send_count}</td>`
+                + `<td style="text-align:right;padding:3px 6px;">${a.suppressed}</td>`
+                + `<td style="text-align:right;padding:3px 6px;color:#9ca3af;">${lastSent}</td></tr>`;
+        });
+        html += '</table>';
+        div.innerHTML = html;
+    } catch (e) {
+        console.warn('[Analytics] alert history error:', e);
+    }
+}
+
 // ── Init ─────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -317,6 +447,9 @@ document.addEventListener('DOMContentLoaded', () => {
         loadEquityCurve();
         loadLabComparison();
         loadTradeHistory();
+        loadRiskMetrics();
+        loadRebalHistory();
+        loadAlertHistory();
     }, 2000);
 
     // Event listeners
@@ -324,4 +457,5 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('lab-comp-days')?.addEventListener('change', loadLabComparison);
     document.getElementById('trade-code-filter')?.addEventListener('change', loadTradeHistory);
     document.getElementById('trade-side-filter')?.addEventListener('change', loadTradeHistory);
+    document.getElementById('risk-days')?.addEventListener('change', loadRiskMetrics);
 });

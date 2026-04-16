@@ -1275,6 +1275,9 @@ function switchMode(mode) {
         if (typeof loadEquityCurve === 'function') loadEquityCurve();
         if (typeof loadLabComparison === 'function') loadLabComparison();
         if (typeof loadTradeHistory === 'function') loadTradeHistory();
+        if (typeof loadRiskMetrics === 'function') loadRiskMetrics();
+        if (typeof loadRebalHistory === 'function') loadRebalHistory();
+        if (typeof loadAlertHistory === 'function') loadAlertHistory();
     }
 
     if (mode === 'operator') {

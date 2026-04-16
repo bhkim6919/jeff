@@ -684,13 +684,41 @@
                 <div id="trade-summary" style="font-size:11px;color:#9ca3af;margin-bottom:6px;"></div>
                 <div id="trade-table" style="max-height:300px;overflow-y:auto;"></div>
             </div>
+
+            <!-- Risk Metrics -->
+            <div style="margin-bottom:24px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <h4 style="margin:0;font-size:14px;">Risk Metrics</h4>
+                    <select id="risk-days" style="font-size:12px;padding:2px 6px;background:var(--card-bg);color:var(--text-color);border:1px solid var(--border-color);border-radius:4px;">
+                        <option value="30">30D</option>
+                        <option value="60" selected>60D</option>
+                        <option value="90">90D</option>
+                        <option value="180">180D</option>
+                        <option value="365">1Y</option>
+                    </select>
+                </div>
+                <div id="risk-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;"></div>
+                <div id="risk-empty" style="color:#6b7280;font-size:12px;"></div>
+            </div>
+
+            <!-- Rebalance History -->
+            <div style="margin-bottom:24px;">
+                <h4 style="margin:0 0 8px;font-size:14px;">Rebalance History</h4>
+                <div id="rebal-history" style="max-height:250px;overflow-y:auto;"></div>
+            </div>
+
+            <!-- Alert History -->
+            <div style="margin-bottom:24px;">
+                <h4 style="margin:0 0 8px;font-size:14px;">Alert History</h4>
+                <div id="alert-history" style="max-height:200px;overflow-y:auto;"></div>
+            </div>
         </section>
 
     </main>
 
     <!-- Chart.js CDN (lightweight) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-    <script src="/static/analytics.js?v=1"></script>
+    <script src="/static/analytics.js?v=2"></script>
 
     <!-- ── Footer ─────────────────────────────────────────── -->
     <footer style="display:block;padding:16px 24px 32px;border-top:1px solid var(--border-color,#1f2937);color:#6b7280;font-size:11px;line-height:1.6;">

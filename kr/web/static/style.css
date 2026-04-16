@@ -1403,6 +1403,8 @@ footer {
         justify-content: space-around;
     }
 
+    .summary-label, .mini-eval, .mini-qty, .mini-day-chg { color: #9ca3af; }
+
     .summary-cards { grid-template-columns: repeat(2, 1fr); gap: 10px; }
     .summary-value { font-size: 22px; }
     .summary-card { padding: 14px; }
@@ -1432,6 +1434,9 @@ footer {
 
     .hero-title { font-size: 18px; }
     .health-dot { width: 36px; height: 36px; }
+
+    /* Analytics risk cards mobile */
+    #risk-cards { grid-template-columns: repeat(2, 1fr) !important; }
 }
 
 /* ================================================================
@@ -2293,6 +2298,13 @@ body.mode-operator #advisor-section {
 
 .mini-eval {
     font-weight: 600;
+}
+
+.mini-day-chg {
+    font-size: 11px;
+    text-align: right;
+    margin: 2px 0;
+    font-variant-numeric: tabular-nums;
 }
 
 /* ── Trail Stop Bar ──────────────────────────────────────── */

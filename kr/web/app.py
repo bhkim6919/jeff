@@ -1580,6 +1580,172 @@ def create_app() -> FastAPI:
         except Exception as e:
             return {"error": str(e)}
 
+    # ── Risk Metrics / Rebalance History / Alert History ──
+
+    @application.get("/api/risk/metrics")
+    async def get_risk_metrics(days: int = Query(60, ge=7, le=730)):
+        """Sharpe, MDD, Sortino 등 리스크 지표 (PG report_equity_log)."""
+        try:
+            from shared.db.pg_base import connection
+            import math
+            with connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT date, equity, daily_pnl_pct, kospi_close "
+                    "FROM report_equity_log "
+                    "WHERE mode='LIVE' ORDER BY date DESC LIMIT %s", (days,))
+                cols = [d[0] for d in cur.description]
+                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+                cur.close()
+            if len(rows) < 2:
+                return {"error": "insufficient data", "count": len(rows)}
+
+            rows.reverse()
+            returns = [r["daily_pnl_pct"] for r in rows if r["daily_pnl_pct"] is not None]
+            equities = [r["equity"] for r in rows if r["equity"] is not None]
+            kospi = [r["kospi_close"] for r in rows if r["kospi_close"] is not None]
+
+            if len(returns) < 2:
+                return {"error": "insufficient return data"}
+
+            # Sharpe (annualized)
+            mean_r = sum(returns) / len(returns)
+            std_r = (sum((r - mean_r) ** 2 for r in returns) / (len(returns) - 1)) ** 0.5
+            sharpe = (mean_r / std_r * (252 ** 0.5)) if std_r > 0 else 0
+
+            # Sortino (downside deviation)
+            neg_returns = [r for r in returns if r < 0]
+            if neg_returns:
+                down_dev = (sum(r ** 2 for r in neg_returns) / len(neg_returns)) ** 0.5
+                sortino = (mean_r / down_dev * (252 ** 0.5)) if down_dev > 0 else 0
+            else:
+                sortino = 0
+
+            # MDD
+            peak = equities[0]
+            max_dd = 0
+            for eq in equities:
+                if eq > peak:
+                    peak = eq
+                dd = (eq - peak) / peak if peak > 0 else 0
+                if dd < max_dd:
+                    max_dd = dd
+
+            # CAGR
+            if len(equities) >= 2 and equities[0] > 0:
+                total_return = equities[-1] / equities[0]
+                years = len(equities) / 252
+                cagr = (total_return ** (1 / years) - 1) if years > 0 else 0
+            else:
+                cagr = 0
+
+            # Win rate
+            wins = sum(1 for r in returns if r > 0)
+            win_rate = wins / len(returns) * 100 if returns else 0
+
+            # Daily return stats
+            best_day = max(returns)
+            worst_day = min(returns)
+
+            # Cumulative return
+            cum_return = equities[-1] / equities[0] - 1 if equities[0] > 0 else 0
+
+            # KOSPI comparison
+            kospi_return = None
+            if len(kospi) >= 2 and kospi[0] and kospi[0] > 0:
+                kospi_return = round((kospi[-1] / kospi[0] - 1) * 100, 2)
+
+            return {
+                "days": len(returns),
+                "period": f"{rows[0]['date']} ~ {rows[-1]['date']}",
+                "sharpe": round(sharpe, 2),
+                "sortino": round(sortino, 2),
+                "mdd": round(max_dd * 100, 2),
+                "cagr": round(cagr * 100, 2),
+                "cum_return": round(cum_return * 100, 2),
+                "win_rate": round(win_rate, 1),
+                "best_day": round(best_day * 100, 2),
+                "worst_day": round(worst_day * 100, 2),
+                "avg_daily": round(mean_r * 100, 4),
+                "volatility": round(std_r * (252 ** 0.5) * 100, 2),
+                "kospi_return": kospi_return,
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    @application.get("/api/rebalance/history")
+    async def get_rebalance_history(limit: int = Query(10, ge=1, le=50)):
+        """리밸런스 이력 (report_trades에서 날짜 그룹핑)."""
+        try:
+            from shared.db.pg_base import connection
+            with connection() as conn:
+                cur = conn.cursor()
+                # 리밸런스 날짜 = BUY+SELL이 함께 발생한 날
+                cur.execute("""
+                    SELECT date,
+                           COUNT(*) FILTER (WHERE side='BUY') AS buys,
+                           COUNT(*) FILTER (WHERE side='SELL') AS sells,
+                           COUNT(*) AS total,
+                           COALESCE(SUM(cost), 0) AS total_cost
+                    FROM report_trades
+                    WHERE mode='LIVE'
+                    GROUP BY date
+                    HAVING COUNT(*) FILTER (WHERE side='BUY') > 0
+                       AND COUNT(*) FILTER (WHERE side='SELL') > 0
+                    ORDER BY date DESC
+                    LIMIT %s
+                """, (limit,))
+                cols = [d[0] for d in cur.description]
+                rebal_dates = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+                # 각 리밸런스 날짜의 청산 성과
+                result = []
+                for rd in rebal_dates:
+                    cur.execute("""
+                        SELECT COUNT(*) AS closed,
+                               COUNT(*) FILTER (WHERE pnl_pct > 0) AS wins,
+                               COALESCE(AVG(pnl_pct), 0) AS avg_pnl,
+                               COALESCE(AVG(hold_days), 0) AS avg_hold
+                        FROM report_close_log
+                        WHERE mode='LIVE' AND date = %s
+                    """, (rd["date"],))
+                    close_row = cur.fetchone()
+                    rd["closed"] = close_row[0] if close_row else 0
+                    rd["close_wins"] = close_row[1] if close_row else 0
+                    rd["avg_pnl"] = round(close_row[2], 2) if close_row else 0
+                    rd["avg_hold"] = round(close_row[3], 1) if close_row else 0
+                    rd["total_cost"] = round(rd["total_cost"], 0)
+                    result.append(rd)
+
+                cur.close()
+            return {"rebalances": result}
+        except Exception as e:
+            return {"error": str(e), "rebalances": []}
+
+    @application.get("/api/alerts/history")
+    async def get_alert_history(limit: int = Query(50, ge=1, le=200)):
+        """알림 발송 이력 (PG dashboard_alert_state)."""
+        try:
+            from shared.db.pg_base import connection
+            with connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT alert_key, last_sent, send_count, suppressed, updated_at "
+                    "FROM dashboard_alert_state "
+                    "ORDER BY updated_at DESC NULLS LAST "
+                    "LIMIT %s", (limit,))
+                cols = [d[0] for d in cur.description]
+                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+                cur.close()
+            # Stringify timestamps
+            for r in rows:
+                for k in ["last_sent", "updated_at"]:
+                    if r.get(k):
+                        r[k] = str(r[k])
+            return {"alerts": rows, "total": len(rows)}
+        except Exception as e:
+            return {"error": str(e), "alerts": []}
+
     # ── Lab Simulator ─────────────────────────────────────
 
     @application.get("/lab", response_class=HTMLResponse)
