@@ -847,12 +847,97 @@ def create_app() -> FastAPI:
         except Exception as e:
             return {"day": 0, "week": 0, "month": 0, "year": 0, "fees": 0, "error": str(e)}
 
+    # 전일종가 캐시: {code: prev_close}, 하루 1회 갱신
+    _prev_close_cache: dict = {}
+    _prev_close_cache_date: str = ""
+
+    def _enrich_day_change(holdings: list) -> None:
+        """보유종목에 전일대비 등락률 추가. Observer-only, Engine 간섭 없음.
+
+        데이터 소스 우선순위:
+        1. DB OHLCV (PostgreSQL)
+        2. pykrx fallback (KRX 직접 조회, 하루 1회 캐싱)
+        """
+        codes = [h["code"] for h in holdings if h.get("code")]
+        if not codes:
+            return
+
+        prev_closes = {}  # {code: float}
+
+        # Source 1: DB
+        try:
+            from data.db_provider import DbProvider
+            db = DbProvider()
+            prev_data = db.get_prev_closes(codes, max_stale_bdays=3)
+            for code, info in prev_data.items():
+                if info and not info.get("stale") and info.get("prev_close", 0) > 0:
+                    prev_closes[code] = info["prev_close"]
+        except Exception as e:
+            logger.debug(f"[DAY_CHG] DB source failed: {e}")
+
+        # Source 2: pykrx fallback (DB에 없는 종목만)
+        missing = [c for c in codes if c not in prev_closes]
+        if missing:
+            try:
+                from datetime import datetime as _dt
+                today_str = _dt.now().strftime("%Y-%m-%d")
+
+                # 하루 1회 캐싱
+                if _prev_close_cache_date != today_str:
+                    _enrich_day_change._cache = {}
+                    _enrich_day_change._cache_date = today_str
+
+                cache = getattr(_enrich_day_change, '_cache', {})
+                uncached = [c for c in missing if c not in cache]
+
+                if uncached:
+                    from pykrx import stock
+                    from datetime import timedelta
+                    # 최근 5영업일 조회해서 전일 close 추출
+                    end = _dt.now().strftime("%Y%m%d")
+                    start = (_dt.now() - timedelta(days=10)).strftime("%Y%m%d")
+                    for code in uncached:
+                        try:
+                            df = stock.get_market_ohlcv(start, end, code)
+                            if len(df) >= 2:
+                                # 마지막 행 = 오늘(장중), 그 전 행 = 전일
+                                cache[code] = int(df.iloc[-2]["종가"])
+                            elif len(df) == 1:
+                                cache[code] = int(df.iloc[0]["종가"])
+                        except Exception:
+                            continue
+                    _enrich_day_change._cache = cache
+                    _enrich_day_change._cache_date = today_str
+                    logger.info(f"[DAY_CHG] pykrx fetched {len(uncached)} codes, "
+                               f"found {len(cache)} prev_closes")
+
+                for code in missing:
+                    if code in cache and cache[code] > 0:
+                        prev_closes[code] = cache[code]
+            except Exception as e:
+                logger.warning(f"[DAY_CHG] pykrx fallback failed: {e}")
+
+        # Enrich holdings
+        for h in holdings:
+            code = h.get("code", "")
+            pc = prev_closes.get(code, 0)
+            cp = h.get("cur_price", 0)
+            if pc > 0 and cp > 0:
+                h["prev_close"] = pc
+                h["day_change_pct"] = round((cp - pc) / pc * 100, 2)
+                h["day_change_reason"] = None
+            else:
+                h["prev_close"] = None
+                h["day_change_pct"] = None
+                h["day_change_reason"] = "no_prev_close"
+
     @application.get("/api/portfolio")
     async def get_portfolio():
         """Fetch live portfolio from Kiwoom REST API (kt00018)."""
         try:
             provider = _get_provider()
             summary = provider.query_account_summary()
+            _enrich_day_change(summary.get("holdings", []))
             return summary
         except Exception as e:
             return {"error": str(e), "holdings_reliable": False}
@@ -1106,6 +1191,58 @@ def create_app() -> FastAPI:
         except Exception as e:
             return {"error": str(e)}
 
+    @application.get("/api/batch/status")
+    async def batch_status():
+        """오늘 KST 기준 KR batch 완료 여부 (target_portfolio 파일 존재 확인)."""
+        try:
+            from datetime import datetime as _dt
+            from zoneinfo import ZoneInfo
+            kst_today = _dt.now(ZoneInfo("Asia/Seoul")).strftime("%Y%m%d")
+            signals_dir = Path(__file__).resolve().parent.parent / "data" / "signals"
+            target_file = signals_dir / f"target_portfolio_{kst_today}.json"
+            done = target_file.exists()
+            return {"kr_done": done, "kr_date": kst_today if done else None}
+        except Exception as e:
+            return {"kr_done": False, "kr_date": None, "error": str(e)}
+
+    @application.get("/api/state")
+    async def get_state_snapshot():
+        """초기 렌더링용 캐시 스냅샷. SSE 연결 전 빈 화면 제거용."""
+        if not _portfolio_cache.get("data"):
+            return {
+                "snapshot_id": _payload_seq["n"],
+                "loading": True,
+                "_data_source": "UI_CACHE",
+            }
+        cache = dict(_portfolio_cache)
+        snap = tracker.snapshot()
+        snap["account"]  = cache["data"]
+        snap["dd_guard"] = cache.get("dd_guard")
+        snap["recon"]    = cache.get("recon")
+        _ts = cache.get("ts")
+        _age = (time.time() - _ts) if _ts else None
+        snap["cache_age_sec"] = round(max(0.0, _age), 1) if _age is not None else None
+        snap["snapshot_id"]   = _payload_seq["n"]
+        snap["_data_source"]  = "UI_CACHE"
+        # P2: auto trading state (advisory read-only)
+        try:
+            from kr.risk.auto_trading_gate import compute_auto_trading_state
+            from kr.risk.strategy_health import compute_strategy_health
+            _guard = getattr(application.state, "guard", None)
+            _runtime = (cache.get("runtime") or {})
+            _equity_dd = float((cache.get("dd_guard") or {}).get("equity_dd_pct", 0.0) or 0.0)
+            _health = compute_strategy_health(equity_dd_pct=_equity_dd)
+            _auto = compute_auto_trading_state(
+                guard=_guard, runtime=_runtime,
+                strategy_health=_health,
+            )
+            snap["auto_trading"] = _auto.to_dict()
+            snap["strategy_health"] = _health
+        except Exception as _e:
+            snap["auto_trading"] = {"enabled": False, "blockers": [f"EVAL_ERROR:{type(_e).__name__}"],
+                                    "reason_summary": "eval_error"}
+        return snap
+
     @application.get("/api/health")
     async def get_health():
         """Quick health check endpoint."""
@@ -1181,8 +1318,261 @@ def create_app() -> FastAPI:
 
     @application.get("/api/trades/recent")
     async def get_recent_trades(limit: int = Query(10, ge=1, le=50)):
-        """Recent trades from trades.csv."""
+        """Recent trades from trades.csv (legacy)."""
         return _read_recent_trades(limit=limit)
+
+    # ── Trades / Positions / Export / Charts (PG read-only) ──
+
+    @application.get("/api/trades")
+    async def get_trades_pg(
+        start: str = Query("", description="YYYY-MM-DD"),
+        end: str = Query("", description="YYYY-MM-DD"),
+        code: str = Query("", description="종목코드"),
+        side: str = Query("", description="BUY|SELL"),
+        limit: int = Query(100, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+    ):
+        """거래 내역 조회 (PG report_trades)."""
+        try:
+            from shared.db.pg_base import connection
+            with connection() as conn:
+                cur = conn.cursor()
+                where, params = ["mode='LIVE'"], []
+                if start:
+                    where.append("date >= %s"); params.append(start)
+                if end:
+                    where.append("date <= %s"); params.append(end)
+                if code:
+                    where.append("code = %s"); params.append(code)
+                if side:
+                    where.append("side = %s"); params.append(side.upper())
+                w = " AND ".join(where)
+                cur.execute(f"SELECT COUNT(*) FROM report_trades WHERE {w}", params)
+                total = cur.fetchone()[0]
+                cur.execute(
+                    f"SELECT id,date,code,side,quantity,price,cost,slippage_pct,created_at "
+                    f"FROM report_trades WHERE {w} ORDER BY date DESC, id DESC "
+                    f"LIMIT %s OFFSET %s", params + [limit, offset])
+                cols = [d[0] for d in cur.description]
+                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+                cur.close()
+            return {"total": total, "limit": limit, "offset": offset, "trades": rows}
+        except Exception as e:
+            return {"error": str(e), "trades": []}
+
+    @application.get("/api/trades/summary")
+    async def get_trades_summary(
+        start: str = Query("", description="YYYY-MM-DD"),
+        end: str = Query("", description="YYYY-MM-DD"),
+    ):
+        """거래 통계 요약 (PG report_trades + report_close_log)."""
+        try:
+            from shared.db.pg_base import connection
+            with connection() as conn:
+                cur = conn.cursor()
+                w, p = "mode='LIVE'", []
+                if start:
+                    w += " AND date >= %s"; p.append(start)
+                if end:
+                    w += " AND date <= %s"; p.append(end)
+                cur.execute(f"SELECT COUNT(*) FILTER (WHERE side='BUY'), "
+                            f"COUNT(*) FILTER (WHERE side='SELL'), "
+                            f"COALESCE(SUM(cost),0) FROM report_trades WHERE {w}", p)
+                buy_cnt, sell_cnt, total_cost = cur.fetchone()
+                # close_log 승률
+                cw = "mode='LIVE'"
+                cp = []
+                if start:
+                    cw += " AND date >= %s"; cp.append(start)
+                if end:
+                    cw += " AND date <= %s"; cp.append(end)
+                cur.execute(f"SELECT COUNT(*), "
+                            f"COUNT(*) FILTER (WHERE pnl_pct > 0), "
+                            f"COALESCE(AVG(pnl_pct),0), "
+                            f"COALESCE(AVG(hold_days),0) "
+                            f"FROM report_close_log WHERE {cw}", cp)
+                closes, wins, avg_pnl, avg_hold = cur.fetchone()
+                cur.close()
+            win_rate = round(wins / closes * 100, 1) if closes > 0 else 0
+            return {
+                "buy_count": buy_cnt or 0, "sell_count": sell_cnt or 0,
+                "total_cost": round(total_cost or 0, 0),
+                "closed_trades": closes or 0, "win_rate": win_rate,
+                "avg_pnl_pct": round(avg_pnl or 0, 2),
+                "avg_hold_days": round(avg_hold or 0, 1),
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    @application.get("/api/positions/{code}/history")
+    async def get_position_history(code: str, days: int = Query(30, ge=1, le=365)):
+        """종목별 일별 포지션 이력 (PG report_daily_positions)."""
+        try:
+            from shared.db.pg_base import connection
+            with connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT date,quantity,avg_price,current_price,market_value,"
+                    "pnl_pct,high_watermark,trail_stop_price,hold_days "
+                    "FROM report_daily_positions "
+                    "WHERE code=%s AND mode='LIVE' ORDER BY date DESC LIMIT %s",
+                    (code, days))
+                cols = [d[0] for d in cur.description]
+                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+                cur.close()
+            return {"code": code, "history": rows}
+        except Exception as e:
+            return {"code": code, "error": str(e), "history": []}
+
+    @application.get("/api/positions/{code}/closes")
+    async def get_position_closes(code: str):
+        """종목별 청산 이력 (PG report_close_log)."""
+        try:
+            from shared.db.pg_base import connection
+            with connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT date,exit_reason,quantity,entry_price,exit_price,"
+                    "entry_date,hold_days,pnl_pct,pnl_amount,max_hwm_pct "
+                    "FROM report_close_log "
+                    "WHERE code=%s AND mode='LIVE' ORDER BY date DESC",
+                    (code,))
+                cols = [d[0] for d in cur.description]
+                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+                cur.close()
+            return {"code": code, "closes": rows}
+        except Exception as e:
+            return {"code": code, "error": str(e), "closes": []}
+
+    @application.get("/api/charts/equity")
+    async def get_equity_chart(days: int = Query(90, ge=7, le=730)):
+        """Equity curve 데이터 (PG report_equity_log)."""
+        try:
+            from shared.db.pg_base import connection
+            with connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT date,equity,cash,n_positions,daily_pnl_pct,"
+                    "kospi_close,regime "
+                    "FROM report_equity_log "
+                    "WHERE mode='LIVE' ORDER BY date DESC LIMIT %s", (days,))
+                cols = [d[0] for d in cur.description]
+                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+                cur.close()
+            rows.reverse()  # 날짜 오름차순
+            return {"days": days, "data": rows}
+        except Exception as e:
+            return {"error": str(e), "data": []}
+
+    @application.get("/api/charts/lab-comparison")
+    async def get_lab_comparison(days: int = Query(30, ge=7, le=365)):
+        """Lab 9전략 비교 데이터 (PG meta_strategy_daily + meta_strategy_risk)."""
+        try:
+            from shared.db.pg_base import connection
+            with connection() as conn:
+                cur = conn.cursor()
+                # 전략별 cumul_return 시계열
+                cur.execute(
+                    "SELECT trade_date, strategy, cumul_return, daily_return "
+                    "FROM meta_strategy_daily "
+                    "ORDER BY trade_date DESC LIMIT %s",
+                    (days * 9,))
+                cols = [d[0] for d in cur.description]
+                daily_rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+                # 전략별 최신 리스크
+                cur.execute(
+                    "SELECT DISTINCT ON (strategy) strategy, daily_mdd, "
+                    "realized_vol_20d, hit_rate_20d "
+                    "FROM meta_strategy_risk "
+                    "ORDER BY strategy, trade_date DESC")
+                rcols = [d[0] for d in cur.description]
+                risk_rows = [dict(zip(rcols, r)) for r in cur.fetchall()]
+                cur.close()
+            # 전략별 그룹핑
+            strategies = {}
+            for r in daily_rows:
+                s = r["strategy"]
+                if s not in strategies:
+                    strategies[s] = []
+                strategies[s].append({
+                    "date": r["trade_date"],
+                    "cumul": r["cumul_return"],
+                    "daily": r["daily_return"],
+                })
+            for s in strategies:
+                strategies[s].reverse()
+            risk_map = {r["strategy"]: r for r in risk_rows}
+            return {"strategies": strategies, "risk": risk_map}
+        except Exception as e:
+            return {"error": str(e), "strategies": {}, "risk": {}}
+
+    @application.get("/api/export/trades")
+    async def export_trades_csv(
+        start: str = Query("", description="YYYY-MM-DD"),
+        end: str = Query("", description="YYYY-MM-DD"),
+    ):
+        """거래 내역 CSV 다운로드."""
+        import io, csv as _csv
+        from starlette.responses import StreamingResponse
+        try:
+            from shared.db.pg_base import connection
+            with connection() as conn:
+                cur = conn.cursor()
+                w, p = "mode='LIVE'", []
+                if start:
+                    w += " AND date >= %s"; p.append(start)
+                if end:
+                    w += " AND date <= %s"; p.append(end)
+                cur.execute(
+                    f"SELECT date,code,side,quantity,price,cost,slippage_pct,created_at "
+                    f"FROM report_trades WHERE {w} ORDER BY date DESC, id DESC", p)
+                cols = [d[0] for d in cur.description]
+                rows = cur.fetchall()
+                cur.close()
+            buf = io.StringIO()
+            writer = _csv.writer(buf)
+            writer.writerow(cols)
+            for r in rows:
+                writer.writerow([str(v) if v is not None else "" for v in r])
+            buf.seek(0)
+            fn = f"trades_{start or 'all'}_{end or 'all'}.csv"
+            return StreamingResponse(
+                iter([buf.getvalue()]),
+                media_type="text/csv",
+                headers={"Content-Disposition": f"attachment; filename={fn}"},
+            )
+        except Exception as e:
+            return {"error": str(e)}
+
+    @application.get("/api/export/equity")
+    async def export_equity_csv():
+        """Equity 이력 CSV 다운로드."""
+        import io, csv as _csv
+        from starlette.responses import StreamingResponse
+        try:
+            from shared.db.pg_base import connection
+            with connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT date,equity,cash,n_positions,daily_pnl_pct,"
+                    "kospi_close,regime,mode,created_at "
+                    "FROM report_equity_log WHERE mode='LIVE' ORDER BY date")
+                cols = [d[0] for d in cur.description]
+                rows = cur.fetchall()
+                cur.close()
+            buf = io.StringIO()
+            writer = _csv.writer(buf)
+            writer.writerow(cols)
+            for r in rows:
+                writer.writerow([str(v) if v is not None else "" for v in r])
+            buf.seek(0)
+            return StreamingResponse(
+                iter([buf.getvalue()]),
+                media_type="text/csv",
+                headers={"Content-Disposition": "attachment; filename=equity_history.csv"},
+            )
+        except Exception as e:
+            return {"error": str(e)}
 
     # ── Lab Simulator ─────────────────────────────────────
 
@@ -1363,8 +1753,35 @@ def create_app() -> FastAPI:
                         update_ohlcv(sim.config.ohlcv_dir, days_back=3)
                 result = sim.run_daily()
                 logger.info(f"[LAB_LIVE] Run result: {result}")
+                # EOD 완료/에러 알림
+                try:
+                    from notify.telegram_bot import send
+                    if result.get("ok"):
+                        send(
+                            f"✅ <b>KR Lab EOD Complete</b>\n"
+                            f"Date: {result.get('date')}\n"
+                            f"Trades: {result.get('trades', 0)}\n"
+                            f"Source: {result.get('selected_source', '?')}\n"
+                            f"Elapsed: {result.get('elapsed', 0)}s",
+                            severity="INFO",
+                        )
+                    elif result.get("skipped"):
+                        pass  # skip은 알림 불필요
+                    elif result.get("error"):
+                        send(
+                            f"⚠️ <b>KR Lab EOD Error</b>\n"
+                            f"{result.get('error')}",
+                            severity="WARN",
+                        )
+                except Exception:
+                    pass
             except Exception as e:
                 logger.error(f"[LAB_LIVE] Run error: {e}")
+                try:
+                    from notify.telegram_bot import send
+                    send(f"🚨 <b>KR Lab EOD Failed</b>\n{e}", severity="CRITICAL")
+                except Exception:
+                    pass
         t = threading.Thread(target=_bg_run, daemon=True)
         t.start()
         t.join(timeout=120)  # 최대 2분 대기
@@ -1379,7 +1796,16 @@ def create_app() -> FastAPI:
             sim = _ensure_lab_live()
             if not sim:
                 return {"initialized": False, "lanes": []}
-        return sim.get_state()
+        state = sim.get_state()
+        # 전일대비 등락률 enrichment (observer-only)
+        all_pos = [p for lane in state.get("lanes", []) for p in lane.get("positions", [])]
+        if all_pos:
+            for p in all_pos:
+                p["cur_price"] = p.get("current_price", 0)
+            _enrich_day_change(all_pos)
+            for p in all_pos:
+                p.pop("cur_price", None)
+        return state
 
     @application.get("/api/lab/live/meta")
     async def lab_live_meta():
@@ -1956,7 +2382,12 @@ async def _sse_generator(
     interval: float = 2.0,
     event_type: str = "state",
 ) -> AsyncGenerator[str, None]:
-    """Generate SSE events with full state snapshot + dashboard data."""
+    """Generate SSE events with full state snapshot + dashboard data.
+
+    ENGINE SAFETY: _portfolio_cache → UI only (UI_CACHE)
+    ❌ 주문 판단 / engine state 덮어쓰기 금지
+    방향: broker → RECON → engine → _portfolio_cache → UI  (역방향 금지)
+    """
     from datetime import datetime as _dt
     while True:
         if await request.is_disconnected():
@@ -1989,7 +2420,7 @@ async def _sse_generator(
             if cycle % 10 == 1:
                 try:
                     provider = _get_global_provider()
-                    summary = provider.query_account_summary()
+                    summary = await asyncio.to_thread(provider.query_account_summary)
                     if summary.get("error") is None:
                         _portfolio_cache["data"] = {
                             "holdings_count": len(summary.get("holdings", [])),
@@ -2262,14 +2693,21 @@ async def _sse_generator(
                 data.get("dd_guard", {}), data.get("recon", {}), ds
             )
 
-            # ── Payload metadata ──
-            _payload_seq["n"] += 1
+            # ── Payload metadata (snapshot_id는 data 완성 후 마지막에 증가) ──
             ts_str = _dt.now().strftime("%Y%m%d-%H%M%S")
             data["server_ts"] = now
-            data["payload_id"] = f"{ts_str}-{_payload_seq['n']:04d}"
             max_age = max((v.get("age_sec", 0) for v in ds.values()), default=0)
             data["data_age_max_sec"] = round(max_age, 1)
             data["data_sources"] = ds
+            # cache 단일 시점 메타 (UI_CACHE: UI 전용, 판단 금지)
+            _pc_ts = _portfolio_cache.get("ts")
+            _pc_age = (now - _pc_ts) if _pc_ts else None
+            data["cache_age_sec"] = round(max(0.0, _pc_age), 1) if _pc_age is not None else None
+            data["_data_source"] = "UI_CACHE"
+            # snapshot_id / payload_id — 모든 필드 확정 후 증가
+            _payload_seq["n"] += 1
+            data["snapshot_id"] = _payload_seq["n"]
+            data["payload_id"]  = f"{ts_str}-{_payload_seq['n']:04d}"
 
             payload = json.dumps(data, ensure_ascii=False, default=str)
             yield f"event: {event_type}\ndata: {payload}\n\n"

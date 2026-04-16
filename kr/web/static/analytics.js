@@ -1,0 +1,327 @@
+/**
+ * analytics.js -- Q-TRON Analytics (Equity Curve, Lab Comparison, Trade History)
+ * ===============================================================================
+ * PG read-only. No engine/state modification.
+ */
+
+// ── Equity Curve ────────────────────────────────────────────
+let equityChart = null;
+
+async function loadEquityCurve() {
+    const days = document.getElementById('equity-days')?.value || 90;
+    try {
+        const r = await fetch(`/api/charts/equity?days=${days}`);
+        const d = await r.json();
+        if (!d.data || d.data.length === 0) return;
+
+        const labels = d.data.map(r => r.date);
+        const equity = d.data.map(r => r.equity);
+        const kospi = d.data.map(r => r.kospi_close);
+
+        const ctx = document.getElementById('equity-chart');
+        if (!ctx) return;
+
+        if (equityChart) equityChart.destroy();
+
+        // Normalize to % from first day
+        const eqBase = equity[0] || 1;
+        const kBase = kospi[0] || 1;
+        const eqPct = equity.map(v => ((v / eqBase) - 1) * 100);
+        const kPct = kospi.map(v => v ? ((v / kBase) - 1) * 100 : null);
+
+        equityChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: 'Portfolio',
+                        data: eqPct,
+                        borderColor: '#60a5fa',
+                        backgroundColor: 'rgba(96,165,250,0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 0,
+                        borderWidth: 2,
+                    },
+                    {
+                        label: 'KOSPI',
+                        data: kPct,
+                        borderColor: '#f87171',
+                        borderDash: [4, 4],
+                        tension: 0.3,
+                        pointRadius: 0,
+                        borderWidth: 1.5,
+                        fill: false,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                interaction: { intersect: false, mode: 'index' },
+                plugins: {
+                    legend: { labels: { color: '#9ca3af', font: { size: 11 } } },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(2)}%`,
+                        },
+                    },
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 10 },
+                        grid: { color: 'rgba(75,85,99,0.2)' },
+                    },
+                    y: {
+                        ticks: {
+                            color: '#6b7280', font: { size: 10 },
+                            callback: v => v.toFixed(1) + '%',
+                        },
+                        grid: { color: 'rgba(75,85,99,0.2)' },
+                    },
+                },
+            },
+        });
+    } catch (e) {
+        console.warn('[Analytics] equity chart error:', e);
+    }
+}
+
+// ── Lab Strategy Comparison ─────────────────────────────────
+let labChart = null;
+
+const STRATEGY_COLORS = [
+    '#60a5fa', '#f87171', '#34d399', '#fbbf24', '#a78bfa',
+    '#fb923c', '#2dd4bf', '#e879f9', '#94a3b8',
+];
+
+async function loadLabComparison() {
+    const days = document.getElementById('lab-comp-days')?.value || 30;
+    try {
+        const r = await fetch(`/api/charts/lab-comparison?days=${days}`);
+        const d = await r.json();
+        if (!d.strategies || Object.keys(d.strategies).length === 0) return;
+
+        const ctx = document.getElementById('lab-chart');
+        if (!ctx) return;
+
+        if (labChart) labChart.destroy();
+
+        const datasets = [];
+        const stratNames = Object.keys(d.strategies).sort();
+        stratNames.forEach((name, i) => {
+            const points = d.strategies[name];
+            datasets.push({
+                label: name,
+                data: points.map(p => ({ x: p.date, y: (p.cumul || 0) * 100 })),
+                borderColor: STRATEGY_COLORS[i % STRATEGY_COLORS.length],
+                tension: 0.3,
+                pointRadius: 0,
+                borderWidth: 1.5,
+                fill: false,
+            });
+        });
+
+        // Use first strategy's dates as labels
+        const firstStrat = d.strategies[stratNames[0]] || [];
+        const labels = firstStrat.map(p => p.date);
+
+        labChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels, datasets },
+            options: {
+                responsive: true,
+                interaction: { intersect: false, mode: 'index' },
+                plugins: {
+                    legend: {
+                        labels: { color: '#9ca3af', font: { size: 10 }, boxWidth: 12 },
+                        position: 'bottom',
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(2)}%`,
+                        },
+                    },
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 8 },
+                        grid: { color: 'rgba(75,85,99,0.2)' },
+                    },
+                    y: {
+                        ticks: {
+                            color: '#6b7280', font: { size: 10 },
+                            callback: v => v.toFixed(1) + '%',
+                        },
+                        grid: { color: 'rgba(75,85,99,0.2)' },
+                    },
+                },
+            },
+        });
+
+        // Risk table
+        const riskDiv = document.getElementById('lab-risk-table');
+        if (riskDiv && d.risk) {
+            let html = '<table style="width:100%;border-collapse:collapse;"><tr style="border-bottom:1px solid var(--border-color);">'
+                + '<th style="text-align:left;padding:2px 6px;">Strategy</th>'
+                + '<th style="text-align:right;padding:2px 6px;">MDD</th>'
+                + '<th style="text-align:right;padding:2px 6px;">Vol(20d)</th>'
+                + '<th style="text-align:right;padding:2px 6px;">Hit Rate</th></tr>';
+            stratNames.forEach(name => {
+                const rk = d.risk[name] || {};
+                html += `<tr style="border-bottom:1px solid rgba(75,85,99,0.2);">`
+                    + `<td style="padding:2px 6px;">${name}</td>`
+                    + `<td style="text-align:right;padding:2px 6px;color:#f87171;">${rk.daily_mdd != null ? (rk.daily_mdd * 100).toFixed(2) + '%' : '-'}</td>`
+                    + `<td style="text-align:right;padding:2px 6px;">${rk.realized_vol_20d != null ? (rk.realized_vol_20d * 100).toFixed(1) + '%' : '-'}</td>`
+                    + `<td style="text-align:right;padding:2px 6px;">${rk.hit_rate_20d != null ? (rk.hit_rate_20d * 100).toFixed(0) + '%' : '-'}</td>`
+                    + '</tr>';
+            });
+            html += '</table>';
+            riskDiv.innerHTML = html;
+        }
+    } catch (e) {
+        console.warn('[Analytics] lab chart error:', e);
+    }
+}
+
+// ── Trade History ────────────────────────────────────────────
+
+async function loadTradeHistory() {
+    const code = document.getElementById('trade-code-filter')?.value || '';
+    const side = document.getElementById('trade-side-filter')?.value || '';
+
+    try {
+        // Summary
+        const sr = await fetch('/api/trades/summary');
+        const summary = await sr.json();
+        const sumDiv = document.getElementById('trade-summary');
+        if (sumDiv && !summary.error) {
+            sumDiv.textContent = `BUY ${summary.buy_count} | SELL ${summary.sell_count} | `
+                + `Closed ${summary.closed_trades} | Win ${summary.win_rate}% | `
+                + `Avg P&L ${summary.avg_pnl_pct}% | Avg Hold ${summary.avg_hold_days}d`;
+        }
+
+        // Trades table
+        let url = `/api/trades?limit=50&code=${code}&side=${side}`;
+        const tr = await fetch(url);
+        const td = await tr.json();
+        const tbl = document.getElementById('trade-table');
+        if (!tbl || !td.trades) return;
+
+        if (td.trades.length === 0) {
+            tbl.innerHTML = '<div style="color:#6b7280;padding:8px;">No trades</div>';
+            return;
+        }
+
+        let html = '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+            + '<tr style="border-bottom:1px solid var(--border-color);">'
+            + '<th style="text-align:left;padding:3px 6px;">Date</th>'
+            + '<th style="text-align:left;padding:3px 6px;">Code</th>'
+            + '<th style="text-align:center;padding:3px 6px;">Side</th>'
+            + '<th style="text-align:right;padding:3px 6px;">Qty</th>'
+            + '<th style="text-align:right;padding:3px 6px;">Price</th>'
+            + '<th style="text-align:right;padding:3px 6px;">Cost</th></tr>';
+
+        td.trades.forEach(t => {
+            const sideColor = t.side === 'BUY' ? '#f87171' : '#60a5fa';
+            html += `<tr style="border-bottom:1px solid rgba(75,85,99,0.15);cursor:pointer;" `
+                + `onclick="loadPositionDetail('${t.code}')">`
+                + `<td style="padding:3px 6px;">${t.date || ''}</td>`
+                + `<td style="padding:3px 6px;">${t.code || ''}</td>`
+                + `<td style="text-align:center;padding:3px 6px;color:${sideColor};font-weight:600;">${t.side || ''}</td>`
+                + `<td style="text-align:right;padding:3px 6px;">${t.quantity || ''}</td>`
+                + `<td style="text-align:right;padding:3px 6px;">${t.price ? Number(t.price).toLocaleString() : ''}</td>`
+                + `<td style="text-align:right;padding:3px 6px;">${t.cost ? Number(t.cost).toLocaleString() : ''}</td>`
+                + '</tr>';
+        });
+        html += '</table>';
+        if (td.total > 50) {
+            html += `<div style="color:#6b7280;font-size:10px;margin-top:4px;">Showing 50 of ${td.total}</div>`;
+        }
+        tbl.innerHTML = html;
+
+        // Update export link
+        const exportLink = document.getElementById('trade-export-link');
+        if (exportLink) {
+            exportLink.href = `/api/export/trades?start=&end=`;
+        }
+    } catch (e) {
+        console.warn('[Analytics] trade history error:', e);
+    }
+}
+
+// ── Position Detail (modal-like) ────────────────────────────
+
+async function loadPositionDetail(code) {
+    try {
+        const [histR, closeR] = await Promise.all([
+            fetch(`/api/positions/${code}/history?days=30`),
+            fetch(`/api/positions/${code}/closes`),
+        ]);
+        const hist = await histR.json();
+        const closes = await closeR.json();
+
+        let html = `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;" onclick="this.remove()">`;
+        html += `<div style="background:var(--card-bg,#1f2937);border-radius:12px;padding:20px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto;color:var(--text-color,#e5e7eb);" onclick="event.stopPropagation()">`;
+        html += `<h3 style="margin:0 0 12px;font-size:16px;">${code} Position Detail</h3>`;
+
+        // Close history
+        if (closes.closes && closes.closes.length > 0) {
+            html += '<h4 style="font-size:13px;margin:12px 0 6px;">Closed Trades</h4>';
+            html += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+            html += '<tr style="border-bottom:1px solid var(--border-color);"><th>Date</th><th>Reason</th><th>Hold</th><th>P&L%</th><th>HWM%</th></tr>';
+            closes.closes.forEach(c => {
+                const pnlColor = (c.pnl_pct || 0) >= 0 ? '#f87171' : '#60a5fa';
+                html += `<tr style="border-bottom:1px solid rgba(75,85,99,0.15);">`
+                    + `<td style="padding:2px 4px;">${c.date}</td>`
+                    + `<td style="padding:2px 4px;">${c.exit_reason}</td>`
+                    + `<td style="padding:2px 4px;text-align:right;">${c.hold_days}d</td>`
+                    + `<td style="padding:2px 4px;text-align:right;color:${pnlColor};">${(c.pnl_pct||0).toFixed(2)}%</td>`
+                    + `<td style="padding:2px 4px;text-align:right;">${c.max_hwm_pct != null ? (c.max_hwm_pct).toFixed(1)+'%' : '-'}</td></tr>`;
+            });
+            html += '</table>';
+        } else {
+            html += '<p style="color:#6b7280;font-size:12px;">No closed trades</p>';
+        }
+
+        // Daily position history
+        if (hist.history && hist.history.length > 0) {
+            html += '<h4 style="font-size:13px;margin:16px 0 6px;">Daily Position (last 30d)</h4>';
+            html += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+            html += '<tr style="border-bottom:1px solid var(--border-color);"><th>Date</th><th>Qty</th><th>Price</th><th>P&L%</th><th>HWM</th></tr>';
+            hist.history.slice(0, 15).forEach(h => {
+                const pColor = (h.pnl_pct || 0) >= 0 ? '#f87171' : '#60a5fa';
+                html += `<tr style="border-bottom:1px solid rgba(75,85,99,0.15);">`
+                    + `<td style="padding:2px 4px;">${h.date}</td>`
+                    + `<td style="padding:2px 4px;text-align:right;">${h.quantity}</td>`
+                    + `<td style="padding:2px 4px;text-align:right;">${Number(h.current_price||0).toLocaleString()}</td>`
+                    + `<td style="padding:2px 4px;text-align:right;color:${pColor};">${(h.pnl_pct||0).toFixed(2)}%</td>`
+                    + `<td style="padding:2px 4px;text-align:right;">${Number(h.high_watermark||0).toLocaleString()}</td></tr>`;
+            });
+            html += '</table>';
+        }
+
+        html += '<button style="margin-top:12px;padding:6px 16px;background:#374151;border:1px solid #4b5563;color:#e5e7eb;border-radius:6px;cursor:pointer;" onclick="this.closest(\'div[style*=fixed]\').remove()">Close</button>';
+        html += '</div></div>';
+        document.body.insertAdjacentHTML('beforeend', html);
+    } catch (e) {
+        console.warn('[Analytics] position detail error:', e);
+    }
+}
+
+// ── Init ─────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Delay load to not block SSE
+    setTimeout(() => {
+        loadEquityCurve();
+        loadLabComparison();
+        loadTradeHistory();
+    }, 2000);
+
+    // Event listeners
+    document.getElementById('equity-days')?.addEventListener('change', loadEquityCurve);
+    document.getElementById('lab-comp-days')?.addEventListener('change', loadLabComparison);
+    document.getElementById('trade-code-filter')?.addEventListener('change', loadTradeHistory);
+    document.getElementById('trade-side-filter')?.addEventListener('change', loadTradeHistory);
+});
