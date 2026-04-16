@@ -1,130 +1,120 @@
 # -*- coding: utf-8 -*-
 """
-alert_state.py — Alert state persistence (SQLite)
-===================================================
+alert_state.py — Alert state persistence (PostgreSQL)
+======================================================
 Dedup, burst limit, state transition tracking.
-Uses dashboard.db → alert_state table.
+PostgreSQL 단일 DB 접근. sqlite3 사용 금지.
 """
 from __future__ import annotations
 
 import logging
-import sqlite3
 import time
-from pathlib import Path
 from typing import Optional
 
-logger = logging.getLogger("gen4.notify.alert_state")
+from shared.db.pg_base import connection
+from shared.db.run_id import now_utc
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "dashboard" / "dashboard.db"
+logger = logging.getLogger("gen4.notify.alert_state")
 
 DEDUP_TTL = 1800      # 30분
 BURST_LIMIT = 3       # 카테고리별 최대
 BURST_WINDOW = 300    # 5분
 
 
-def _conn() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    c = sqlite3.connect(str(DB_PATH))
-    c.row_factory = sqlite3.Row
-    c.execute("PRAGMA journal_mode=WAL")
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS alert_state (
-            event_key TEXT PRIMARY KEY,
-            last_sent_at REAL DEFAULT 0,
-            last_state TEXT DEFAULT '',
-            severity TEXT DEFAULT '',
-            burst_count INTEGER DEFAULT 0,
-            burst_window_start REAL DEFAULT 0,
-            updated_at TEXT
-        )
-    """)
-    c.commit()
-    return c
-
-
 def can_send(event_key: str, severity: str, category: str = "") -> bool:
-    """
-    Check if alert can be sent (dedup + burst).
-    Returns True if allowed.
-    """
+    """Check if alert can be sent (dedup + burst). Returns True if allowed."""
     now = time.time()
-    conn = _conn()
-    try:
-        row = conn.execute(
-            "SELECT * FROM alert_state WHERE event_key=?", (event_key,)
-        ).fetchone()
+    with connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT last_sent, severity FROM dashboard_alert_state WHERE alert_key=%s",
+            (event_key,),
+        )
+        row = cur.fetchone()
 
         if row:
-            last_sent = row["last_sent_at"] or 0
-            last_severity = row["severity"] or ""
+            last_sent = row[0].timestamp() if row[0] else 0
+            last_severity = row[1] or ""
 
-            # WARN→CRITICAL escalation bypasses dedup
             if severity == "CRITICAL" and last_severity != "CRITICAL":
+                cur.close()
                 return True
 
-            # Dedup: same event within TTL
             if (now - last_sent) < DEDUP_TTL:
+                cur.close()
                 return False
 
-        # Burst limit: category-based
         if category:
-            cat_rows = conn.execute(
-                "SELECT COUNT(*) FROM alert_state WHERE event_key LIKE ? AND burst_window_start > ?",
-                (f"{category}%", now - BURST_WINDOW)
-            ).fetchone()
-            if cat_rows and cat_rows[0] >= BURST_LIMIT:
-                logger.info(f"[AlertState] Burst suppressed: {category} ({cat_rows[0]}/{BURST_LIMIT})")
+            cur.execute(
+                "SELECT COUNT(*) FROM dashboard_alert_state "
+                "WHERE alert_key LIKE %s AND updated_at > NOW() - INTERVAL '%s seconds'",
+                (f"{category}%", BURST_WINDOW),
+            )
+            cnt = cur.fetchone()[0]
+            if cnt >= BURST_LIMIT:
+                logger.info(f"[AlertState] Burst suppressed: {category} ({cnt}/{BURST_LIMIT})")
+                cur.close()
                 return False
 
-        return True
-    finally:
-        conn.close()
+        cur.close()
+    return True
 
 
 def record_sent(event_key: str, severity: str, state: str = "") -> None:
     """Record that an alert was sent."""
-    now = time.time()
-    conn = _conn()
-    try:
-        conn.execute("""
-            INSERT OR REPLACE INTO alert_state
-            (event_key, last_sent_at, last_state, severity, burst_count, burst_window_start, updated_at)
-            VALUES (?, ?, ?, ?,
-                    COALESCE((SELECT CASE
-                        WHEN burst_window_start > ? THEN burst_count + 1
-                        ELSE 1 END FROM alert_state WHERE event_key=?), 1),
-                    CASE WHEN (SELECT burst_window_start FROM alert_state WHERE event_key=?) > ?
-                        THEN (SELECT burst_window_start FROM alert_state WHERE event_key=?)
-                        ELSE ? END,
-                    ?)
-        """, (event_key, now, state, severity,
-              now - BURST_WINDOW, event_key,
-              event_key, now - BURST_WINDOW, event_key,
-              now,
-              time.strftime("%Y-%m-%dT%H:%M:%S")))
+    with connection() as conn:
+        cur = conn.cursor()
+
+        # 기존 row 조회
+        cur.execute(
+            "SELECT send_count, suppressed FROM dashboard_alert_state WHERE alert_key=%s",
+            (event_key,),
+        )
+        existing = cur.fetchone()
+
+        if existing:
+            cur.execute("""
+                UPDATE dashboard_alert_state SET
+                    last_sent = NOW(),
+                    send_count = send_count + 1,
+                    run_ts = %s,
+                    updated_at = NOW()
+                WHERE alert_key = %s
+            """, (now_utc(), event_key))
+        else:
+            cur.execute("""
+                INSERT INTO dashboard_alert_state
+                    (alert_key, last_sent, send_count, suppressed, run_ts, updated_at)
+                VALUES (%s, NOW(), 1, 0, %s, NOW())
+                ON CONFLICT (alert_key) DO UPDATE SET
+                    last_sent = NOW(),
+                    send_count = dashboard_alert_state.send_count + 1,
+                    run_ts = EXCLUDED.run_ts,
+                    updated_at = NOW()
+            """, (event_key, now_utc()))
+
         conn.commit()
-    finally:
-        conn.close()
+        cur.close()
 
 
 def get_last_state(event_key: str) -> Optional[str]:
     """Get last known state for an event (for transition detection)."""
-    conn = _conn()
-    try:
-        row = conn.execute(
-            "SELECT last_state FROM alert_state WHERE event_key=?", (event_key,)
-        ).fetchone()
-        return row["last_state"] if row else None
-    finally:
-        conn.close()
+    with connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT alert_key FROM dashboard_alert_state WHERE alert_key=%s",
+            (event_key,),
+        )
+        row = cur.fetchone()
+        cur.close()
+    return row[0] if row else None
 
 
 def daily_rollover() -> None:
     """Reset burst counts. Run at midnight."""
-    conn = _conn()
-    try:
-        conn.execute("UPDATE alert_state SET burst_count=0, burst_window_start=0")
+    with connection() as conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE dashboard_alert_state SET send_count=0, suppressed=0")
         conn.commit()
-        logger.info("[AlertState] Daily rollover complete")
-    finally:
-        conn.close()
+        cur.close()
+    logger.info("[AlertState] Daily rollover complete")

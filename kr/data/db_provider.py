@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 import logging
 import json
+import os
 from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -20,25 +21,20 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from shared.db.pg_base import connection as pg_connection, get_conn as _pg_get_conn, get_db_config
+
 logger = logging.getLogger("gen4.db")
 
-# ── Connection ───────────────────────────────────────────────
+# ── Connection (pg_base 경유) ────────────────────────────────
+# INT-P0-001: credentials must come from environment (.env). No hardcoded fallback.
 
-_DB_CONFIG = {
-    "dbname": "qtron",
-    "user": "postgres",
-    "password": "!!@@123123qw",
-    "host": "localhost",
-    "port": 5432,
-}
-
+_DB_CONFIG = get_db_config()
 _pool = None
 
 
 def get_conn():
-    """Get a PostgreSQL connection."""
-    import psycopg2
-    return psycopg2.connect(**_DB_CONFIG)
+    """Get a PostgreSQL connection (pg_base 경유, retry 내장)."""
+    return _pg_get_conn(_DB_CONFIG)
 
 
 def get_db() -> "DbProvider":
@@ -56,9 +52,9 @@ class DbProvider:
         self._config = config or _DB_CONFIG
 
     def _conn(self):
-        import psycopg2, warnings
+        import warnings
         warnings.filterwarnings("ignore", message=".*pandas only supports SQLAlchemy.*")
-        return psycopg2.connect(**self._config)
+        return _pg_get_conn(self._config)
 
     # ── OHLCV ────────────────────────────────────────────────
 
@@ -149,6 +145,74 @@ class DbProvider:
 
         return result
 
+    def get_prev_closes(self, codes: List[str], max_stale_bdays: int = 3) -> Dict:
+        """
+        보유종목의 전일 종가를 batch 조회.
+
+        핵심: date < today → 오늘 데이터 절대 제외, 가장 최근 = 전일 종가.
+        stale: 거래일 기준 max_stale_bdays 이상 오래되면 stale=True.
+        공휴일 보정: +1 여유일 적용 (보수적).
+
+        Returns: {code: {"prev_close": float, "date": str, "stale": bool}}
+        """
+        if not codes:
+            return {}
+        conn = self._conn()
+        try:
+            today_str = date.today().isoformat()
+            placeholders = ",".join(["%s"] * len(codes))
+
+            # P0: date < today → 오늘 데이터 완전 제외
+            query = f"""
+                WITH ranked AS (
+                    SELECT code, date, close,
+                           ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC) as rn
+                    FROM ohlcv
+                    WHERE code IN ({placeholders})
+                      AND date < %s
+                )
+                SELECT code, date, close FROM ranked WHERE rn = 1
+            """
+            params = codes + [today_str]
+            cur = conn.cursor()
+            cur.execute(query, params)
+            rows = cur.fetchall()
+
+            today = date.today()
+            result = {}
+            for code, dt, close in rows:
+                if isinstance(dt, str):
+                    dt = date.fromisoformat(dt)
+                # 거래일 기준 stale (주말 제외, 공휴일 +1 여유)
+                bdays = self._count_business_days(dt, today)
+                stale = bdays > (max_stale_bdays + 1)  # +1 공휴일 보정
+                result[code] = {
+                    "prev_close": float(close) if close else 0,
+                    "date": str(dt),
+                    "stale": stale,
+                }
+            return result
+        except Exception as e:
+            logger.warning(f"[DB] get_prev_closes failed: {e}")
+            return {}
+        finally:
+            cur.close()
+            conn.close()
+
+    @staticmethod
+    def _count_business_days(start: date, end: date) -> int:
+        """두 날짜 사이 영업일 수 (주말 제외, 공휴일 근사)."""
+        if start >= end:
+            return 0
+        from datetime import timedelta
+        days = 0
+        current = start
+        while current < end:
+            current += timedelta(days=1)
+            if current.weekday() < 5:
+                days += 1
+        return days
+
     def build_matrices(self, codes: List[str] = None
                        ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame,
                                   pd.DataFrame, pd.DataFrame, pd.Series]:
@@ -231,6 +295,32 @@ class DbProvider:
             "FROM kospi_index ORDER BY date", conn, parse_dates=["date"])
         conn.close()
         return df
+
+    def upsert_kospi_index(self, df: pd.DataFrame) -> int:
+        """KOSPI index 데이터 upsert. df: date, open, high, low, close, volume."""
+        conn = self._conn()
+        cur = conn.cursor()
+        upserted = 0
+        for _, row in df.iterrows():
+            cur.execute(
+                "INSERT INTO kospi_index (date, open_price, high_price, low_price, close_price, volume) "
+                "VALUES (%s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT (date) DO UPDATE SET "
+                "open_price=EXCLUDED.open_price, high_price=EXCLUDED.high_price, "
+                "low_price=EXCLUDED.low_price, close_price=EXCLUDED.close_price, "
+                "volume=EXCLUDED.volume",
+                (row["date"].date() if hasattr(row["date"], "date") else row["date"],
+                 float(row.get("open", row.get("Close", 0))),
+                 float(row.get("high", row.get("High", 0))),
+                 float(row.get("low", row.get("Low", 0))),
+                 float(row.get("close", row.get("Close", 0))),
+                 int(row.get("volume", row.get("Volume", 0))))
+            )
+            upserted += 1
+        conn.commit()
+        cur.close()
+        conn.close()
+        return upserted
 
     # ── Target Portfolio ─────────────────────────────────────
 
@@ -549,6 +639,29 @@ class DbProvider:
         conn.commit()
         cur.close()
         conn.close()
+
+    def cleanup_report_tables(self, keep_days: int = 365) -> int:
+        """report_* 테이블 retention. keep_days 초과 데이터 삭제. EOD에서 호출."""
+        from datetime import timedelta
+        cutoff = (date.today() - timedelta(days=keep_days)).isoformat()
+        conn = self._conn()
+        try:
+            cur = conn.cursor()
+            total = 0
+            for tbl in ["report_trades", "report_close_log", "report_daily_positions"]:
+                cur.execute(f"DELETE FROM {tbl} WHERE created_at < %s", (cutoff,))
+                total += cur.rowcount
+            conn.commit()
+            cur.close()
+            if total > 0:
+                logger.info(f"[DB_CLEANUP] report_tables: {total} rows removed (before {cutoff})")
+            return total
+        except Exception as e:
+            conn.rollback()
+            logger.warning(f"[DB_CLEANUP] report_tables failed: {e}")
+            return 0
+        finally:
+            conn.close()
 
     def insert_report_daily_position(self, date_str, code, quantity,
                                      avg_price, current_price, market_value,

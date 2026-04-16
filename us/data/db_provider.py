@@ -16,25 +16,20 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from shared.db.pg_base import connection as pg_connection, get_conn as _pg_get_conn, get_db_config
+
 logger = logging.getLogger("qtron.us.db")
 
-# ── Connection ───────────────────────────────────────────────
+# ── Connection (pg_base 경유) ────────────────────────────────
+# INT-P0-001: credentials must come from environment (.env). No hardcoded fallback.
 
-_DB_CONFIG = {
-    "dbname": os.getenv("DB_NAME", "qtron"),
-    "user": os.getenv("DB_USER", "postgres"),
-    "password": os.getenv("DB_PASSWORD", "!!@@123123qw"),
-    "host": os.getenv("DB_HOST", "localhost"),
-    "port": int(os.getenv("DB_PORT", "5432")),
-}
-
+_DB_CONFIG = get_db_config()
 _pool = None
 
 
 def get_conn():
-    """Get a PostgreSQL connection."""
-    import psycopg2
-    return psycopg2.connect(**_DB_CONFIG)
+    """Get a PostgreSQL connection (pg_base 경유, retry 내장)."""
+    return _pg_get_conn(_DB_CONFIG)
 
 
 def get_db() -> "DbProviderUS":
@@ -52,8 +47,7 @@ class DbProviderUS:
         self._config = config or _DB_CONFIG
 
     def _conn(self):
-        import psycopg2
-        return psycopg2.connect(**self._config)
+        return _pg_get_conn(self._config)
 
     # ── OHLCV ────────────────────────────────────────────────
 
@@ -197,6 +191,23 @@ class DbProviderUS:
         }
 
     # ── Write ────────────────────────────────────────────────
+
+    def get_ohlcv_last_date(self) -> Optional[date]:
+        """Return max(date) across ohlcv_us, or None if empty/error.
+        US-P0-003: used by batch quality gate to detect stale OHLCV DB."""
+        try:
+            conn = self._conn()
+            cur = conn.cursor()
+            cur.execute("SELECT MAX(date) FROM ohlcv_us;")
+            row = cur.fetchone()
+            cur.close()
+            conn.close()
+            if row and row[0] is not None:
+                return row[0] if isinstance(row[0], date) else date.fromisoformat(str(row[0]))
+            return None
+        except Exception as e:
+            logger.warning(f"[OHLCV_LAST_DATE_FAIL] {e}")
+            return None
 
     def upsert_ohlcv(self, symbol: str, df: pd.DataFrame) -> int:
         """OHLCV upsert. Returns row count."""

@@ -1,6 +1,9 @@
 """
-EarlySignalDetector
-===================
+EarlySignalDetector — EXPERIMENTAL
+====================================
+EXPERIMENTAL: 운영 프로세스(kr/, us/)에서 호출되지 않음.
+sqlite3 사용 — 운영 경로와 완전 분리된 연구용 모듈.
+
 섹터별 Early Entry 신호를 감지하는 모듈 (P1 구현).
 
 동작 원리:

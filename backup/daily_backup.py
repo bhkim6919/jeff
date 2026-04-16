@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Q-TRON Daily Backup — PostgreSQL + State + SQLite + Reports
+Q-TRON Daily Backup — PostgreSQL + State + Reports (SQLite removed)
 ============================================================
 Usage:
     python daily_backup.py              # Run backup
@@ -23,11 +23,22 @@ PG_DUMP = Path("C:/Program Files/PostgreSQL/15/bin/pg_dump.exe")
 PG_RESTORE = Path("C:/Program Files/PostgreSQL/15/bin/pg_restore.exe")
 PSQL = Path("C:/Program Files/PostgreSQL/15/bin/psql.exe")
 
-DB_NAME = "qtron"
-DB_USER = "postgres"
-DB_PASS = "!!@@123123qw"
-DB_HOST = "localhost"
-DB_PORT = "5432"
+# INT-P0-001: credentials must come from environment (kr/.env). No hardcoded fallback.
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv(BASE_DIR / "kr" / ".env")
+except Exception:
+    pass
+
+DB_NAME = os.getenv("DB_NAME", "qtron")
+DB_USER = os.getenv("DB_USER", "postgres")
+DB_PASS = os.getenv("DB_PASSWORD")
+if not DB_PASS:
+    raise RuntimeError(
+        "[DB_CONFIG_MISSING] env var 'DB_PASSWORD' not set. "
+        "Set in kr/.env (see INT-P0-001).")
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_PORT = os.getenv("DB_PORT", "5432")
 
 KR_STATE_DIR = BASE_DIR / "kr" / "state"
 US_STATE_DIR = BASE_DIR / "us" / "state"
@@ -127,25 +138,11 @@ def run_backup():
         results["state_us"] = f"ERROR: {e}"
         logger.error(f"[BACKUP_STATE_US] ERROR: {e}")
 
-    # ── 4. SQLite DBs ──
-    sqlite_dir = BACKUP_DIR / "sqlite"
-    sqlite_dir.mkdir(exist_ok=True)
-    sqlite_files = [
-        KR_SQLITE_DIR / "rest_state" / "rest_state.db",
-        KR_SQLITE_DIR / "regime" / "regime.db",
-        KR_SQLITE_DIR / "regime" / "theme_regime.db",
-    ]
-    try:
-        copied = 0
-        for sf in sqlite_files:
-            if sf.exists():
-                shutil.copy2(sf, sqlite_dir / f"{today}_{sf.name}")
-                copied += 1
-        results["sqlite"] = f"OK ({copied} files)"
-        logger.info(f"[BACKUP_SQLITE] OK: {copied} files")
-    except Exception as e:
-        results["sqlite"] = f"ERROR: {e}"
-        logger.error(f"[BACKUP_SQLITE] ERROR: {e}")
+    # ── 4. SQLite DBs — REMOVED (migrated to PostgreSQL) ──
+    # All data now in PostgreSQL. pg_dump covers everything.
+    # .db files archived to backup/sqlite_archive/
+    results["sqlite"] = "SKIPPED (migrated to PG)"
+    logger.info("[BACKUP_SQLITE] SKIPPED — all data in PostgreSQL, covered by pg_dump")
 
     # ── 5. Report CSVs ──
     reports_dir = BACKUP_DIR / "reports"

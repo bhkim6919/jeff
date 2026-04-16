@@ -1,213 +1,304 @@
 """
-meta_db.py -- Gen5 Meta Layer Phase 0: US DB schema + helpers
+meta_db.py -- Gen5 Meta Layer Phase 0: US PostgreSQL helpers
 ==============================================================
 Observer-only. Market context + strategy performance.
-No recommendation/allocation — collection only.
+PostgreSQL 단일 DB 접근. sqlite3 사용 금지.
 """
 from __future__ import annotations
 
 import logging
-import sqlite3
 from datetime import datetime
-from pathlib import Path
 from typing import List, Optional
 
+from shared.db.pg_base import connection
+from shared.db.run_id import now_utc
+
 logger = logging.getLogger("lab.meta")
-
-DB_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "data" / "lab_live" / "meta_strategy.db"
-)
-
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS market_context (
-    trade_date         TEXT PRIMARY KEY,
-    index_return       REAL,
-    adv_ratio          REAL,
-    sector_dispersion  REAL,
-    breakout_ratio     REAL,
-    data_snapshot_id   TEXT,
-    created_at         TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS strategy_daily (
-    trade_date         TEXT NOT NULL,
-    strategy           TEXT NOT NULL,
-    strategy_version   TEXT NOT NULL,
-    daily_return       REAL,
-    cumul_return       REAL,
-    position_count     INTEGER,
-    win_count          INTEGER,
-    loss_count         INTEGER,
-    turnover           REAL,
-    cash_ratio         REAL,
-    gross_exposure     REAL,
-    created_at         TEXT NOT NULL,
-    PRIMARY KEY (trade_date, strategy)
-);
-CREATE INDEX IF NOT EXISTS idx_sd_date ON strategy_daily(trade_date);
-
-CREATE TABLE IF NOT EXISTS strategy_exposure_daily (
-    trade_date           TEXT NOT NULL,
-    strategy             TEXT NOT NULL,
-    top1_weight          REAL,
-    top5_weight          REAL,
-    sector_top1          TEXT,
-    sector_top1_weight   REAL,
-    sector_dispersion    REAL,
-    created_at           TEXT NOT NULL,
-    PRIMARY KEY (trade_date, strategy)
-);
-CREATE INDEX IF NOT EXISTS idx_sed_date ON strategy_exposure_daily(trade_date);
-"""
-
-
-def _ensure_db() -> None:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.executescript(_SCHEMA)
-    conn.close()
-
-
-def _conn() -> sqlite3.Connection:
-    _ensure_db()
-    c = sqlite3.connect(str(DB_PATH))
-    c.row_factory = sqlite3.Row
-    return c
 
 
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+# ── Save ──────────────────────────────────────────────────────
+
 def save_market_context(data: dict) -> None:
-    conn = _conn()
+    run_ts = now_utc()
     try:
-        conn.execute(
-            """INSERT OR REPLACE INTO market_context
-            (trade_date, index_return, adv_ratio,
-             sector_dispersion, breakout_ratio,
-             data_snapshot_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (
+        with connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO meta_market_context_us
+                (trade_date, index_return, adv_ratio,
+                 sector_dispersion, breakout_ratio,
+                 data_snapshot_id, run_ts, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (trade_date) DO UPDATE SET
+                    index_return = EXCLUDED.index_return,
+                    adv_ratio = EXCLUDED.adv_ratio,
+                    sector_dispersion = EXCLUDED.sector_dispersion,
+                    breakout_ratio = EXCLUDED.breakout_ratio,
+                    data_snapshot_id = EXCLUDED.data_snapshot_id,
+                    run_ts = EXCLUDED.run_ts,
+                    created_at = EXCLUDED.created_at
+                WHERE meta_market_context_us.run_ts < EXCLUDED.run_ts
+            """, (
                 data["trade_date"],
-                data.get("index_return"),
-                data.get("adv_ratio"),
-                data.get("sector_dispersion"),
-                data.get("breakout_ratio"),
-                data.get("data_snapshot_id"),
-                _now_iso(),
-            ),
-        )
-        conn.commit()
+                data.get("index_return"), data.get("adv_ratio"),
+                data.get("sector_dispersion"), data.get("breakout_ratio"),
+                data.get("data_snapshot_id"), run_ts, _now_iso(),
+            ))
+            conn.commit()
+            cur.close()
     except Exception as e:
         logger.error(f"[META_DB] save_market_context failed: {e}")
-        conn.rollback()
-    finally:
-        conn.close()
 
 
 def save_strategy_daily(rows: List[dict]) -> None:
-    conn = _conn()
+    run_ts = now_utc()
     try:
-        for r in rows:
-            conn.execute(
-                """INSERT OR REPLACE INTO strategy_daily
-                (trade_date, strategy, strategy_version, daily_return,
-                 cumul_return, position_count, win_count, loss_count,
-                 turnover, cash_ratio, gross_exposure, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
+        with connection() as conn:
+            cur = conn.cursor()
+            for r in rows:
+                cur.execute("""
+                    INSERT INTO meta_strategy_daily_us
+                    (trade_date, strategy, strategy_version, daily_return,
+                     cumul_return, position_count, win_count, loss_count,
+                     turnover, cash_ratio, gross_exposure, run_ts, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (trade_date, strategy) DO UPDATE SET
+                        daily_return = EXCLUDED.daily_return,
+                        cumul_return = EXCLUDED.cumul_return,
+                        position_count = EXCLUDED.position_count,
+                        run_ts = EXCLUDED.run_ts
+                    WHERE meta_strategy_daily_us.run_ts < EXCLUDED.run_ts
+                """, (
                     r["trade_date"], r["strategy"], r["strategy_version"],
                     r.get("daily_return"), r.get("cumul_return"),
                     r.get("position_count"), r.get("win_count"),
                     r.get("loss_count"), r.get("turnover"),
                     r.get("cash_ratio"), r.get("gross_exposure"),
-                    _now_iso(),
-                ),
-            )
-        conn.commit()
+                    run_ts, _now_iso(),
+                ))
+            conn.commit()
+            cur.close()
     except Exception as e:
         logger.error(f"[META_DB] save_strategy_daily failed: {e}")
-        conn.rollback()
-    finally:
-        conn.close()
 
 
 def save_strategy_exposure(rows: List[dict]) -> None:
-    conn = _conn()
+    run_ts = now_utc()
     try:
-        for r in rows:
-            conn.execute(
-                """INSERT OR REPLACE INTO strategy_exposure_daily
-                (trade_date, strategy, top1_weight, top5_weight,
-                 sector_top1, sector_top1_weight, sector_dispersion, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
+        with connection() as conn:
+            cur = conn.cursor()
+            for r in rows:
+                cur.execute("""
+                    INSERT INTO meta_strategy_exposure_us
+                    (trade_date, strategy, top1_weight, top5_weight,
+                     sector_top1, sector_top1_weight, sector_dispersion,
+                     run_ts, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (trade_date, strategy) DO UPDATE SET
+                        top1_weight = EXCLUDED.top1_weight,
+                        run_ts = EXCLUDED.run_ts
+                    WHERE meta_strategy_exposure_us.run_ts < EXCLUDED.run_ts
+                """, (
                     r["trade_date"], r["strategy"],
                     r.get("top1_weight"), r.get("top5_weight"),
                     r.get("sector_top1"), r.get("sector_top1_weight"),
-                    r.get("sector_dispersion"),
-                    _now_iso(),
-                ),
-            )
-        conn.commit()
+                    r.get("sector_dispersion"), run_ts, _now_iso(),
+                ))
+            conn.commit()
+            cur.close()
     except Exception as e:
         logger.error(f"[META_DB] save_strategy_exposure failed: {e}")
-        conn.rollback()
-    finally:
-        conn.close()
 
+
+def save_run_quality(data: dict) -> None:
+    run_ts = now_utc()
+    try:
+        with connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO meta_run_quality_us
+                (trade_date, snapshot_version, market, sync_status,
+                 synced_count, failed_count, expected_count, completeness_ratio,
+                 selected_source, csv_last_date, db_last_date,
+                 data_snapshot_id, degraded_flag, ohlc_invariant_warn_count,
+                 run_id, run_ts, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (trade_date, snapshot_version) DO NOTHING
+            """, (
+                data["trade_date"], data["snapshot_version"],
+                data.get("market", "US"),
+                data.get("sync_status"), data.get("synced_count"),
+                data.get("failed_count"), data.get("expected_count"),
+                data.get("completeness_ratio"),
+                data.get("selected_source"), data.get("csv_last_date"),
+                data.get("db_last_date"), data.get("data_snapshot_id"),
+                data.get("degraded_flag", 0),
+                data.get("ohlc_invariant_warn_count", 0),
+                data.get("run_id"), run_ts, _now_iso(),
+            ))
+            conn.commit()
+            cur.close()
+    except Exception as e:
+        logger.error(f"[META_DB] save_run_quality failed: {e}")
+
+
+def save_strategy_risk_daily(rows: List[dict]) -> None:
+    run_ts = now_utc()
+    try:
+        with connection() as conn:
+            cur = conn.cursor()
+            for r in rows:
+                cur.execute("""
+                    INSERT INTO meta_strategy_risk_us
+                    (trade_date, strategy, snapshot_version,
+                     daily_mdd, rolling_5d_return, rolling_20d_return,
+                     rolling_20d_mdd, realized_vol_20d, hit_rate_20d,
+                     avg_hold_days, slippage_bps_est, cost_bps_est,
+                     run_ts, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (trade_date, strategy) DO UPDATE SET
+                        daily_mdd = EXCLUDED.daily_mdd,
+                        run_ts = EXCLUDED.run_ts
+                    WHERE meta_strategy_risk_us.run_ts < EXCLUDED.run_ts
+                """, (
+                    r["trade_date"], r["strategy"], r.get("snapshot_version"),
+                    r.get("daily_mdd"), r.get("rolling_5d_return"),
+                    r.get("rolling_20d_return"), r.get("rolling_20d_mdd"),
+                    r.get("realized_vol_20d"), r.get("hit_rate_20d"),
+                    r.get("avg_hold_days"), r.get("slippage_bps_est"),
+                    r.get("cost_bps_est"), run_ts, _now_iso(),
+                ))
+            conn.commit()
+            cur.close()
+    except Exception as e:
+        logger.error(f"[META_DB] save_strategy_risk_daily failed: {e}")
+
+
+def save_universe_snapshot(data: dict) -> None:
+    run_ts = now_utc()
+    try:
+        with connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO meta_universe_snapshot_us
+                (trade_date, snapshot_version,
+                 universe_count_raw, universe_count_filtered,
+                 missing_data_count, tradable_count,
+                 excluded_reasons_json, run_ts, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (trade_date, snapshot_version) DO NOTHING
+            """, (
+                data["trade_date"], data["snapshot_version"],
+                data.get("universe_count_raw"),
+                data.get("universe_count_filtered"),
+                data.get("missing_data_count"),
+                data.get("tradable_count"),
+                data.get("excluded_reasons_json"),
+                run_ts, _now_iso(),
+            ))
+            conn.commit()
+            cur.close()
+    except Exception as e:
+        logger.error(f"[META_DB] save_universe_snapshot failed: {e}")
+
+
+def save_recommendation_log(data: dict) -> None:
+    run_ts = now_utc()
+    try:
+        with connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO meta_recommendation_us
+                (trade_date, snapshot_version, recommendation_date,
+                 recommended_weights_json, top_strategy, top3_strategies_json,
+                 confidence_score, regime_label, regime_persistence_days,
+                 market_fit_summary, perf_health_summary,
+                 data_quality_status, is_valid, reason_codes,
+                 selected_source, run_ts, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (trade_date, snapshot_version) DO NOTHING
+            """, (
+                data["trade_date"], data["snapshot_version"],
+                data.get("recommendation_date", data["trade_date"]),
+                data.get("recommended_weights_json"),
+                data.get("top_strategy"), data.get("top3_strategies_json"),
+                data.get("confidence_score"), data.get("regime_label"),
+                data.get("regime_persistence_days"),
+                data.get("market_fit_summary"), data.get("perf_health_summary"),
+                data.get("data_quality_status"), data.get("is_valid", 1),
+                data.get("reason_codes"), data.get("selected_source"),
+                run_ts, _now_iso(),
+            ))
+            conn.commit()
+            cur.close()
+    except Exception as e:
+        logger.error(f"[META_DB] save_recommendation_log failed: {e}")
+
+
+# ── Query ─────────────────────────────────────────────────────
 
 def get_market_context(trade_date: str) -> Optional[dict]:
-    conn = _conn()
-    try:
-        row = conn.execute(
-            "SELECT * FROM market_context WHERE trade_date = ?", (trade_date,)
-        ).fetchone()
-        return dict(row) if row else None
-    finally:
-        conn.close()
+    with connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM meta_market_context_us WHERE trade_date=%s",
+            (trade_date,),
+        )
+        row = cur.fetchone()
+        if not row:
+            cur.close()
+            return None
+        cols = [d[0] for d in cur.description]
+        cur.close()
+    return dict(zip(cols, row))
 
 
 def get_strategy_daily(trade_date: str) -> List[dict]:
-    conn = _conn()
-    try:
-        rows = conn.execute(
-            "SELECT * FROM strategy_daily WHERE trade_date = ? ORDER BY strategy",
+    with connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM meta_strategy_daily_us "
+            "WHERE trade_date=%s ORDER BY strategy",
             (trade_date,),
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
+        )
+        cols = [d[0] for d in cur.description]
+        rows = cur.fetchall()
+        cur.close()
+    return [dict(zip(cols, r)) for r in rows]
 
 
 def verify_row_counts(trade_date: str, expected_strategies: int = 10) -> dict:
-    conn = _conn()
-    try:
-        mc = conn.execute(
-            "SELECT COUNT(*) FROM market_context WHERE trade_date = ?",
+    with connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COUNT(*) FROM meta_market_context_us WHERE trade_date=%s",
             (trade_date,),
-        ).fetchone()[0]
-        sd = conn.execute(
-            "SELECT COUNT(*) FROM strategy_daily WHERE trade_date = ?",
+        )
+        mc = cur.fetchone()[0]
+        cur.execute(
+            "SELECT COUNT(*) FROM meta_strategy_daily_us WHERE trade_date=%s",
             (trade_date,),
-        ).fetchone()[0]
-        se = conn.execute(
-            "SELECT COUNT(*) FROM strategy_exposure_daily WHERE trade_date = ?",
+        )
+        sd = cur.fetchone()[0]
+        cur.execute(
+            "SELECT COUNT(*) FROM meta_strategy_exposure_us WHERE trade_date=%s",
             (trade_date,),
-        ).fetchone()[0]
-        missing = []
-        if mc == 0:
-            missing.append("market_context")
-        if sd < expected_strategies:
-            missing.append(f"strategy_daily({sd}/{expected_strategies})")
-        if se < expected_strategies:
-            missing.append(f"exposure_daily({se}/{expected_strategies})")
-        return {
-            "market_context": mc, "strategy_daily": sd,
-            "exposure_daily": se, "missing_strategies": missing,
-        }
-    finally:
-        conn.close()
+        )
+        se = cur.fetchone()[0]
+        cur.close()
+
+    missing = []
+    if mc == 0:
+        missing.append("market_context")
+    if sd < expected_strategies:
+        missing.append(f"strategy_daily({sd}/{expected_strategies})")
+    if se < expected_strategies:
+        missing.append(f"exposure_daily({se}/{expected_strategies})")
+    return {
+        "market_context": mc, "strategy_daily": sd,
+        "exposure_daily": se, "missing_strategies": missing,
+    }

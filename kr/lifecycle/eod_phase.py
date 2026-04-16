@@ -170,6 +170,12 @@ def run_eod(ctx: LiveContext) -> None:
 
     for code in list(portfolio.positions.keys()):
         pos = portfolio.positions.get(code)
+        # KR-P0-003: skip trail stop for RECON-isolated symbols (qty uncertain)
+        if pos and getattr(pos, "reconcile_pending", False):
+            logger.critical(
+                f"[TRAIL_SKIP_RECONCILE_PENDING] {code}: reconcile_pending=True, "
+                f"trail stop disabled pending manual review")
+            continue
         price_info = eod_price_src.get(code, (0, "unavailable"))
         close_price, price_source = price_info
 
@@ -544,6 +550,48 @@ def run_eod(ctx: LiveContext) -> None:
                 logger.info(f"[XVAL_EOD] Phase3 ready={p3_check['ready']}")
             except Exception as _xval_err:
                 logger.debug(f"[XVAL_EOD_ERR] {_xval_err}")
+
+        # DB cleanup — retention 정책 적용
+        try:
+            from web.rest_state_db import cleanup_old_data as _rest_cleanup
+            deleted = _rest_cleanup(keep_days=90)
+            if deleted > 0:
+                logger.info(f"[EOD_CLEANUP] rest_state: {deleted} old rows removed")
+        except Exception as e:
+            logger.warning(f"[EOD_CLEANUP] rest_state cleanup failed: {e}")
+
+        try:
+            from data.db_provider import get_db as _get_db
+            _get_db().cleanup_report_tables(keep_days=365)
+        except Exception as e:
+            logger.warning(f"[EOD_CLEANUP] report_tables cleanup failed: {e}")
+
+        # CSV → PG 적재 (intraday bars)
+        try:
+            from shared.db.csv_loader import load_csv_to_pg
+            import pandas as _pd
+            from pathlib import Path as _Path
+
+            _today = date.today().strftime("%Y-%m-%d")
+            _intraday_dir = config.BASE_DIR / "data" / "intraday"
+
+            def _parse_intraday(f):
+                df = _pd.read_csv(f, encoding="utf-8-sig")
+                df = df.rename(columns={"datetime": "bar_datetime"})
+                df["code"] = f.stem
+                return df[["code", "bar_datetime", "open", "high", "low", "close", "volume", "status"]]
+
+            if _intraday_dir.exists():
+                result = load_csv_to_pg(
+                    trade_date=_today,
+                    dataset="intraday",
+                    csv_dir=_intraday_dir,
+                    pg_table="intraday_bars",
+                    parse_fn=_parse_intraday,
+                )
+                logger.info(f"[EOD_CSV_TO_PG] intraday: {result.get('status')} ({result.get('rows', 0)} rows)")
+        except Exception as e:
+            logger.warning(f"[EOD_CSV_TO_PG] intraday failed: {e}")
 
         # Shutdown cleanup
         try:
