@@ -87,13 +87,26 @@ def setup_rest_logging(log_dir: str = None, level: int = logging.INFO) -> None:
     ch.setLevel(level)
     ch.setFormatter(formatter)
 
-    # Apply to all gen4.* loggers
+    # Attach to `gen4` parent logger so ALL gen4.* descendants
+    # (gen4.batch / gen4.universe / gen4.fundamental / gen4.top20report / etc.)
+    # inherit the file+console handlers. Previously only 5 specific children
+    # were wired, so in-tray-thread batch execution produced no log lines in
+    # rest_api_*.log (gen4.batch 출력 누락 → BATCH_DONE 추적 불가 원인).
+    parent_lg = logging.getLogger("gen4")
+    parent_lg.setLevel(level)
+    parent_lg.addHandler(fh)
+    parent_lg.addHandler(ch)
+
+    # Existing direct attachments retained for backward compat, but set
+    # propagate=False so messages don't hit both the child handler AND the
+    # `gen4` parent handler (would cause duplicate lines in the log file).
     for name in ("gen4.rest", "gen4.live", "gen4.state", "gen4.crosscheck",
                  "gen4.dual_read"):
         lg = logging.getLogger(name)
         lg.setLevel(level)
         lg.addHandler(fh)
         lg.addHandler(ch)
+        lg.propagate = False
 
     today = date.today().strftime("%Y%m%d")
     log_file = log_path / f"rest_api_{today}.log"

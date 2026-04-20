@@ -10,12 +10,20 @@ Usage:
 """
 from __future__ import annotations
 
+import os
+import sys
+
+# pythonw.exe: sys.stdout/stderr are None, which crashes uvicorn's log config
+# (it calls sys.stdout.isatty()). Redirect to devnull before any imports.
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
 import ctypes
 import json
 import logging
-import os
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -24,8 +32,9 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-# ── Path setup ──
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# ── Path setup (must precede any kr.* / shared.* import) ──
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # audit:allow-syspath: bootstrap-locator
+import _bootstrap_path  # noqa: F401  -- side-effect: adds project root for `shared.*`
 
 import win32api
 import win32con
@@ -41,6 +50,23 @@ XVAL_DIR = BASE_DIR / "data" / "xval"
 APP_NAME = "Q-TRON REST"
 BATCH_HOUR = 16  # 16:00 (장 마감 후)
 BATCH_MINUTE = 5
+# 실패 시 다음 재시도까지 최소 대기 시간. 30초 tick 루프에서 공격적 재시도 방지.
+BATCH_FAIL_BACKOFF_MIN = 5
+
+# Daily self-test (PG ping + telegram on failure) — runs before market open,
+# after overnight batch/backup, in a low-traffic window so a transient PG
+# hiccup is caught before live/batch depends on it.
+SELF_TEST_HOUR = 8
+SELF_TEST_MINUTE = 0
+
+# ── Lab Live/Forward EOD Auto-Schedule ───────────────────────
+KR_LAB_EOD_HOUR = 15   # KST 15:35 (장 마감 + 5분)
+KR_LAB_EOD_MINUTE = 35
+US_LAB_EOD_HOUR = 16   # ET 16:05 (장 마감 + 5분)
+US_LAB_EOD_MINUTE = 5
+LAB_EOD_WINDOW_SEC = 60      # 트리거 윈도우 (초)
+LAB_EOD_RETRY_BACKOFF_MIN = 5  # fail 시 다음 재시도 지연(분)
+LAB_EOD_MAX_FAILS = 3         # 당일 최대 시도 횟수
 
 # ── US Server Config ─────────────────────────────────────────
 US_PORT = 8081
@@ -58,6 +84,7 @@ ID_BATCH_NOW = 1007
 ID_BATCH_TOGGLE = 1008
 ID_RESTART = 1009
 ID_QUIT = 1010
+ID_SELF_TEST_NOW = 1011
 # US menu IDs
 ID_US_DASHBOARD = 1020
 ID_US_START = 1021
@@ -67,6 +94,7 @@ ID_US_LIVE_START = 1024
 ID_US_LIVE_STOP = 1025
 ID_UNIFIED = 1026
 ID_US_AUTO_TOGGLE = 1027
+ID_GATE_OBSERVER = 1028
 ID_US_RESTART = 1028
 ID_RESTART_ALL = 1029
 ID_US_LOG_DIR = 1030
@@ -84,15 +112,37 @@ class Win32TrayServer:
         self._batch_auto = True  # EOD 자동 batch 활성화
         self._batch_running = False
         self._batch_today_done = False
+        self._batch_last_done_date: Optional[date] = None  # KR batch 완료일
+        self._batch_last_done_date = self._load_kr_batch_done_date()
+        self._batch_last_fail_at: Optional[datetime] = None  # fail backoff 기준점
         # Backup state
         self._backup_today_done = False
         self._backup_running = False
+        # Self-test state (daily PG ping)
+        self._self_test_today_done = False
+        self._self_test_running = False
         # US server state
         self._us_process: Optional[subprocess.Popen] = None
         self._us_running = False
         # US auto batch+rebal
         self._us_batch_auto = True
         self._us_batch_running = False
+        self._us_batch_last_done_date: Optional[date] = None  # US batch 완료일
+        self._us_batch_last_done_date = self._load_us_batch_done_date()
+        # REJECTED 로그 throttle: (snapshot, reason) → last_log_time
+        self._us_catchup_reject_log: dict = {}
+        # KR Lab Live EOD auto schedule (v4.1)
+        self._kr_lab_eod_lock = threading.Lock()
+        self._kr_lab_eod_last_done_date: Optional[date] = None  # 초기값, 아래 loader로 설정
+        self._kr_lab_eod_retry_until: Optional[datetime] = None
+        self._kr_lab_eod_fail_count: int = 0
+        self._kr_lab_eod_fail_count_date: Optional[date] = None
+        # US Lab Forward EOD auto schedule (v4.1)
+        self._us_lab_eod_lock = threading.Lock()
+        self._us_lab_eod_last_done_date: Optional[date] = None
+        self._us_lab_eod_retry_until: Optional[datetime] = None
+        self._us_lab_eod_fail_count: int = 0
+        self._us_lab_eod_fail_count_date: Optional[date] = None
         # US live state
         self._us_live_process: Optional[subprocess.Popen] = None
         self._us_live_running = False
@@ -100,6 +150,33 @@ class Win32TrayServer:
         self._kr_restarting = False
         self._us_restarting = False
         self._logger = self._setup_logging()
+        # Lab EOD persistence loader (logger 설정 후)
+        self._kr_lab_eod_last_done_date = self._load_kr_lab_eod_done_date()
+        self._us_lab_eod_last_done_date = self._load_us_lab_eod_done_date()
+        self._shutdown_sent = False
+        self._register_shutdown_hooks()
+
+    def _register_shutdown_hooks(self):
+        """비정상 종료(PC 꺼짐, kill 등) 시 텔레그램 알림."""
+        import atexit
+        atexit.register(self._on_exit)
+
+        try:
+            import win32api
+            def _console_handler(ctrl_type):
+                # CTRL_CLOSE_EVENT=2, CTRL_LOGOFF_EVENT=5, CTRL_SHUTDOWN_EVENT=6
+                reasons = {2: "Console closed", 5: "Logoff", 6: "System shutdown"}
+                reason = reasons.get(ctrl_type, f"Signal {ctrl_type}")
+                self._send_shutdown_alert(reason)
+                return False  # 기본 핸들러 진행
+            win32api.SetConsoleCtrlHandler(_console_handler, True)
+        except Exception:
+            pass  # win32api 없으면 atexit만 사용
+
+    def _on_exit(self):
+        """atexit 핸들러: 정상 종료 시 알림 (이미 전송됐으면 skip)."""
+        if not self._shutdown_sent:
+            self._send_shutdown_alert("Process exit (atexit)")
 
     # ── Process-truth status ────────────────────────────────────
     def _is_us_process_alive(self) -> bool:
@@ -154,6 +231,11 @@ class Win32TrayServer:
                 ch = logging.StreamHandler(sys.stdout)
                 ch.setFormatter(fmt)
                 logger.addHandler(ch)
+
+        # Prevent double-write: rest_logger.setup_rest_logging() attaches a
+        # handler to the `gen4` parent, which would catch gen4.tray propagation
+        # → same line written twice. gen4.tray already has its own handler.
+        logger.propagate = False
 
         return logger
 
@@ -363,6 +445,7 @@ class Win32TrayServer:
             ID_OPEN_LOG_DIR: self._action_open_log_dir,
             ID_BATCH_NOW: self._action_batch_now,
             ID_BATCH_TOGGLE: self._action_batch_toggle,
+            ID_SELF_TEST_NOW: self._action_self_test_now,
             ID_RESTART: self._action_restart,
             ID_QUIT: self._action_quit,
             # US
@@ -374,6 +457,7 @@ class Win32TrayServer:
             # Global
             ID_UNIFIED: self._action_unified,
             ID_RESTART_ALL: self._action_restart_all,
+            ID_GATE_OBSERVER: self._action_gate_observer,
         }
         action = actions.get(cmd_id)
         if action:
@@ -415,11 +499,27 @@ class Win32TrayServer:
         win32gui.AppendMenu(kr_sub, MF, ID_DASHBOARD, "Open Dashboard")
         win32gui.AppendMenu(kr_sub, MF, ID_OPEN_LOG_DIR, "Open Log Folder")
         win32gui.AppendMenu(kr_sub, MF_SEP, 0, "")
-        kr_batch_flags = MF | (MF_GRAY if self._batch_running else 0)
-        kr_batch_label = "Run Batch Now" + (" (running...)" if self._batch_running else "")
+        from zoneinfo import ZoneInfo
+        _kr_done = self._is_kr_batch_locked()
+        _kr_weekend = datetime.now(ZoneInfo("Asia/Seoul")).weekday() >= 5
+        _kr_market_open = not self._is_after_kr_close()
+        _kr_locked = self._batch_running or _kr_done or _kr_market_open
+        kr_batch_flags = MF | (MF_GRAY if _kr_locked else 0)
+        kr_batch_label = "Run Batch Now" + (
+            " (running...)" if self._batch_running else
+            " (done today)" if _kr_done else
+            " (주말)" if _kr_weekend else
+            " (장 마감 전)" if _kr_market_open else ""
+        )
         win32gui.AppendMenu(kr_sub, kr_batch_flags, ID_BATCH_NOW, kr_batch_label)
         kr_auto_label = f"Auto Batch [{'ON' if self._batch_auto else 'OFF'}]"
         win32gui.AppendMenu(kr_sub, MF, ID_BATCH_TOGGLE, kr_auto_label)
+        st_flags = MF | (MF_GRAY if self._self_test_running else 0)
+        st_label = "Run Self-Test Now" + (
+            " (running...)" if self._self_test_running else
+            " (done today)" if self._self_test_today_done else ""
+        )
+        win32gui.AppendMenu(kr_sub, st_flags, ID_SELF_TEST_NOW, st_label)
         win32gui.AppendMenu(kr_sub, MF_SEP, 0, "")
         kr_restart_flags = MF | (MF_GRAY if self._kr_restarting else 0)
         win32gui.AppendMenu(kr_sub, kr_restart_flags, ID_RESTART, "Restart Server")
@@ -431,8 +531,17 @@ class Win32TrayServer:
         win32gui.AppendMenu(us_sub, MF, ID_US_DASHBOARD, "Open Dashboard")
         win32gui.AppendMenu(us_sub, MF, ID_US_LOG_DIR, "Open Log Folder")
         win32gui.AppendMenu(us_sub, MF_SEP, 0, "")
-        us_batch_flags = MF | (MF_GRAY if self._us_batch_running else 0)
-        us_batch_label = "Run Batch Now" + (" (running...)" if self._us_batch_running else "")
+        _us_done = self._is_us_batch_locked()
+        _us_weekend = datetime.now(ZoneInfo("US/Eastern")).weekday() >= 5  # ZoneInfo already imported above
+        _us_market_open = not self._is_after_us_close()
+        _us_locked = self._us_batch_running or _us_done or _us_market_open
+        us_batch_flags = MF | (MF_GRAY if _us_locked else 0)
+        us_batch_label = "Run Batch Now" + (
+            " (running...)" if self._us_batch_running else
+            " (done today)" if _us_done else
+            " (주말)" if _us_weekend else
+            " (장 마감 전)" if _us_market_open else ""
+        )
         win32gui.AppendMenu(us_sub, us_batch_flags, ID_US_BATCH, us_batch_label)
         us_auto_label = f"Auto Batch [{'ON' if self._us_batch_auto else 'OFF'}]"
         win32gui.AppendMenu(us_sub, MF, ID_US_AUTO_TOGGLE, us_auto_label)
@@ -446,6 +555,7 @@ class Win32TrayServer:
         # ── Global ──
         win32gui.AppendMenu(menu, MF_SEP, 0, "")
         win32gui.AppendMenu(menu, MF, ID_UNIFIED, "Open Unified Dashboard")
+        win32gui.AppendMenu(menu, MF, ID_GATE_OBSERVER, "AUTO GATE Report (Latest)")
         win32gui.AppendMenu(menu, MF, ID_RESTART_ALL, "Restart All")
         win32gui.AppendMenu(menu, MF, ID_QUIT, "Shutdown All")
 
@@ -508,13 +618,21 @@ class Win32TrayServer:
         self._logger.info(f"[TRAY] Auto-batch {state}")
         self._show_balloon("Q-TRON", f"Auto Batch: {state}\n({BATCH_HOUR:02d}:{BATCH_MINUTE:02d} daily)")
 
+    def _action_self_test_now(self):
+        """Run PG ping self-test immediately (manual trigger)."""
+        if self._self_test_running:
+            self._show_balloon("Q-TRON", "Self-test already running.")
+            return
+        self._logger.info("[TRAY_SELF_TEST] Manual trigger")
+        threading.Thread(target=self._run_self_test, daemon=True).start()
+
     def _run_backup(self):
         """Execute daily backup (background thread)."""
         self._backup_running = True
         self._logger.info("[BACKUP_START] Daily backup started")
         try:
             import sys as _sys
-            _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backup"))
+            _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backup"))  # audit:allow-syspath: backup/ subdir is outside both kr/us trees
             from daily_backup import run_backup
             ok, summary = run_backup()
             if ok:
@@ -530,6 +648,54 @@ class Win32TrayServer:
             self._backup_running = False
             self._backup_today_done = True
 
+    def _run_self_test(self):
+        """Daily PG ping. Logs OK/FAIL and alerts Telegram on failure."""
+        self._self_test_running = True
+        t0 = time.time()
+        try:
+            from shared.db.pg_base import connection
+            with connection() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT 1")
+                cur.fetchone()
+            elapsed_ms = int((time.time() - t0) * 1000)
+            self._logger.info(
+                f"[TRAY_SELF_TEST_OK] db=kr elapsed_ms={elapsed_ms}"
+            )
+        except Exception as e:
+            elapsed_ms = int((time.time() - t0) * 1000)
+            self._logger.error(
+                f"[TRAY_SELF_TEST_FAIL] db=kr elapsed_ms={elapsed_ms} err={e}"
+            )
+            try:
+                import requests
+                from dotenv import load_dotenv
+                env_path = Path(__file__).resolve().parent / ".env"
+                load_dotenv(env_path)
+                bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+                chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+                if bot_token and chat_id:
+                    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    text = (
+                        f"⚠️ Q-TRON KR self-test FAIL\n"
+                        f"시간: {ts}\n"
+                        f"elapsed_ms: {elapsed_ms}\n"
+                        f"err: {str(e)[:200]}"
+                    )
+                    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                    requests.post(url, json={
+                        "chat_id": chat_id,
+                        "text": text,
+                        "disable_web_page_preview": True,
+                    }, timeout=5)
+            except Exception as _te:
+                self._logger.warning(
+                    f"[TRAY_SELF_TEST_ALERT_ERR] {_te}"
+                )
+        finally:
+            self._self_test_running = False
+            self._self_test_today_done = True
+
     def _run_batch(self):
         """Execute batch (background thread)."""
         self._batch_running = True
@@ -538,6 +704,19 @@ class Win32TrayServer:
         self._start_blink(["ok", "batch"], interval=0.7)
 
         try:
+            # Guard: project root has a legacy config.py (QTronConfig / Gen2) that
+            # shadows kr/config.py (Gen4Config) if sys.modules has cached it.
+            # _bootstrap_path puts kr/ first in sys.path, but sys.modules can
+            # still hold a stale root reference from earlier imports. Evict and
+            # re-resolve to guarantee Gen4Config is found.
+            _stale = sys.modules.pop("config", None)
+            if _stale is not None:
+                _stale_file = str(getattr(_stale, "__file__", "") or "").replace("/", "\\")
+                _expected = str(Path(__file__).resolve().parent / "config.py").replace("/", "\\")
+                if _stale_file and _stale_file != _expected:
+                    self._logger.warning(
+                        f"[BATCH_IMPORT_GUARD] evicted stale config from {_stale_file}"
+                    )
             from config import Gen4Config
             from lifecycle.batch import run_batch
 
@@ -555,8 +734,61 @@ class Win32TrayServer:
                 self._show_balloon("Q-TRON Batch", "Batch complete (no result)")
 
             self._batch_today_done = True
+            from zoneinfo import ZoneInfo
+            _kst_now = datetime.now(ZoneInfo("Asia/Seoul"))
+            _kst_today = _kst_now.date()
+            self._batch_last_done_date = _kst_today
+            self._batch_last_fail_at = None  # 성공 → backoff 해제
+
+            # ── KR Lab EOD 복구 arm ────────────────────────────────
+            # Lab EOD auto는 15:35 KST 윈도우 + MAX_FAILS(3)로 abandoned 될 수 있음
+            # (예: 배치 지연/재시작으로 Lab EOD 실행 시점에 데이터 준비 안 됨).
+            # 배치가 방금 성공했으므로 "데이터 freshness" 조건은 재충족 — 당일 중
+            # Lab EOD를 재개할 수 있는 상태로 복원한다.
+            #
+            # 건드리는 3 상태:
+            #   - done(today, fail<MAX): 이미 성공 → 건드리지 않음
+            #   - done(today, fail>=MAX): abandoned → 마커 클리어
+            #   - not done today: retry_until을 지금으로 세팅 → 다음 30s tick 트리거
+            try:
+                _is_abandoned = (
+                    self._kr_lab_eod_last_done_date == _kst_today
+                    and self._kr_lab_eod_fail_count >= LAB_EOD_MAX_FAILS
+                )
+                _not_yet_today = self._kr_lab_eod_last_done_date != _kst_today
+                if _is_abandoned or _not_yet_today:
+                    if _is_abandoned:
+                        self._kr_lab_eod_last_done_date = None
+                        self._kr_lab_eod_fail_count = 0
+                    self._kr_lab_eod_retry_until = _kst_now
+                    self._logger.info(
+                        f"[KR_LAB_EOD_POST_BATCH_ARM] "
+                        f"abandoned={_is_abandoned} arming retry at "
+                        f"{_kst_now.isoformat(timespec='seconds')}"
+                    )
+            except Exception as _ae:
+                self._logger.warning(f"[KR_LAB_EOD_POST_BATCH_ARM_ERR] {_ae}")
+
+            # AUTO GATE advisory observation - single producer hook (post-EOD).
+            # Writes logs/gate_observer/YYYYMMDD.json and (if diff) sends Telegram.
+            try:
+                # sys.path already prepared by _bootstrap_path at top of file
+                from tools.gate_observer import run_today as _gate_run
+                _payload = _gate_run(send_telegram=True, logger_override=self._logger)
+                if _payload is None:
+                    self._logger.info("[GATE_OBSERVER] skipped (already ran today)")
+                else:
+                    self._logger.info(
+                        "[GATE_OBSERVER] c_stage_ready=%s streak=%d/%d",
+                        _payload["decision_flags"]["c_stage_ready"],
+                        _payload["c_stage_streak"],
+                        _payload["c_stage_streak_required"],
+                    )
+            except Exception as _ge:
+                self._logger.warning(f"[GATE_OBSERVER] producer failed: {_ge}")
 
         except Exception as e:
+            self._batch_last_fail_at = datetime.now()  # backoff 기준점
             self._logger.error(f"[BATCH_FAIL] {e}")
             import traceback
             self._logger.error(traceback.format_exc())
@@ -640,6 +872,7 @@ class Win32TrayServer:
 
     def _action_quit(self):
         self._logger.info("[TRAY] Shutdown All requested")
+        self._send_shutdown_alert("Shutdown All requested (manual)")
         self._running = False
         # Stop US live first
         if self._is_us_live_alive():
@@ -649,6 +882,43 @@ class Win32TrayServer:
             self._action_us_stop()
         self._stop_server()
         win32gui.DestroyWindow(self._hwnd)
+
+    def _send_shutdown_alert(self, reason: str = "unknown"):
+        """서버 종료 시 텔레그램 알림. 중복 전송 방지."""
+        if self._shutdown_sent:
+            return
+        self._shutdown_sent = True
+        try:
+            import requests
+            from dotenv import load_dotenv
+            import os
+            env_path = Path(__file__).resolve().parent / ".env"
+            load_dotenv(env_path)
+            bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+            chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+            if not bot_token or not chat_id:
+                self._logger.warning("[TRAY] Telegram credentials not set")
+                return
+
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            text = (
+                f"🚨 Q-TRON 서버 종료\n"
+                f"시간: {ts}\n"
+                f"사유: {reason}"
+            )
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            resp = requests.post(url, json={
+                "chat_id": chat_id,
+                "text": text,
+                "disable_web_page_preview": True,
+            }, timeout=5)
+
+            if resp.status_code == 200:
+                self._logger.info(f"[TRAY] Shutdown alert sent: {reason}")
+            else:
+                self._logger.warning(f"[TRAY] Shutdown alert failed: HTTP {resp.status_code}")
+        except Exception as e:
+            self._logger.warning(f"[TRAY] Shutdown alert error: {e}")
 
     # ── US Server Actions ────────────────────────────────────────
 
@@ -662,15 +932,71 @@ class Win32TrayServer:
         if not US_PYTHON.exists():
             self._show_balloon("Q-TRON US", f"Python not found:\n{US_PYTHON}")
             return
+
+        # 포트 선점 프로세스 강제 종료 (KR과 동일 패턴)
+        self._kill_port_user(US_PORT)
+
+        # stderr를 로그 파일로 리다이렉트 (DEVNULL 금지 — 실패 원인 가림 방지)
+        us_logs_dir = US_BASE_DIR / "logs"
         try:
+            us_logs_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        stderr_path = us_logs_dir / f"us_tray_stderr_{time.strftime('%Y%m%d')}.log"
+
+        # 깨끗한 env: 부모(KR venv) 변수 제거 — US venv와 충돌 방지
+        clean_env = dict(os.environ)
+        for var in ("PYTHONPATH", "VIRTUAL_ENV", "PYTHONHOME"):
+            clean_env.pop(var, None)
+
+        try:
+            stderr_fh = open(stderr_path, "a", encoding="utf-8", buffering=1)
+            stderr_fh.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} US server start =====\n")
             self._us_process = subprocess.Popen(
                 [str(US_PYTHON), "-X", "utf8", "-m", "uvicorn",
                  "web.app:app", "--host", HOST, "--port", str(US_PORT)],
                 cwd=str(US_BASE_DIR),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=stderr_fh,
+                stderr=stderr_fh,
+                env=clean_env,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
+            self._us_stderr_fh = stderr_fh  # keep reference so GC doesn't close
+
+            # spawn 후 health check: 2초 대기 후 poll() 로 즉사 감지
+            time.sleep(2.0)
+            rc = self._us_process.poll()
+            if rc is not None:
+                # 프로세스가 이미 죽음 — stderr 마지막 줄 표시
+                tail_msg = "(no stderr captured)"
+                try:
+                    stderr_fh.flush()
+                    with open(stderr_path, "r", encoding="utf-8", errors="replace") as _rf:
+                        _lines = _rf.readlines()[-10:]
+                        tail_msg = "".join(_lines).strip()[-300:]
+                except Exception:
+                    pass
+                self._us_running = False
+                self._us_process = None
+                self._logger.error(f"[US] Start failed (rc={rc}). Tail: {tail_msg}")
+                self._show_balloon(
+                    "Q-TRON US",
+                    f"Start failed (exit {rc}). See {stderr_path.name}",
+                )
+                try:
+                    from web.data_events import emit_event, Level
+                    emit_event(
+                        source="STARTUP.us",
+                        level=Level.CRITICAL,
+                        code="spawn_failed",
+                        message=f"US server spawn 실패 (exit {rc})",
+                        details={"rc": rc, "stderr_tail": tail_msg, "log_file": str(stderr_path)},
+                        telegram=True,
+                    )
+                except Exception:
+                    pass
+                return
+
             self._us_running = True
             self._logger.info(f"[US] Server started on :{US_PORT} (PID {self._us_process.pid})")
             self._show_balloon("Q-TRON US", f"US server started on :{US_PORT}")
@@ -702,9 +1028,14 @@ class Win32TrayServer:
 
     def _action_us_batch(self):
         """Run US batch in background."""
+        if self._us_batch_running:
+            self._show_balloon("Q-TRON US", "Batch already running...")
+            return
         if not US_PYTHON.exists():
             self._show_balloon("Q-TRON US", f"Python not found:\n{US_PYTHON}")
             return
+        self._us_batch_running = True
+        self._logger.info("[US_BATCH] Manual batch started")
         self._show_balloon("Q-TRON US", "US batch starting...")
 
         def _run():
@@ -717,12 +1048,16 @@ class Win32TrayServer:
                 if result.returncode == 0:
                     self._logger.info("[US_BATCH] Complete")
                     self._show_balloon("Q-TRON US", "Batch complete!")
+                    from zoneinfo import ZoneInfo
+                    self._us_batch_last_done_date = datetime.now(ZoneInfo("US/Eastern")).date()
                 else:
                     self._logger.error(f"[US_BATCH] Failed: {result.stderr[:200]}")
                     self._show_balloon("Q-TRON US", f"Batch failed:\n{result.stderr[:100]}")
             except Exception as e:
                 self._logger.error(f"[US_BATCH] Error: {e}")
                 self._show_balloon("Q-TRON US", f"Batch error: {e}")
+            finally:
+                self._us_batch_running = False
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -733,17 +1068,502 @@ class Win32TrayServer:
         self._logger.info(f"[TRAY] US Auto Batch/Rebal {state}")
         self._show_balloon("Q-TRON US", f"Auto Batch/Rebal: {state}")
 
+    def _load_kr_batch_done_date(self) -> Optional[date]:
+        """시작 시 KR batch 완료일 복원 (오늘 target_portfolio 파일 존재 확인)."""
+        try:
+            from zoneinfo import ZoneInfo
+            kst_today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+            today_str = kst_today.strftime("%Y%m%d")
+            signals_dir = BASE_DIR / "data" / "signals"
+            if (signals_dir / f"target_portfolio_{today_str}.json").exists():
+                return kst_today
+        except Exception:
+            pass
+        return None
+
+    def _load_us_batch_done_date(self) -> Optional[date]:
+        """시작 시 US batch 완료일 복원 — post-close 배치만 '완료'로 간주."""
+        try:
+            from zoneinfo import ZoneInfo
+            import json as _json
+            et_today = datetime.now(ZoneInfo("US/Eastern")).date()
+            rt_path = US_BASE_DIR / "state" / "runtime_state_us_paper.json"
+            if not rt_path.exists():
+                rt_path = US_BASE_DIR / "state" / "runtime_state_us_live.json"
+            if rt_path.exists():
+                rt = _json.loads(rt_path.read_text(encoding="utf-8"))
+                last_bd = rt.get("last_batch_business_date", "")
+                created_at = rt.get("snapshot_created_at", "")
+                if last_bd == et_today.strftime("%Y-%m-%d") and created_at:
+                    try:
+                        created = datetime.fromisoformat(created_at)
+                        if created.tzinfo is None:
+                            created = created.replace(tzinfo=ZoneInfo("US/Eastern"))
+                        created_et = created.astimezone(ZoneInfo("US/Eastern"))
+                        close_et = datetime(
+                            et_today.year, et_today.month, et_today.day,
+                            16, 0, 0, tzinfo=ZoneInfo("US/Eastern"),
+                        )
+                        if created_et >= close_et:
+                            return et_today
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        return None
+
+    # ── Lab EOD Loaders (v4.1) ────────────────────────────────
+
+    def _load_kr_lab_eod_done_date(self) -> Optional[date]:
+        """KR Lab Live head.json::last_run_date 기준 오늘 완료 여부 복원."""
+        try:
+            import json as _json
+            kst_today = self._now_kst().date()
+            head_path = BASE_DIR / "data" / "lab_live" / "head.json"
+            if head_path.exists():
+                head = _json.loads(head_path.read_text(encoding="utf-8"))
+                last_run = head.get("last_run_date", "")
+                if last_run == kst_today.strftime("%Y-%m-%d"):
+                    self._logger.info(
+                        f"[KR_LAB_EOD_AUTO_LOAD_DONE] persisted_date={last_run}"
+                    )
+                    return kst_today
+        except Exception:
+            pass
+        return None
+
+    def _load_us_lab_eod_done_date(self) -> Optional[date]:
+        """US Lab Forward meta.json::last_successful_eod_date 기준 복원."""
+        try:
+            import json as _json
+            et_today = self._now_et().date()
+            meta_path = US_BASE_DIR / "lab" / "state" / "forward" / "meta.json"
+            if meta_path.exists():
+                meta = _json.loads(meta_path.read_text(encoding="utf-8"))
+                last_eod = meta.get("last_successful_eod_date", "")
+                if last_eod == et_today.strftime("%Y-%m-%d"):
+                    self._logger.info(
+                        f"[US_LAB_EOD_AUTO_LOAD_DONE] persisted_date={last_eod}"
+                    )
+                    return et_today
+        except Exception:
+            pass
+        return None
+
+    # ── Lab EOD Log/Fail Recorders (v4.1) ─────────────────────
+
+    def _log_kr_lab_done_final(self, reason: str) -> None:
+        """KR Lab EOD 종결 로그. reason ∈ {success, skipped, skipped_unexpected, abandoned}"""
+        self._logger.info(
+            f"[KR_LAB_EOD_AUTO_DONE_FINAL] date={self._kr_lab_eod_last_done_date} "
+            f"reason={reason} fail_count={self._kr_lab_eod_fail_count}"
+        )
+
+    def _log_us_lab_done_final(self, reason: str) -> None:
+        self._logger.info(
+            f"[US_LAB_EOD_AUTO_DONE_FINAL] date={self._us_lab_eod_last_done_date} "
+            f"reason={reason} fail_count={self._us_lab_eod_fail_count}"
+        )
+
+    def _record_kr_lab_fail(self, reason: str) -> None:
+        """KR Lab EOD 실패 기록. MAX 도달 시 당일 포기 처리 (done_date=today)."""
+        self._kr_lab_eod_fail_count += 1
+        kst_today = self._now_kst().date()
+        if self._kr_lab_eod_fail_count >= LAB_EOD_MAX_FAILS:
+            self._kr_lab_eod_last_done_date = kst_today  # 포기 = 당일 처리 완료
+            self._logger.warning(
+                f"[KR_LAB_EOD_AUTO_ABANDONED] "
+                f"fail={self._kr_lab_eod_fail_count}/{LAB_EOD_MAX_FAILS} "
+                f"date={kst_today} reason={reason[:120]}"
+            )
+            try:
+                from notify.telegram_bot import send
+                send(
+                    f"⚠️ <b>KR Lab EOD Auto-run Abandoned</b>\n"
+                    f"Date: {kst_today}\n"
+                    f"Fails: {self._kr_lab_eod_fail_count}/{LAB_EOD_MAX_FAILS}\n"
+                    f"Last reason: {reason[:100]}",
+                    severity="WARN",
+                )
+            except Exception:
+                pass
+            self._log_kr_lab_done_final("abandoned")
+        else:
+            self._kr_lab_eod_retry_until = (
+                self._now_kst() + timedelta(minutes=LAB_EOD_RETRY_BACKOFF_MIN)
+            )
+            self._logger.warning(
+                f"[KR_LAB_EOD_AUTO_FAIL] "
+                f"fail={self._kr_lab_eod_fail_count}/{LAB_EOD_MAX_FAILS} "
+                f"reason={reason[:120]} retry_after={LAB_EOD_RETRY_BACKOFF_MIN}min"
+            )
+
+    def _record_us_lab_fail(self, reason: str) -> None:
+        self._us_lab_eod_fail_count += 1
+        et_today = self._now_et().date()
+        if self._us_lab_eod_fail_count >= LAB_EOD_MAX_FAILS:
+            self._us_lab_eod_last_done_date = et_today
+            self._logger.warning(
+                f"[US_LAB_EOD_AUTO_ABANDONED] "
+                f"fail={self._us_lab_eod_fail_count}/{LAB_EOD_MAX_FAILS} "
+                f"date={et_today} reason={reason[:120]}"
+            )
+            try:
+                from notify.telegram_bot import send
+                send(
+                    f"⚠️ <b>US Lab EOD Auto-run Abandoned</b>\n"
+                    f"Date: {et_today}\n"
+                    f"Fails: {self._us_lab_eod_fail_count}/{LAB_EOD_MAX_FAILS}\n"
+                    f"Last reason: {reason[:100]}",
+                    severity="WARN",
+                )
+            except Exception:
+                pass
+            self._log_us_lab_done_final("abandoned")
+        else:
+            self._us_lab_eod_retry_until = (
+                self._now_et() + timedelta(minutes=LAB_EOD_RETRY_BACKOFF_MIN)
+            )
+            self._logger.warning(
+                f"[US_LAB_EOD_AUTO_FAIL] "
+                f"fail={self._us_lab_eod_fail_count}/{LAB_EOD_MAX_FAILS} "
+                f"reason={reason[:120]} retry_after={LAB_EOD_RETRY_BACKOFF_MIN}min"
+            )
+
+    # ── Lab EOD Run Methods (v4.1) ────────────────────────────
+
+    def _run_kr_lab_eod(self):
+        """KR Lab Live EOD (9전략) — localhost API 호출."""
+        if not self._kr_lab_eod_lock.acquire(blocking=False):
+            return
+        try:
+            kst_today = self._now_kst().date()
+            self._maybe_reset_kr_lab_eod_fail(kst_today)
+            self._logger.info(
+                f"[KR_LAB_EOD_AUTO_START] fail_count={self._kr_lab_eod_fail_count}"
+            )
+            import requests as _req
+
+            # Health check
+            try:
+                h = _req.get(f"http://localhost:{PORT}/api/health", timeout=3)
+                h.raise_for_status()
+            except Exception as he:
+                self._record_kr_lab_fail(f"health: {he}")
+                return
+
+            # 1. 시뮬레이터 init (idempotent)
+            try:
+                _req.post(
+                    f"http://localhost:{PORT}/api/lab/live/start",
+                    json={}, timeout=30,
+                )
+            except Exception as se:
+                self._record_kr_lab_fail(f"start: {se}")
+                return
+
+            # 2. Run daily
+            try:
+                r = _req.post(
+                    f"http://localhost:{PORT}/api/lab/live/run-daily",
+                    json={"update_ohlcv": True}, timeout=180,
+                )
+            except Exception as re_:
+                self._record_kr_lab_fail(f"run-daily: {re_}")
+                return
+
+            if not r.ok:
+                self._record_kr_lab_fail(f"HTTP {r.status_code}")
+                return
+
+            try:
+                result = r.json()
+            except Exception as je:
+                self._record_kr_lab_fail(f"json decode: {je}")
+                return
+
+            if result.get("ok"):
+                self._kr_lab_eod_last_done_date = kst_today
+                self._logger.info(
+                    f"[KR_LAB_EOD_AUTO_MARK_DONE] memory_date={kst_today} "
+                    f"trades={result.get('trades', 0)}"
+                )
+                self._log_kr_lab_done_final("success")
+                self._check_kr_lab_data_quality(result, kst_today)
+            elif result.get("skipped"):
+                self._kr_lab_eod_last_done_date = kst_today
+                if self._kr_lab_eod_fail_count == 0:
+                    self._logger.info("[KR_LAB_EOD_AUTO_SKIPPED] already done")
+                    self._log_kr_lab_done_final("skipped")
+                else:
+                    # Retry 중 skipped는 예상 외 — sync mismatch 감지
+                    self._logger.warning(
+                        f"[KR_LAB_EOD_AUTO_SKIPPED_UNEXPECTED] "
+                        f"memory={self._kr_lab_eod_last_done_date} api_skipped=True "
+                        f"snapshot={result.get('snapshot_version', '')}"
+                    )
+                    self._log_kr_lab_done_final("skipped_unexpected")
+            else:
+                self._record_kr_lab_fail(
+                    f"unexpected response: {str(result)[:100]}"
+                )
+        finally:
+            self._kr_lab_eod_lock.release()
+
+    def _run_us_lab_eod(self):
+        """US Lab Forward EOD (10전략) — localhost US server API 호출."""
+        if not self._us_lab_eod_lock.acquire(blocking=False):
+            return
+        try:
+            et_today = self._now_et().date()
+            self._maybe_reset_us_lab_eod_fail(et_today)
+            self._logger.info(
+                f"[US_LAB_EOD_AUTO_START] fail_count={self._us_lab_eod_fail_count}"
+            )
+            import requests as _req
+
+            # 1. 포트폴리오 init
+            try:
+                _req.post(
+                    f"http://localhost:{US_PORT}/api/lab/forward/start",
+                    json={}, timeout=30,
+                )
+            except Exception as se:
+                self._record_us_lab_fail(f"start: {se}")
+                return
+
+            # 2. EOD 실행
+            try:
+                r = _req.post(
+                    f"http://localhost:{US_PORT}/api/lab/forward/eod",
+                    json={}, timeout=180,
+                )
+            except Exception as re_:
+                self._record_us_lab_fail(f"eod: {re_}")
+                return
+
+            if not r.ok:
+                self._record_us_lab_fail(f"HTTP {r.status_code}")
+                return
+
+            try:
+                result = r.json()
+            except Exception as je:
+                self._record_us_lab_fail(f"json decode: {je}")
+                return
+
+            # US API의 정상 응답은 status code 200 + ok=True or skipped 필드
+            # forward.py run_eod() 구현에 따라 키 이름은 다를 수 있으나,
+            # status code 200이면 일단 성공으로 간주.
+            if result.get("error"):
+                self._record_us_lab_fail(
+                    f"error field: {str(result.get('error'))[:100]}"
+                )
+                return
+
+            self._us_lab_eod_last_done_date = et_today
+            if result.get("skipped") and self._us_lab_eod_fail_count > 0:
+                self._logger.warning(
+                    f"[US_LAB_EOD_AUTO_SKIPPED_UNEXPECTED] "
+                    f"memory={self._us_lab_eod_last_done_date} "
+                    f"result={str(result)[:120]}"
+                )
+                self._log_us_lab_done_final("skipped_unexpected")
+            else:
+                self._logger.info(
+                    f"[US_LAB_EOD_AUTO_MARK_DONE] memory_date={et_today} "
+                    f"result={str(result)[:120]}"
+                )
+                self._log_us_lab_done_final(
+                    "skipped" if result.get("skipped") else "success"
+                )
+                if not result.get("skipped"):
+                    self._check_us_lab_data_quality(result, et_today)
+        finally:
+            self._us_lab_eod_lock.release()
+
+    def _check_kr_lab_data_quality(self, result: dict, expected_date) -> None:
+        """KR Lab EOD 응답 데이터 품질 감지 → alert.
+
+        source="lab_live", reason으로 상태 구분.
+        날짜 비교: date.fromisoformat() 사용 (문자열 비교 금지).
+        Schema 누락: warning 로그 (silent 방지).
+        """
+        try:
+            from notify.helpers import alert_data_failure
+        except Exception:
+            return
+
+        if "selected_source" not in result or "data_last_date" not in result:
+            self._logger.warning(
+                "[KR_LAB_DATA_QUALITY_SKIP] selected_source or data_last_date missing "
+                f"keys={list(result.keys())}"
+            )
+            return
+
+        selected_source    = result.get("selected_source", "")
+        data_last_date_raw = result.get("data_last_date", "")
+        snapshot           = str(result.get("snapshot_version", ""))[:60]
+
+        from datetime import date as _date
+        try:
+            data_date = _date.fromisoformat(str(data_last_date_raw)) if data_last_date_raw else None
+        except (ValueError, TypeError) as e:
+            self._logger.warning(
+                f"[KR_LAB_DATA_QUALITY_PARSE_FAIL] data_last_date='{data_last_date_raw}': {e}"
+            )
+            data_date = None
+
+        if selected_source == "CSV":
+            alert_data_failure(
+                "lab_live",
+                "CSV fallback: DB stale",
+                {"data_last_date": data_last_date_raw,
+                 "snapshot": snapshot,
+                 "expected": str(expected_date)},
+            )
+
+        if data_date is not None and data_date < expected_date:
+            alert_data_failure(
+                "lab_live",
+                f"stale data: {data_date} < {expected_date}",
+                {"source": selected_source, "snapshot": snapshot},
+            )
+
+    def _check_us_lab_data_quality(self, result: dict, expected_date) -> None:
+        """US Lab EOD 응답 데이터 품질 감지 → alert."""
+        try:
+            from notify.helpers import alert_data_failure
+        except Exception:
+            return
+
+        if "selected_source" not in result or "data_last_date" not in result:
+            self._logger.warning(
+                "[US_LAB_DATA_QUALITY_SKIP] selected_source or data_last_date missing "
+                f"keys={list(result.keys())}"
+            )
+            return
+
+        data_last_date_raw = result.get("data_last_date", "")
+        selected_source    = result.get("selected_source", "")
+
+        from datetime import date as _date
+        try:
+            data_date = _date.fromisoformat(str(data_last_date_raw)) if data_last_date_raw else None
+        except (ValueError, TypeError) as e:
+            self._logger.warning(
+                f"[US_LAB_DATA_QUALITY_PARSE_FAIL] data_last_date='{data_last_date_raw}': {e}"
+            )
+            data_date = None
+
+        if data_date is not None and data_date < expected_date:
+            alert_data_failure(
+                "us_lab",
+                f"stale data: {data_date} < {expected_date}",
+                {"source": selected_source},
+            )
+
+    def _is_kr_batch_locked(self) -> bool:
+        """KR batch 완료 후 다음 장 마감(15:30 KST) 전까지 버튼 비활성."""
+        if self._batch_last_done_date is None:
+            return False
+        try:
+            from zoneinfo import ZoneInfo
+            kst_now = datetime.now(ZoneInfo("Asia/Seoul"))
+            unlock_dt = datetime(
+                self._batch_last_done_date.year,
+                self._batch_last_done_date.month,
+                self._batch_last_done_date.day,
+                15, 30, 0,
+                tzinfo=ZoneInfo("Asia/Seoul"),
+            ) + timedelta(days=1)
+            return kst_now < unlock_dt
+        except Exception:
+            return False
+
+    def _is_us_batch_locked(self) -> bool:
+        """US batch 완료 후 다음 장 마감(15:30 ET) 전까지 버튼 비활성."""
+        if self._us_batch_last_done_date is None:
+            return False
+        try:
+            from zoneinfo import ZoneInfo
+            et_now = datetime.now(ZoneInfo("US/Eastern"))
+            unlock_dt = datetime(
+                self._us_batch_last_done_date.year,
+                self._us_batch_last_done_date.month,
+                self._us_batch_last_done_date.day,
+                15, 30, 0,
+                tzinfo=ZoneInfo("US/Eastern"),
+            ) + timedelta(days=1)
+            return et_now < unlock_dt
+        except Exception:
+            return False
+
     def _is_us_batch_time(self) -> bool:
-        """US/Eastern 기준 장 마감(16:00) + 120min 이후 윈도우."""
+        """US/Eastern 기준 장 마감(16:00) 이후 윈도우.
+        실제 중복 실행은 _us_batch_last_done_date / API status로 차단."""
         try:
             from zoneinfo import ZoneInfo
             et_now = datetime.now(ZoneInfo("US/Eastern"))
             if et_now.weekday() >= 5:  # weekend
                 return False
-            # 18:00~18:30 ET 윈도우 (1회 이벤트)
-            return et_now.hour == 18 and et_now.minute < 30
+            # 16:05 ET 이후 하루 내내 허용 (already-done 가드로 중복 방지)
+            return (et_now.hour > 16) or (et_now.hour == 16 and et_now.minute >= 5)
         except Exception:
             return False
+
+    def _is_after_kr_close(self) -> bool:
+        """KR 장 마감(15:30 KST) 이후인가 — weekday only."""
+        try:
+            from zoneinfo import ZoneInfo
+            kst_now = datetime.now(ZoneInfo("Asia/Seoul"))
+            if kst_now.weekday() >= 5:
+                return False
+            return (kst_now.hour > 15) or (kst_now.hour == 15 and kst_now.minute >= 30)
+        except Exception:
+            return False
+
+    def _is_after_us_close(self) -> bool:
+        """US 장 마감(16:00 ET) 이후인가 — weekday only."""
+        try:
+            from zoneinfo import ZoneInfo
+            et_now = datetime.now(ZoneInfo("US/Eastern"))
+            if et_now.weekday() >= 5:
+                return False
+            return et_now.hour >= 16
+        except Exception:
+            return False
+
+    # ── Lab EOD Auto-Schedule Helpers (v4.1) ──────────────────
+
+    def _now_kst(self) -> datetime:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Asia/Seoul"))
+
+    def _now_et(self) -> datetime:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("US/Eastern"))
+
+    def _is_within_window(self, now: datetime, target_h: int, target_m: int,
+                          window_sec: int) -> bool:
+        """now가 today의 target_h:target_m ~ +window_sec 범위 내인지."""
+        from datetime import time as _time
+        target = datetime.combine(now.date(), _time(target_h, target_m),
+                                  tzinfo=now.tzinfo)
+        delta = (now - target).total_seconds()
+        return 0 <= delta < window_sec
+
+    def _maybe_reset_kr_lab_eod_fail(self, today: date) -> None:
+        if self._kr_lab_eod_fail_count_date != today:
+            self._kr_lab_eod_fail_count = 0
+            self._kr_lab_eod_fail_count_date = today
+            self._kr_lab_eod_retry_until = None
+
+    def _maybe_reset_us_lab_eod_fail(self, today: date) -> None:
+        if self._us_lab_eod_fail_count_date != today:
+            self._us_lab_eod_fail_count = 0
+            self._us_lab_eod_fail_count_date = today
+            self._us_lab_eod_retry_until = None
 
     def _us_api(self, path, method="GET", json_body=None, timeout=10):
         """US server API helper."""
@@ -762,13 +1582,44 @@ class Win32TrayServer:
         try:
             import uuid as _uuid
 
-            # 1. same-day check (영속: API에서 last_batch_business_date 확인)
+            # 1. same-day check — pre-market 배치는 재실행, post-close 배치만 skip
             try:
                 status = self._us_api("/api/rebalance/status")
                 today_bd = status.get("business_date", "")
-                if status.get("last_batch_business_date", "") == today_bd:
-                    self._logger.info(f"[US_BATCH_START] skip: already done for {today_bd}")
-                    return
+                last_bd = status.get("last_batch_business_date", "")
+                created_at = status.get("snapshot_created_at", "")
+                if last_bd == today_bd and created_at:
+                    from zoneinfo import ZoneInfo
+                    try:
+                        created = datetime.fromisoformat(created_at)
+                        if created.tzinfo is None:
+                            created = created.replace(tzinfo=ZoneInfo("US/Eastern"))
+                        created_et = created.astimezone(ZoneInfo("US/Eastern"))
+                        # business_date의 16:00 ET
+                        y, m, d = [int(x) for x in today_bd.split("-")]
+                        close_et = datetime(y, m, d, 16, 0, 0, tzinfo=ZoneInfo("US/Eastern"))
+                        if created_et >= close_et:
+                            # Sync cache so scheduler 30s tick doesn't retrigger.
+                            # Without this, every tick probes /status (phase != BATCH_DONE
+                            # after rebal advances) and spawns this method again,
+                            # polluting the log with [US_BATCH_START] skip: ... repeats.
+                            self._us_batch_last_done_date = datetime.now(
+                                ZoneInfo("US/Eastern")
+                            ).date()
+                            self._logger.info(
+                                f"[US_BATCH_START] skip: post-close batch already done "
+                                f"for {today_bd} (created={created_et.isoformat()})"
+                            )
+                            return
+                        else:
+                            self._logger.info(
+                                f"[US_BATCH_START] pre-market batch detected "
+                                f"(created={created_et.isoformat()} < close={close_et.isoformat()}) "
+                                f"→ re-running post-close"
+                            )
+                    except Exception as ep:
+                        self._logger.warning(f"[US_BATCH_START] created_at parse failed: {ep}")
+                        # parse 실패 시 보수적으로 skip 안 함 → 재실행 허용
             except Exception as e:
                 self._logger.warning(f"[US_BATCH_START] status check failed: {e}")
                 # Continue anyway — batch will handle its own checks
@@ -812,6 +1663,8 @@ class Win32TrayServer:
                 return
 
             # 4. snapshot_version은 batch(main.py)가 이미 저장 — tray는 읽기만
+            from zoneinfo import ZoneInfo
+            self._us_batch_last_done_date = datetime.now(ZoneInfo("US/Eastern")).date()
             self._show_balloon("Q-TRON US", "Batch complete! Checking rebal...")
 
             # 5. Auto rebal 판단
@@ -873,6 +1726,113 @@ class Win32TrayServer:
         finally:
             self._us_batch_running = False
 
+    def _run_us_auto_rebal_only(self):
+        """BATCH_DONE catchup: snapshot 기반 idempotency로 1회 실행."""
+        if self._us_batch_running:
+            return
+        self._us_batch_running = True  # guard reentry
+        try:
+            import uuid as _uuid
+
+            status = self._us_api("/api/rebalance/status")
+            phase = status.get("phase", "IDLE")
+            mode = status.get("mode", "manual")
+            rebal_due = status.get("rebal_due", False)
+            exec_allowed = status.get("execute_allowed", False)
+            current_sv = status.get("snapshot_version", "")
+            last_sv = status.get("last_rebal_attempt_snapshot", "")
+            last_result = status.get("last_rebal_attempt_result", "")
+            last_count = status.get("last_rebal_attempt_count", 0)
+
+            self._logger.debug(
+                f"[US_REBAL_CATCHUP_CHECK] phase={phase} mode={mode} "
+                f"due={rebal_due} allowed={exec_allowed} "
+                f"sv={current_sv[:20] if current_sv else ''} "
+                f"last_sv={last_sv[:20] if last_sv else ''} "
+                f"last_result={last_result} count={last_count}"
+            )
+
+            # Gate 1: basic eligibility
+            if phase != "BATCH_DONE" or mode != "auto":
+                return
+            if not rebal_due or not exec_allowed:
+                # REJECTED throttle: 동일 (sv, reason) 5분 dedup
+                reason = "not_due" if not rebal_due else "exec_blocked"
+                throttle_key = (current_sv, reason)
+                now_ts = time.time()
+                last_log = self._us_catchup_reject_log.get(throttle_key, 0)
+                if now_ts - last_log > 300:  # 5분
+                    self._logger.info(
+                        f"[US_REBAL_CATCHUP_SKIP_EXEC_BLOCKED] "
+                        f"due={rebal_due} allowed={exec_allowed} "
+                        f"blocks={status.get('block_reasons', [])}"
+                    )
+                    self._us_catchup_reject_log[throttle_key] = now_ts
+                return
+
+            # Gate 2: snapshot 기반 idempotency
+            if current_sv and current_sv == last_sv:
+                if last_result in ("SUCCESS", "PARTIAL"):
+                    self._logger.info(
+                        f"[US_REBAL_CATCHUP_SKIP_ALREADY_ATTEMPTED] "
+                        f"sv={current_sv[:20]} result={last_result}"
+                    )
+                    return
+                elif last_result == "FAILED" and last_count >= 2:
+                    self._logger.info(
+                        f"[US_REBAL_CATCHUP_SKIP_RETRY_EXHAUSTED] "
+                        f"sv={current_sv[:20]} count={last_count}"
+                    )
+                    return
+                elif last_result == "FAILED":
+                    self._logger.info(
+                        f"[US_REBAL_CATCHUP_RETRY_FAILED] "
+                        f"sv={current_sv[:20]} count={last_count}"
+                    )
+                # REJECTED: 재시도 허용 (count 미소진)
+
+            # Gate 통과 → 실행
+            req_id = str(_uuid.uuid4())
+            self._logger.info(
+                f"[US_REBAL_CATCHUP_TRIGGER] req={req_id[:8]} "
+                f"sv={current_sv[:20]}"
+            )
+            self._show_balloon("Q-TRON US", "Catchup rebal starting...")
+
+            try:
+                exec_result = self._us_api(
+                    "/api/rebalance/execute", "POST",
+                    {"mode": "sell_and_buy", "request_id": req_id},
+                    timeout=120,
+                )
+                if exec_result.get("ok"):
+                    self._logger.info(
+                        f"[US_REBAL_CATCHUP_RESULT] "
+                        f"result={exec_result.get('result')} "
+                        f"S={exec_result.get('sell_count', 0)} "
+                        f"B={exec_result.get('buy_count', 0)}"
+                    )
+                    self._show_balloon(
+                        "Q-TRON US",
+                        f"Catchup rebal {exec_result.get('result', '?')}: "
+                        f"S={exec_result.get('sell_count', 0)} "
+                        f"B={exec_result.get('buy_count', 0)}"
+                    )
+                else:
+                    err = exec_result.get("error", "?")
+                    self._logger.warning(
+                        f"[US_REBAL_CATCHUP_RESULT] rejected: {err}"
+                    )
+                    self._show_balloon("Q-TRON US", f"Catchup rebal: {err}")
+            except Exception as e:
+                self._logger.error(f"[US_REBAL_CATCHUP_RESULT] error: {e}")
+                self._show_balloon("Q-TRON US", "Catchup rebal: connection error")
+
+        except Exception as e:
+            self._logger.error(f"[US_REBAL_CATCHUP_CHECK] error: {e}")
+        finally:
+            self._us_batch_running = False
+
     def _action_us_live_start(self):
         """Start US Live mode as background subprocess."""
         if self._us_live_running:
@@ -923,6 +1883,36 @@ class Win32TrayServer:
     def _action_unified(self):
         """Open Unified Dashboard in browser."""
         webbrowser.open(f"http://localhost:{PORT}/unified")
+
+    def _action_gate_observer(self):
+        """AUTO GATE latest report — READ-ONLY consumer of logs/gate_observer/*.json."""
+        try:
+            from datetime import datetime as _dt
+            # sys.path already prepared by _bootstrap_path at top of file
+            from tools.gate_observer import load_latest, render_text, status_header
+            data = load_latest()
+            if not data:
+                self._show_balloon(
+                    "Gate Observer",
+                    "NO REPORT TODAY (producer deferred or not run)")
+                return
+            lines = [
+                "AUTO GATE Report (Latest) — READ-ONLY",
+                "=" * 50,
+                status_header(data),
+                f"producer: {data.get('producer','?')}   "
+                f"window: {data['window']['since']} -> {data['window']['until']}",
+                "",
+            ]
+            for m in ("KR", "US"):
+                lines.append(render_text(data[m]))
+                lines.append("")
+            report = "\n".join(lines)
+            out = _root / "kr" / "logs" / f"gate_observer_view_{_dt.now():%Y%m%d_%H%M%S}.txt"
+            out.write_text(report, encoding="utf-8")
+            os.startfile(str(out))
+        except Exception as e:
+            self._show_balloon("Gate Observer failed", str(e))
 
     # ── Server Control ────────────────────────────────────────
 
@@ -997,21 +1987,23 @@ class Win32TrayServer:
                     pass
         return "XVAL: no data"
 
-    def _kill_port_user(self):
+    def _kill_port_user(self, port: int = None):
+        """지정 포트 리스너 강제 종료. port 미지정 시 KR PORT."""
+        target = port if port is not None else PORT
         try:
             result = subprocess.run(
                 ["netstat", "-ano"],
                 capture_output=True, text=True, timeout=5,
             )
             for line in result.stdout.splitlines():
-                if f":{PORT}" in line and "LISTENING" in line:
+                if f":{target} " in line and "LISTENING" in line:
                     pid = int(line.split()[-1])
                     if pid != os.getpid():
                         subprocess.run(
                             ["taskkill", "/PID", str(pid), "/F"],
                             capture_output=True, timeout=5,
                         )
-                        self._logger.info(f"[TRAY] Killed PID {pid} on port {PORT}")
+                        self._logger.info(f"[TRAY] Killed PID {pid} on port {target}")
                         time.sleep(1)
                     break
         except Exception:
@@ -1024,6 +2016,18 @@ class Win32TrayServer:
 
         from data.rest_logger import setup_rest_logging
         setup_rest_logging()
+
+        # Startup health check — critical dep import 검증
+        # REQUIRED 누락 시 RuntimeError로 여기서 중단 (tray가 실행 자체 안 됨)
+        # CRITICAL 누락 시 부팅은 허용, Telegram + DataEvent 알림
+        try:
+            from tools.health_check import run_startup_health_check
+            run_startup_health_check(scope="kr")
+        except RuntimeError as _hc_fatal:
+            self._logger.critical(f"[HEALTH_CHECK] FATAL: {_hc_fatal}")
+            raise
+        except Exception as _hc_err:
+            self._logger.warning(f"[HEALTH_CHECK] check itself failed: {_hc_err}")
 
         self._start_server()
 
@@ -1057,8 +2061,16 @@ class Win32TrayServer:
                     now = datetime.now()
                     if now.weekday() < 5:  # Mon-Fri only
                         if now.hour == BATCH_HOUR and now.minute >= BATCH_MINUTE:
-                            self._logger.info("[BATCH_AUTO] Scheduled batch triggered")
-                            threading.Thread(target=self._run_batch, daemon=True).start()
+                            # Fail backoff: 직전 실패 후 BATCH_FAIL_BACKOFF_MIN 경과 전엔 skip.
+                            # 30초 tick × 55min 윈도우 = 최대 110회 재시도를 ~11회로 축소.
+                            _in_backoff = (
+                                self._batch_last_fail_at is not None
+                                and (now - self._batch_last_fail_at).total_seconds()
+                                    < BATCH_FAIL_BACKOFF_MIN * 60
+                            )
+                            if not _in_backoff:
+                                self._logger.info("[BATCH_AUTO] Scheduled batch triggered")
+                                threading.Thread(target=self._run_batch, daemon=True).start()
 
                 # Auto-backup: 17:00 daily
                 if not self._backup_running and not self._backup_today_done:
@@ -1067,18 +2079,145 @@ class Win32TrayServer:
                         self._logger.info("[BACKUP_AUTO] Daily backup triggered")
                         threading.Thread(target=self._run_backup, daemon=True).start()
 
+                # Daily self-test: 08:00 KST (PG ping)
+                if not self._self_test_running and not self._self_test_today_done:
+                    now = datetime.now()
+                    if now.hour == SELF_TEST_HOUR and now.minute >= SELF_TEST_MINUTE:
+                        self._logger.info("[TRAY_SELF_TEST] Scheduled ping triggered")
+                        threading.Thread(target=self._run_self_test, daemon=True).start()
+
                 # Reset daily flags at midnight
                 if datetime.now().hour == 0:
                     if self._batch_today_done:
                         self._batch_today_done = False
                     if self._backup_today_done:
                         self._backup_today_done = False
+                    if self._self_test_today_done:
+                        self._self_test_today_done = False
+                    # REJECTED 로그 throttle 캐시 리셋
+                    self._us_catchup_reject_log.clear()
 
                 # US Auto-batch: ET 18:00~18:30 (close + 2h)
                 if (self._us_batch_auto and not self._us_batch_running
                         and self._is_us_process_alive() and self._is_us_batch_time()):
-                    self._logger.info("[US_BATCH_AUTO] Scheduled batch triggered")
-                    threading.Thread(target=self._run_us_batch_and_rebal, daemon=True).start()
+                    from zoneinfo import ZoneInfo as _ZI
+                    _et_today = datetime.now(_ZI("US/Eastern")).date()
+                    if self._us_batch_last_done_date == _et_today:
+                        pass  # 오늘 이미 완료
+                    else:
+                        # server phase=BATCH_DONE 이면 실제 완료 상태 — date sync 후 skip (무한 retry 방지)
+                        _phase_done = False
+                        try:
+                            _st = self._us_api("/api/rebalance/status", timeout=3)
+                            if _st.get("phase") == "BATCH_DONE":
+                                self._us_batch_last_done_date = _et_today
+                                self._logger.info(
+                                    f"[US_BATCH_AUTO_SYNC] phase=BATCH_DONE detected — "
+                                    f"last_done_date={_et_today}"
+                                )
+                                _phase_done = True
+                        except Exception as _e:
+                            self._logger.debug(f"[US_BATCH_AUTO] status probe: {_e}")
+                        if not _phase_done:
+                            self._logger.info("[US_BATCH_AUTO] Scheduled batch triggered")
+                            threading.Thread(target=self._run_us_batch_and_rebal, daemon=True).start()
+
+                # US Auto-rebal: BATCH_DONE catchup (snapshot 기반 idempotency)
+                if (self._us_batch_auto and not self._us_batch_running
+                        and self._is_us_process_alive()):
+                    try:
+                        status = self._us_api("/api/rebalance/status")
+                        phase = status.get("phase", "IDLE")
+
+                        if phase == "BATCH_DONE" and status.get("mode") == "auto":
+                            current_sv = status.get("snapshot_version", "")
+                            last_sv = status.get("last_rebal_attempt_snapshot", "")
+                            last_result = status.get("last_rebal_attempt_result", "")
+                            last_count = status.get("last_rebal_attempt_count", 0)
+
+                            should_attempt = (
+                                current_sv != last_sv  # 새 배치
+                                or (last_result == "FAILED" and last_count < 2)
+                                or last_result == "REJECTED"
+                            )
+
+                            if should_attempt:
+                                threading.Thread(
+                                    target=self._run_us_auto_rebal_only,
+                                    daemon=True,
+                                ).start()
+                    except Exception:
+                        pass  # US server not ready yet
+
+                # ── Lab Live EOD Auto (KR, v4.1) ──
+                try:
+                    kst_now = self._now_kst()
+                    kst_today = kst_now.date()
+                    self._maybe_reset_kr_lab_eod_fail(kst_today)
+                    kr_done = (self._kr_lab_eod_last_done_date == kst_today)
+                    kr_is_initial = self._is_within_window(
+                        kst_now, KR_LAB_EOD_HOUR, KR_LAB_EOD_MINUTE,
+                        LAB_EOD_WINDOW_SEC,
+                    )
+                    kr_is_retry = (
+                        self._kr_lab_eod_retry_until is not None
+                        and kst_now >= self._kr_lab_eod_retry_until
+                    )
+                    kr_can_try = (
+                        not kr_done
+                        and self._kr_lab_eod_fail_count < LAB_EOD_MAX_FAILS
+                        and kst_now.weekday() < 5
+                        and (kr_is_initial or kr_is_retry)
+                    )
+                    if kr_can_try:
+                        self._logger.info(
+                            f"[KR_LAB_EOD_AUTO_TRIGGER] "
+                            f"{'initial' if kr_is_initial else 'retry'} "
+                            f"fail={self._kr_lab_eod_fail_count}"
+                        )
+                        if kr_is_retry:
+                            # retry 소비: 다음 fail 전까지 재트리거 없음
+                            self._kr_lab_eod_retry_until = None
+                        threading.Thread(
+                            target=self._run_kr_lab_eod, daemon=True,
+                        ).start()
+                except Exception as _kre:
+                    self._logger.warning(f"[KR_LAB_EOD_AUTO_SCHEDULE_ERR] {_kre}")
+
+                # ── Lab Forward EOD Auto (US, v4.1) ──
+                if self._is_us_process_alive():
+                    try:
+                        et_now = self._now_et()
+                        et_today = et_now.date()
+                        self._maybe_reset_us_lab_eod_fail(et_today)
+                        us_done = (self._us_lab_eod_last_done_date == et_today)
+                        us_is_initial = self._is_within_window(
+                            et_now, US_LAB_EOD_HOUR, US_LAB_EOD_MINUTE,
+                            LAB_EOD_WINDOW_SEC,
+                        )
+                        us_is_retry = (
+                            self._us_lab_eod_retry_until is not None
+                            and et_now >= self._us_lab_eod_retry_until
+                        )
+                        us_can_try = (
+                            not us_done
+                            and self._us_lab_eod_fail_count < LAB_EOD_MAX_FAILS
+                            and et_now.weekday() < 5
+                            and (us_is_initial or us_is_retry)
+                        )
+                        if us_can_try:
+                            self._logger.info(
+                                f"[US_LAB_EOD_AUTO_TRIGGER] "
+                                f"{'initial' if us_is_initial else 'retry'} "
+                                f"fail={self._us_lab_eod_fail_count}"
+                            )
+                            if us_is_retry:
+                                self._us_lab_eod_retry_until = None
+                            threading.Thread(
+                                target=self._run_us_lab_eod, daemon=True,
+                            ).start()
+                    except Exception as _use:
+                        self._logger.warning(f"[US_LAB_EOD_AUTO_SCHEDULE_ERR] {_use}")
 
                 # US process health check (process-truth)
                 if self._us_running and not self._is_us_process_alive():
