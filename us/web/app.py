@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import _bootstrap_path  # noqa: F401  -- side-effect: adds project root for `shared.*`
 
 from config import USConfig
 from data.alpaca_provider import AlpacaProvider
