@@ -153,6 +153,55 @@ Pipeline Orchestrator 구현 시 Phase 1에 환경 검증 step 포함해야.
 - Promotion evidence 수집 (별도 시스템, 최근 완료)
 - Root/Gen2 legacy 코드 정리 — 별도 작업으로 분리
 
+### 2.3 실행 모드 구분 — FORWARD + SIM 원칙 (2026-04-20 확정)
+
+Q-TRON 은 3가지 실행 모드를 분리 설계한다. Pipeline Orchestrator 는 각
+모드가 **서로 다른 precondition / state store / advisor 해석** 을 갖도록
+mode-aware 로 구현한다. (R-1 state fragmentation 해결의 핵심 중 하나)
+
+| 모드 | 데이터 | 주문 실행 | 계좌 | 용도 |
+|---|---|---|---|---|
+| **Backtest** | 과거 전체 기간 (OOS 분할 포함) | 가상 즉시 체결 | 가상 (config.initial_cash) | 전략 초기 검증 / 파라미터 탐색 |
+| **Lab Live (Forward Paper)** | 오늘부터 매일 forward | 종가 기반 virtual fill | 가상 (1억 × 18 전략) | Gen5+ 후보 전략 **실시간 검증** |
+| **Real Live** (`main.py --live`) | 오늘 | 실주문 (Kiwoom REST) | 실계좌 | 확정 전략 실제 운용 |
+
+#### Forward Paper = "Forward + SIM" 성격
+
+Lab Live 는 **단순 Paper trading 이 아니라 Forward 시뮬레이션**:
+
+- **Forward**: 매일 signal 은 그날까지의 data 로만 생성 — lookahead bias 부재
+- **Paper / Virtual**: 실주문 발행 안 함, 종가 기반 가상 체결 — 실계좌 위험 없음
+- **Simulation**: 메모리 + 파일 state 로 포트폴리오 추적
+
+Backtest 와 결정적 차이:
+1. **태생적 OOS** — 오늘 data 를 내일의 결정에 쓸 수 없음 (overfitting 자동 배제)
+2. **Survivorship bias 없음** — 상장폐지, 감자 등 사건을 실제 발생 시점에 겪음
+3. **운영 현실 노출** — tray 장애, tzdata 누락, EOD 타이밍, pre-commit 사고 등
+   backtest 가 결코 드러낼 수 없는 **환경 의존성** 이 여기서 발견됨
+4. **진짜 No-lookahead** — 실제 live 직전 검증으로는 Backtest 보다 신뢰도 훨씬 높음
+
+그래서 Promotion Hard Gates 설계가 "Backtest 성적만으로는 승격 불가,
+Forward Paper 운영 시간 (sample_days) + 운영 증거 (ops evidence) 필수"
+를 요구하는 것이 설계 철학의 핵심.
+
+#### Paper-mode ops evidence shim (설계 의도)
+
+7 CRITICAL ops evidence (recon / broker mismatch / duplicate execution 등)
+는 **실 broker 연결이 있는 Real Live 환경에서만 발생 가능한 이벤트**.
+
+Lab Live (Forward Paper) 에는 broker 자체가 없으므로 이 값들은 **구조적
+으로 0 회 발생**. 현재 collect_ops_evidence 는 UNKNOWN 을 반환하고 hard
+gate 가 이를 BLOCKED 로 처리 (오늘 Promotion evidence 작업의 정확한
+결과) → Paper 전략 영구 BLOCKED.
+
+Pipeline Orchestrator Phase 2 에서 **mode-aware ops adapter** 추가:
+
+- `mode="live"`: 기존 동작 (runtime_state / ops_metrics.json / log_summary 우선순위)
+- `mode="paper_forward"`: 7 CRITICAL 필드 explicit 0 반환 (+ evidence_source = "paper_forward_shim")
+- `mode="backtest"`: 7 CRITICAL 필드 explicit 0 반환 (동일 논리)
+
+이로써 Forward Paper 전략들은 sample_days, trades, regime_coverage, performance floor 같은 **실제로 의미 있는 조건** 으로만 판정받고, 구조적으로 불가능한 이벤트는 판정에서 배제된다.
+
 ---
 
 ## 3. 제안 아키텍처
