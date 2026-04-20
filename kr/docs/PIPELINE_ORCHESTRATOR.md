@@ -78,6 +78,37 @@ for name in ("gen4.rest", "gen4.live", "gen4.state", "gen4.crosscheck", "gen4.du
 
 결과: `sys.modules` 캐시에 Gen2가 선점되면 tray의 `from config import Gen4Config`가 실패 (오늘 증상).
 
+### 1.3 2026-04-20 구체적 증거 (5 root causes 매핑)
+
+2026-04-20 세션에서 발견/겪은 증상들을 5 root causes에 매핑.
+commit hash와 로그 라인 증거 포함 — 재현 불가능한 맥락을 영구 기록.
+
+| 발견 증상 | 날짜/시각 | 매핑 | 증거 (commit/로그) |
+|---|---|---|---|
+| US auto-retry 30s 폭주 (4/18: 560회/일) | 4/14~4/18 | R-1 R-3 | `b02c2f6e` tray_server.py `_run_us_batch_and_rebal` skip cache 누락 |
+| KR Lab EOD 15:35 윈도우 놓침 → abandoned | 오늘 15:52 | R-2 R-3 | `[KR_LAB_EOD_AUTO_ABANDONED] fail=3/3` in rest_api_20260420.log; 수동 복구 필요 |
+| Gen4Config import 32회 반복 실패 | 오늘 16:06~16:22 | R-5 | `[BATCH_FAIL] cannot import name 'Gen4Config' from 'config' (C:\Q-TRON-32_ARCHIVE\config.py)`; `b02c2f6e` sys.modules.pop defensive fix |
+| gen4.batch 로그 rest_api_*.log에 누락 | 관측 전부터 | R-4 | rest_logger.py allowlist 5개만; `b02c2f6e` gen4 parent 부착 |
+| Backup "[KR] BACKUP FAIL" 오탐 (SKIPPED sqlite) | 매일 | R-1 | `d41d9bf0` daily_backup.py _is_success 추가 |
+| Promotion UNKNOWN이 safe 처리 | 설계 초기부터 | (정확성) | `9f5b3bf2` 17 files; 수정 후 BLOCKED 정확 표시 |
+| Pre-commit stash 사고 (50+ files 손실) | 오늘 19:35 | 인접 R-5 | `.venv/Scripts/python.exe` file lock → rollback 실패; `backup/precommit_stash_20260420.patch` 217MB 보존 + `.pre-commit-config.yaml` exclude `^(\.venv|\.venv64)/` 추가 |
+| tray restart 시 lab_live head.json rollback | 오늘 19:35 | R-1 | `committed_version_seq 11→1` 관측; state/*.json 일부는 최신 유지하면서 head만 롤백 → 원인 미확인. Pipeline state 단일화가 해결 경로 |
+| Lab Live catch-up 없음 → 4/11~4/19 equity_history 구멍 | 오늘 | R-2 | `run_daily()` 가 오늘 하루만 처리; 매일 실행 안 하면 빠짐. Backfill script `backup/lab_live_equity_backfill.py` 로 일회 복구. 근본 해결은 Orchestrator step 재실행 idempotency |
+| AI Advisor "portfolio state 314h old" 오탐 | 상시 | R-1 | `portfolio_state_live.json`은 Gen4 live state, Jeff은 paper_forward 사용 → 읽는 source와 실제 운영 mode 불일치. mode-aware 체크로 해결 |
+| Advisor timestamp gap 6138min (~4일) | 상시 | R-1 | `runtime_state_live.json`에 `timestamp`(stale 4/3) vs `_write_ts`(최신 4/20) 이중 필드; advisor가 stale 필드 참조. 단일 `pipeline_state.last_update` 로 해결 |
+
+### 1.4 오늘 작업 범위 (증상 치료 한계 확인)
+
+2026-04-20 commit 이력 (master 병합 완료):
+- `9f5b3bf2` feat(promotion): UNKNOWN-safe ops evidence + PG
+- `d41d9bf0` fix(backup): treat SKIPPED as success
+- `b02c2f6e` fix(tray): batch import guard + Lab EOD recovery + fail backoff + gen4 logger
+- `fafdf9f6` docs: Pipeline Orchestrator design draft (v0.1) — 본 문서
+- `7b93dcf1` fix(us): add _bootstrap_path import to web/app.py
+- `cefba0ea` feat: restore uncommitted work lost during 2026-04-20 pre-commit incident (53 files)
+
+**전부 증상 레벨**. Pipeline Orchestrator 실장만이 5 root causes 전부 해결 경로.
+
 ---
 
 ## 2. 목표
