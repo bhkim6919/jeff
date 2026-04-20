@@ -2281,9 +2281,27 @@ def create_app() -> FastAPI:
             )
             from data.db_provider import DbProvider
             sim = _lab_live_sim.get("sim")
-            if not sim or not sim._initialized:
-                return {"ok": False}
-            trade_date = sim._last_run_date
+            # sim 이 init 상태면 그 _last_run_date 사용.
+            # tray 재시작 직후 sim 이 None 이어도 PG meta_strategy_daily 에서 최신
+            # trade_date 를 fallback 조회하여 view 는 항상 복원되도록 한다.
+            # (메타분석/카드 상세가 매 재시작마다 사라지던 문제 — 2026-04-20 fix)
+            trade_date = None
+            if sim and sim._initialized:
+                trade_date = sim._last_run_date
+            if not trade_date:
+                try:
+                    from shared.db.pg_base import connection as _mc
+                    with _mc() as _conn:
+                        _cur = _conn.cursor()
+                        _cur.execute(
+                            "SELECT MAX(trade_date) FROM meta_strategy_daily"
+                        )
+                        _r = _cur.fetchone()
+                        _cur.close()
+                    if _r and _r[0]:
+                        trade_date = str(_r[0])
+                except Exception:
+                    pass
             if not trade_date:
                 return {"ok": False}
             summary = build_daily_summary(trade_date)
@@ -2291,8 +2309,13 @@ def create_app() -> FastAPI:
                 return {"ok": False}
 
             # ── Daily drivers 주입 (카드 확장 섹션용) ──
-            # 안전: 실패 시 drivers만 비우고 summary는 유지
+            # 안전: 실패 시 drivers만 비우고 summary는 유지.
+            # sim 이 없으면 drivers 는 skip (summary 만 반환) — UI 는 기본 메타분석
+            # 박스까지는 보이고 카드 expand detail 만 비는 상태.
             try:
+                if sim is None:
+                    # sim 미초기화 상태 — drivers 건너뛰고 summary 만 제공
+                    raise RuntimeError("sim not initialized — drivers skipped (fallback mode)")
                 db = DbProvider()
                 kospi_series = build_kospi_series(db, trade_date, window=30)
                 sector_map = getattr(sim, "_sector_map", {}) or {}
