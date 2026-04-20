@@ -109,6 +109,30 @@ commit hash와 로그 라인 증거 포함 — 재현 불가능한 맥락을 영
 
 **전부 증상 레벨**. Pipeline Orchestrator 실장만이 5 root causes 전부 해결 경로.
 
+### 1.5 R-6 추가 — 환경 의존성 미검증 (2026-04-20 22:00 발견)
+
+위 5가지 외 **6번째 구조적 취약점**: tray 실행 Python이 `tzdata` 패키지가
+없으면 `ZoneInfo('Asia/Seoul')` 호출이 `ZoneInfoNotFoundError` 발생.
+`_is_after_kr_close()` 같은 함수가 try/except 로 감싸져 있어 **silent False 반환**,
+로그에 아무 흔적 없음.
+
+**영향**:
+- `_is_after_kr_close/us_close` → 판정 실패 → 배치 버튼 `(장 마감 전)` 회색 고정 (2026-04-20 22시 관찰 증상)
+- `_now_kst/_now_et`, `_maybe_reset_*_fail`, Lab EOD auto-trigger 15:35/16:05 윈도우 판정도 silent fail 가능
+- **오늘 Lab EOD abandoned의 숨은 원인 중 하나였을 가능성 높음**
+
+**임시 조치** (2026-04-20 22시): `pip install tzdata==2026.1` 설치 완료.
+
+**근본 해결**: `_bootstrap_path.py` 에 환경 전제 검증 추가:
+```python
+# bootstrap fail-fast — tzdata + 필수 패키지
+import tzdata   # noqa: F401
+from zoneinfo import ZoneInfo
+ZoneInfo("Asia/Seoul")   # 실제 lookup 성공해야 통과
+```
+
+Pipeline Orchestrator 구현 시 Phase 1에 환경 검증 step 포함해야.
+
 ---
 
 ## 2. 목표
