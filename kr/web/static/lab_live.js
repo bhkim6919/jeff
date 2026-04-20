@@ -58,14 +58,10 @@
         } catch (e) { badge.textContent = 'ERROR'; }
     });
 
-    // ── Reset button ────────────────────────────────────────
-    document.getElementById('btn-live-reset')?.addEventListener('click', async () => {
-        if (!confirm('9전략 모두 초기화합니다. 포지션과 이력이 삭제됩니다. 계속?')) return;
-        try {
-            await fetch('/api/lab/live/reset', {method: 'POST'});
-            loadState();
-        } catch (e) {}
-    });
+    // ── Reset button removed 2026-04-20 per user request ────
+    // Previously: #btn-live-reset POST /api/lab/live/reset — too risky
+    // (accidental click destroys weeks of accumulated equity_history).
+    // API endpoint retained for programmatic access if ever needed.
 
     // ── Load state ──────────────────────────────────────────
     async function loadState() {
