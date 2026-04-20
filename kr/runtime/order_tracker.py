@@ -80,6 +80,12 @@ class OrderTracker:
         self._fill_ledger: Dict[str, FillEvent] = {}
         self._session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self._trading_mode = trading_mode
+        # Ops evidence counters (session-scope).
+        # - duplicate_fills: record_fill이 이미 ledger에 있는 fill_id를 재수신한 횟수.
+        # - timeouts: TIMEOUT_UNCERTAIN + PENDING_EXTERNAL 누적 카운트 (중복 없이 터미널 transition만).
+        # Total count와 recent/unresolved를 분리. _unresolved_* 는 현재 open 상태 기준 snapshot에서 재계산.
+        self._duplicate_fills_count: int = 0
+        self._order_timeouts_count: int = 0
 
         # JSONL journal for crash recovery forensics
         self._journal_path: Optional[Path] = None
@@ -166,6 +172,8 @@ class OrderTracker:
     def mark_timeout(self, order_id: str) -> None:
         rec = self._orders.get(order_id)
         if rec:
+            if rec.status != OrderStatus.TIMEOUT_UNCERTAIN:
+                self._order_timeouts_count += 1
             self._transition(rec, OrderStatus.TIMEOUT_UNCERTAIN)
             self._journal_write("TIMEOUT_UNCERTAIN", order_id=order_id,
                                 code=rec.code, side=rec.side,
@@ -175,6 +183,9 @@ class OrderTracker:
         """Timeout with uncertain fill — order may be live on broker."""
         rec = self._orders.get(order_id)
         if rec:
+            if rec.status not in (OrderStatus.TIMEOUT_UNCERTAIN,
+                                  OrderStatus.PENDING_EXTERNAL):
+                self._order_timeouts_count += 1
             self._transition(rec, OrderStatus.PENDING_EXTERNAL)
             self._journal_write("PENDING_EXTERNAL", order_id=order_id,
                                 code=rec.code, side=rec.side,
@@ -235,6 +246,7 @@ class OrderTracker:
         """Record fill event. Returns False if already recorded (duplicate)."""
         fill_id = f"{order_no}_{side}_{cumulative_qty}"
         if fill_id in self._fill_ledger:
+            self._duplicate_fills_count += 1
             logger.debug(f"Duplicate fill ignored: {fill_id}")
             return False
         self._fill_ledger[fill_id] = FillEvent(
@@ -267,4 +279,27 @@ class OrderTracker:
             "total": total, "filled": filled, "rejected": rejected,
             "uncertain": uncertain, "pending_external": pending_ext,
             "fills_in_ledger": len(self._fill_ledger),
+        }
+
+    def ops_snapshot(self) -> dict:
+        """Structured ops evidence for promotion collector.
+
+        All counts are session-scope (tracker lifetime). Consumer can combine
+        with persisted history for longer windows.
+
+        Total count vs unresolved/recent is explicitly separated:
+          - *_total: cumulative since session start
+          - pending_external_unresolved: currently open (not settled)
+        """
+        uncertain_open = sum(1 for r in self._orders.values()
+                             if r.status == OrderStatus.TIMEOUT_UNCERTAIN)
+        pending_open = sum(1 for r in self._orders.values()
+                           if r.status == OrderStatus.PENDING_EXTERNAL)
+        return {
+            "duplicate_execution_incident_count_total": self._duplicate_fills_count,
+            "order_timeout_events_total": self._order_timeouts_count,
+            "pending_external_unresolved_count": pending_open,
+            "timeout_uncertain_unresolved_count": uncertain_open,
+            "session_id": self._session_id,
+            "trading_mode": self._trading_mode,
         }

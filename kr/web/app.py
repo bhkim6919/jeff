@@ -15,6 +15,12 @@ Usage:
 """
 from __future__ import annotations
 
+# ── Path bootstrap MUST run before any kr.* / shared.* import ────────────────
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))  # audit:allow-syspath: bootstrap-locator (kr/)
+import _bootstrap_path  # noqa: F401  -- side-effect: sys.path setup (kr + project root)
+
 import asyncio
 import json
 import logging
@@ -35,18 +41,16 @@ from web.api_state import tracker
 
 logger = logging.getLogger("gen4.rest.web")
 
-# ── Ensure project root in sys.path (for shared/ imports) ────
-import sys as _sys
-_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent)
-if _PROJECT_ROOT not in _sys.path:
-    _sys.path.insert(0, _PROJECT_ROOT)
-
 # ── Paths ─────────────────────────────────────────────────────
 
 WEB_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = WEB_DIR / "templates"
 STATIC_DIR = WEB_DIR / "static"
-_GEN04_STATE_DIR = Path(__file__).resolve().parent.parent.parent / "kr-legacy" / "state"
+# State dir — canonical location is kr/state/ (config.STATE_DIR).
+# kr-legacy/state/ is a frozen mirror and stops updating once the live/batch
+# process moves to kr/state, which silently desynced the gate (BATCH_MISSING
+# even after batch wrote the canonical file). Pin to kr/state/.
+_GEN04_STATE_DIR = Path(__file__).resolve().parent.parent / "state"
 _GEN04_REPORT_DIR = Path(__file__).resolve().parent.parent.parent / "kr-legacy" / "report" / "output"
 _GEN04_SECTOR_MAP_PATH = Path(__file__).resolve().parent.parent.parent / "kr-legacy" / "data" / "sector_map.json"
 
@@ -203,59 +207,116 @@ def _inject_sectors(account_data: dict) -> None:
 
 
 def _compute_dd_guard(total_asset: float) -> dict:
-    """Wrapper for backward compat — reads file internally."""
-    raw = _safe_read_json(str(_GEN04_STATE_DIR / "portfolio_state_live.json"))
-    fb = _get_or_fallback("portfolio_state", raw)
-    return _compute_dd_guard_from(total_asset, fb)
+    """Wrapper for backward compat."""
+    return _compute_dd_guard_from(total_asset, None)
 
 
-def _compute_dd_guard_from(total_asset: float, fb: dict) -> dict:
-    """Compute DD guard from pre-read fallback data. No file I/O."""
+def _compute_dd_guard_from(total_asset: float, account_data: dict = None) -> dict:
+    """Compute DD guard from rest_equity_snapshots + broker fallback.
+
+    Priority:
+      1. rest_equity_snapshots (peak/trough: all-time MAX/MIN of EOD close_equity)
+      2. broker pred_close_pric × qty + cash (전일대비 fallback)
+    """
+    from datetime import date as _date_cls
+    today_iso = _date_cls.today().isoformat()
+
     result = {
         "daily_dd": None, "daily_dd_available": False,
         "monthly_dd": None, "monthly_dd_available": False,
         "level": "UNKNOWN", "buy_permission": "UNKNOWN",
         "config_version": _DD_CONFIG_VERSION,
-        "source_ts": 0, "stale": True,
+        "source_ts": int(time.time()), "stale": False,
         "source_total_asset": total_asset,
-        "source_prev_close": None, "source_peak": None,
+        "source_prev_close": None, "source_peak": None, "source_trough": None,
+        "prev_close_date": "", "peak_date": "", "trough_date": "",
+        "prev_close_source": "none",
+        "snapshot_count": 0,
         "from_cache": False, "expired": False, "error": None,
     }
-    result["from_cache"] = fb.get("from_cache", False)
-    result["expired"] = fb.get("expired", False)
-    result["error"] = fb.get("error")
-    result["source_ts"] = fb.get("source_ts", 0)
-    result["stale"] = (time.time() - result["source_ts"]) > 60 if result["source_ts"] else True
 
-    data = fb.get("data")
-    if not data or not total_asset or total_asset <= 0:
+    if not total_asset or total_asset <= 0:
         return result
 
-    prev_close = data.get("prev_close_equity")
-    peak = data.get("peak_equity")
+    # 1) Prev close — rest_equity_snapshots → dashboard_snapshots → broker
+    prev_close = None
+    try:
+        from web.rest_state_db import get_prev_eod_equity
+        prev_row = get_prev_eod_equity(today_iso)
+        if prev_row and (prev_row.get("close_equity") or 0) > 0:
+            prev_close = float(prev_row["close_equity"])
+            result["prev_close_date"] = prev_row.get("market_date", "")
+            result["prev_close_source"] = "rest_eod"
+    except Exception as e:
+        logging.getLogger("web").debug(f"[DD_GUARD] rest_eod prev: {e}")
+
+    if prev_close is None:
+        try:
+            from web.dashboard_db import get_prev_day_last_equity
+            prev_row = get_prev_day_last_equity(today_iso)
+            if prev_row and prev_row.get("equity", 0) > 0:
+                prev_close = float(prev_row["equity"])
+                result["prev_close_date"] = prev_row.get("market_date", "")
+                result["prev_close_source"] = "dashboard_history"
+        except Exception as e:
+            logging.getLogger("web").debug(f"[DD_GUARD] dash_history prev: {e}")
+
+    if prev_close is None and account_data:
+        prev_eval = account_data.get("prev_eval_amt") or 0
+        cash = account_data.get("cash") or 0
+        if prev_eval > 0:
+            prev_close = float(prev_eval + cash)
+            result["prev_close_source"] = "broker"
     result["source_prev_close"] = prev_close
-    result["source_peak"] = peak
 
-    # P1-3: Equity basis divergence detection
-    if prev_close and prev_close > 0 and total_asset > 0:
-        equity_diff = abs(total_asset - prev_close) / prev_close
-        if equity_diff > 0.01:
-            logging.getLogger("web").warning(
-                f"[EQUITY_MISMATCH] broker={total_asset:,.0f} engine_prev={prev_close:,.0f} "
-                f"diff={equity_diff:.4%} — valuation basis may differ"
-            )
+    # 2) UI peak/trough — 오늘 tick (intraday drawdown/recovery 시각화)
+    try:
+        from web.dashboard_db import get_today_equity_peak_trough
+        pt = get_today_equity_peak_trough(today_iso)
+        result["snapshot_count"] = pt.get("count", 0)
+        if pt.get("count", 0) > 0:
+            peak_val = pt["peak"]
+            if total_asset > peak_val:
+                result["source_peak"] = total_asset
+                result["peak_date"] = ""
+            else:
+                result["source_peak"] = peak_val
+                result["peak_date"] = pt.get("peak_ts", "")
 
-    # Partial: daily
+            trough_val = pt["trough"]
+            if total_asset < trough_val:
+                result["source_trough"] = total_asset
+                result["trough_date"] = ""
+            else:
+                result["source_trough"] = trough_val
+                result["trough_date"] = pt.get("trough_ts", "")
+        elif total_asset > 0:
+            result["source_peak"] = total_asset
+            result["source_trough"] = total_asset
+    except Exception as e:
+        logging.getLogger("web").debug(f"[DD_GUARD] today peak_trough: {e}")
+
+    # 3) monthly_dd — all-time history peak 기준 (alert_engine 호환)
+    alltime_peak = None
+    try:
+        from web.dashboard_db import get_alltime_equity_peak
+        ap = get_alltime_equity_peak()
+        if ap.get("count", 0) > 0 and ap["peak"] > 0:
+            alltime_peak = max(ap["peak"], total_asset)
+    except Exception as e:
+        logging.getLogger("web").debug(f"[DD_GUARD] alltime peak: {e}")
+
+    # Daily DD (vs yesterday EOD)
     if prev_close and prev_close > 0:
         result["daily_dd"] = round((total_asset - prev_close) / prev_close, 6)
         result["daily_dd_available"] = True
 
-    # Partial: monthly
-    if peak and peak > 0:
-        result["monthly_dd"] = round((total_asset - peak) / peak, 6)
+    # Monthly DD (vs all-time peak — alert_engine 임계치 판정용)
+    if alltime_peak and alltime_peak > 0:
+        result["monthly_dd"] = round((total_asset - alltime_peak) / alltime_peak, 6)
         result["monthly_dd_available"] = True
 
-    # Determine level from monthly_dd (primary) or daily_dd (fallback)
+    # DD level
     dd_val = result["monthly_dd"] if result["monthly_dd_available"] else result["daily_dd"]
     if dd_val is not None:
         level = "NORMAL"
@@ -445,8 +506,7 @@ def create_app() -> FastAPI:
     # IP monitor — check every 10 min in background
     import threading
     def _ip_monitor_loop():
-        import sys as _sys
-        _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        # sys.path already prepared by _bootstrap_path at top of module
         from data.ip_monitor import check_ip
         import time as _time
         while True:
@@ -482,18 +542,16 @@ def create_app() -> FastAPI:
         """Main dashboard page."""
         return templates.TemplateResponse(request, "index.html")
 
-    @application.get("/api/state")
-    async def get_state():
-        """Full state snapshot (JSON). For polling or initial load."""
-        return tracker.snapshot()
+    # NOTE: /api/state는 line ~1271의 get_state_snapshot()이 진짜 핸들러 (portfolio cache + auto_trading 포함).
+    # 과거 이 자리에 있던 tracker-only 중복 라우트는 FastAPI 라우팅 우선순위(먼저 등록된 게 이김) 때문에
+    # portfolio/auto_trading 필드를 가려서 "AUTO GATE: UNKNOWN" 이슈 유발 → 제거 (2026-04-18).
 
     # ── Portfolio (live REST API data) ─────────────────
     _provider_cache = {"instance": None}
 
     def _get_provider():
         if _provider_cache["instance"] is None:
-            import sys, os
-            sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+            # sys.path already prepared by _bootstrap_path at top of module
             from data.rest_provider import KiwoomRestProvider
             _provider_cache["instance"] = KiwoomRestProvider(server_type="REAL")
         return _provider_cache["instance"]
@@ -857,11 +915,15 @@ def create_app() -> FastAPI:
     _prev_close_cache: dict = {}
     _prev_close_cache_date: str = ""
 
-    def _enrich_day_change(holdings: list) -> None:
+    def _enrich_day_change(holdings: list, ref_date: str = None) -> None:
         """보유종목에 전일대비 등락률 추가. Observer-only, Engine 간섭 없음.
 
-        데이터 소스 우선순위:
-        1. DB OHLCV (PostgreSQL)
+        ref_date: Lab 시뮬레이션용 — cur_price가 ref_date 종가일 때
+                  ref_date 하루 전 거래일의 종가와 비교. None이면 시스템 today 사용.
+
+        데이터 소스 우선순위 (Live 대시보드 기준):
+        0. Kiwoom 응답의 prev_close_price (pred_close_pric) — authoritative source
+        1. DB OHLCV (PostgreSQL) — fallback
         2. pykrx fallback (KRX 직접 조회, 하루 1회 캐싱)
         """
         codes = [h["code"] for h in holdings if h.get("code")]
@@ -870,11 +932,22 @@ def create_app() -> FastAPI:
 
         prev_closes = {}  # {code: float}
 
+        # Source 0: Kiwoom 응답에 이미 포함된 prev_close_price 우선 사용
+        # (pred_close_pric 필드, rest_provider에서 이미 채워줌)
+        for h in holdings:
+            code = h.get("code", "")
+            pcp = h.get("prev_close_price", 0) or 0
+            if code and pcp > 0:
+                prev_closes[code] = float(pcp)
+
+        # DB/pykrx 조회는 Kiwoom에서 빠진 종목만 (ref_date 주어진 Lab 경로는 항상 DB로)
+        codes_missing = [c for c in codes if c not in prev_closes] if ref_date is None else codes
+
         # Source 1: DB
         try:
             from data.db_provider import DbProvider
             db = DbProvider()
-            prev_data = db.get_prev_closes(codes, max_stale_bdays=3)
+            prev_data = db.get_prev_closes(codes_missing, max_stale_bdays=3, ref_date=ref_date)
             for code, info in prev_data.items():
                 if info and not info.get("stale") and info.get("prev_close", 0) > 0:
                     prev_closes[code] = info["prev_close"]
@@ -947,6 +1020,33 @@ def create_app() -> FastAPI:
             return summary
         except Exception as e:
             return {"error": str(e), "holdings_reliable": False}
+
+    # Minute-bar chart cache (hover 요청 부하 방지)
+    # {code: {"ts": epoch, "tic_scope": "1", "data": {...}}}
+    _minute_chart_cache: dict = {}
+    _MINUTE_CHART_TTL = 60  # seconds — 장중 1분봉은 60초 캐싱
+
+    @application.get("/api/chart/minute/{code}")
+    async def get_minute_chart(code: str, tic_scope: str = Query("1"),
+                               bars: int = Query(60, ge=10, le=300)):
+        """분봉 차트 조회 (ka10080). 카드 hover 시 mini chart 렌더용.
+
+        Params:
+          tic_scope: 1/3/5/10/15/30/45/60 (분)
+          bars: 최근 N개 (10~300)
+        """
+        import time as _time
+        key = f"{code}:{tic_scope}:{bars}"
+        cached = _minute_chart_cache.get(key)
+        if cached and (_time.time() - cached["ts"]) < _MINUTE_CHART_TTL:
+            return cached["data"]
+        try:
+            provider = _get_provider()
+            result = provider.query_minute_chart(code, tic_scope=tic_scope, max_bars=bars)
+            _minute_chart_cache[key] = {"ts": _time.time(), "data": result}
+            return result
+        except Exception as e:
+            return {"code": code, "tic_scope": tic_scope, "bars": [], "error": str(e)}
 
     @application.get("/api/traces")
     async def get_traces(
@@ -1338,7 +1438,8 @@ def create_app() -> FastAPI:
         limit: int = Query(100, ge=1, le=500),
         offset: int = Query(0, ge=0),
     ):
-        """거래 내역 조회 (PG report_trades)."""
+        """거래 내역 조회 (LIVE → Lab fallback)."""
+        # LIVE trades
         try:
             from shared.db.pg_base import connection
             with connection() as conn:
@@ -1355,14 +1456,53 @@ def create_app() -> FastAPI:
                 w = " AND ".join(where)
                 cur.execute(f"SELECT COUNT(*) FROM report_trades WHERE {w}", params)
                 total = cur.fetchone()[0]
-                cur.execute(
-                    f"SELECT id,date,code,side,quantity,price,cost,slippage_pct,created_at "
-                    f"FROM report_trades WHERE {w} ORDER BY date DESC, id DESC "
-                    f"LIMIT %s OFFSET %s", params + [limit, offset])
-                cols = [d[0] for d in cur.description]
-                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+                if total > 0:
+                    cur.execute(
+                        f"SELECT id,date,code,side,quantity,price,cost,slippage_pct,created_at "
+                        f"FROM report_trades WHERE {w} ORDER BY date DESC, id DESC "
+                        f"LIMIT %s OFFSET %s", params + [limit, offset])
+                    cols = [d[0] for d in cur.description]
+                    rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+                    cur.close()
+                    return {"total": total, "limit": limit, "offset": offset, "trades": rows}
                 cur.close()
-            return {"total": total, "limit": limit, "offset": offset, "trades": rows}
+        except Exception:
+            pass
+        # Lab fallback
+        try:
+            import json as _json
+            from pathlib import Path as _P
+            t_path = _P(__file__).resolve().parent.parent / "data" / "lab_live" / "trades.json"
+            t_data = _json.loads(t_path.read_text(encoding="utf-8"))
+            t_list = t_data.get("trades", [])
+            # Filter
+            if code:
+                t_list = [t for t in t_list if t.get("ticker") == code]
+            if side:
+                s = side.upper()
+                if s == "SELL":
+                    t_list = [t for t in t_list if t.get("exit_date")]
+                elif s == "BUY":
+                    t_list = [t for t in t_list if t.get("entry_date")]
+            if start:
+                t_list = [t for t in t_list if t.get("exit_date", t.get("entry_date", "")) >= start]
+            if end:
+                t_list = [t for t in t_list if t.get("exit_date", t.get("entry_date", "")) <= end]
+            total = len(t_list)
+            rows = []
+            for t in t_list[offset:offset+limit]:
+                rows.append({
+                    "date": t.get("exit_date", t.get("entry_date", "")),
+                    "code": t.get("ticker", ""),
+                    "side": "SELL" if t.get("exit_reason") else "BUY",
+                    "quantity": t.get("qty", 0),
+                    "price": t.get("exit_price", t.get("entry_price", 0)),
+                    "cost": abs(t.get("pnl_amount", 0)),
+                    "strategy": t.get("strategy", ""),
+                    "exit_reason": t.get("exit_reason", ""),
+                    "pnl_pct": t.get("pnl_pct", 0),
+                })
+            return {"total": total, "limit": limit, "offset": offset, "trades": rows, "source": "lab"}
         except Exception as e:
             return {"error": str(e), "trades": []}
 
@@ -1371,7 +1511,39 @@ def create_app() -> FastAPI:
         start: str = Query("", description="YYYY-MM-DD"),
         end: str = Query("", description="YYYY-MM-DD"),
     ):
-        """거래 통계 요약 (PG report_trades + report_close_log)."""
+        """거래 통계 요약 (LIVE → Lab fallback)."""
+        # Lab fallback first check
+        try:
+            import json as _json
+            from pathlib import Path as _P
+            t_path = _P(__file__).resolve().parent.parent / "data" / "lab_live" / "trades.json"
+            t_data = _json.loads(t_path.read_text(encoding="utf-8"))
+            t_list = t_data.get("trades", [])
+            if t_list:
+                closed = [t for t in t_list if t.get("exit_date") and t.get("pnl_pct") is not None]
+                wins = sum(1 for t in closed if t["pnl_pct"] > 0)
+                avg_pnl = sum(t["pnl_pct"] for t in closed) / len(closed) if closed else 0
+                avg_hold = 0
+                for t in closed:
+                    try:
+                        from datetime import datetime as _dt
+                        d1 = _dt.strptime(t["entry_date"], "%Y-%m-%d")
+                        d2 = _dt.strptime(t["exit_date"], "%Y-%m-%d")
+                        avg_hold += (d2 - d1).days
+                    except Exception:
+                        pass
+                avg_hold = avg_hold / len(closed) if closed else 0
+                return {
+                    "buy_count": len(t_list),
+                    "sell_count": len(closed),
+                    "closed_trades": len(closed),
+                    "win_rate": round(wins / len(closed) * 100, 1) if closed else 0,
+                    "avg_pnl_pct": round(avg_pnl, 2),
+                    "avg_hold_days": round(avg_hold, 1),
+                    "source": "lab",
+                }
+        except Exception:
+            pass
         try:
             from shared.db.pg_base import connection
             with connection() as conn:
@@ -1452,7 +1624,7 @@ def create_app() -> FastAPI:
 
     @application.get("/api/charts/equity")
     async def get_equity_chart(days: int = Query(90, ge=7, le=730)):
-        """Equity curve 데이터 (PG report_equity_log)."""
+        """Equity curve 데이터. LIVE 없으면 Lab Forward Trading 합산."""
         try:
             from shared.db.pg_base import connection
             with connection() as conn:
@@ -1465,8 +1637,57 @@ def create_app() -> FastAPI:
                 cols = [d[0] for d in cur.description]
                 rows = [dict(zip(cols, r)) for r in cur.fetchall()]
                 cur.close()
-            rows.reverse()  # 날짜 오름차순
-            return {"days": days, "data": rows}
+            if rows:
+                rows.reverse()
+                return {"days": days, "data": rows}
+        except Exception:
+            pass
+
+        # Fallback: Lab Forward Trading equity (A군 합산)
+        try:
+            import json as _json
+            from pathlib import Path as _P
+            eq_path = _P(__file__).resolve().parent.parent / "data" / "lab_live" / "equity.json"
+            eq_data = _json.loads(eq_path.read_text(encoding="utf-8"))
+            eq_rows = eq_data.get("rows", [])
+            # 날짜별 최신 row만 (중복 제거) + A군만 합산
+            a_strats = ["breakout_trend", "hybrid_qscore", "liquidity_signal",
+                        "lowvol_momentum", "mean_reversion", "momentum_base",
+                        "quality_factor", "sector_rotation", "vol_regime"]
+            seen = {}
+            for row in eq_rows:
+                dt = row.get("date", "")
+                if not dt:
+                    continue
+                total = sum(float(row.get(s, 0)) for s in a_strats if s in row)
+                if total > 0:
+                    seen[dt] = total
+            # KOSPI 종가 로드
+            kospi_map = {}
+            try:
+                from shared.db.pg_base import connection as _conn
+                with _conn() as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT date, close_price FROM kospi_index ORDER BY date")
+                    for r in cur.fetchall():
+                        kospi_map[str(r[0])] = float(r[1])
+                    cur.close()
+            except Exception:
+                pass
+            result = []
+            dates_sorted = sorted(seen.keys())[-days:]
+            initial = seen.get(dates_sorted[0], 9e8) if dates_sorted else 9e8
+            for dt in dates_sorted:
+                eq = seen[dt]
+                pnl = (eq / initial - 1) * 100 if initial > 0 else 0
+                result.append({
+                    "date": dt, "equity": round(eq),
+                    "daily_pnl_pct": round(pnl, 2),
+                    "n_positions": 0, "cash": 0,
+                    "kospi_close": kospi_map.get(dt),
+                    "regime": None,
+                })
+            return {"days": days, "data": result, "source": "lab_forward"}
         except Exception as e:
             return {"error": str(e), "data": []}
 
@@ -1584,7 +1805,8 @@ def create_app() -> FastAPI:
 
     @application.get("/api/risk/metrics")
     async def get_risk_metrics(days: int = Query(60, ge=7, le=730)):
-        """Sharpe, MDD, Sortino 등 리스크 지표 (PG report_equity_log)."""
+        """Sharpe, MDD, Sortino 등 리스크 지표 (LIVE → Lab fallback)."""
+        rows = []
         try:
             from shared.db.pg_base import connection
             import math
@@ -1597,10 +1819,56 @@ def create_app() -> FastAPI:
                 cols = [d[0] for d in cur.description]
                 rows = [dict(zip(cols, r)) for r in cur.fetchall()]
                 cur.close()
-            if len(rows) < 2:
-                return {"error": "insufficient data", "count": len(rows)}
+        except Exception:
+            pass
 
-            rows.reverse()
+        # Lab fallback: equity.json → 합산 equity → daily return 계산
+        if len(rows) < 2:
+            try:
+                import json as _json, math
+                from pathlib import Path as _P
+                eq_path = _P(__file__).resolve().parent.parent / "data" / "lab_live" / "equity.json"
+                eq_data = _json.loads(eq_path.read_text(encoding="utf-8"))
+                a_strats = ["breakout_trend", "hybrid_qscore", "liquidity_signal",
+                            "lowvol_momentum", "mean_reversion", "momentum_base",
+                            "quality_factor", "sector_rotation", "vol_regime"]
+                seen = {}
+                for row in eq_data.get("rows", []):
+                    dt = row.get("date", "")
+                    if not dt:
+                        continue
+                    total = sum(float(row.get(s, 0)) for s in a_strats if s in row)
+                    if total > 0:
+                        seen[dt] = total
+                # KOSPI
+                kospi_map = {}
+                try:
+                    from shared.db.pg_base import connection as _conn
+                    with _conn() as conn:
+                        cur = conn.cursor()
+                        cur.execute("SELECT date, close_price FROM kospi_index ORDER BY date")
+                        for r in cur.fetchall():
+                            kospi_map[str(r[0])] = float(r[1])
+                        cur.close()
+                except Exception:
+                    pass
+                dates_sorted = sorted(seen.keys())[-days:]
+                rows = []
+                prev_eq = None
+                for dt in dates_sorted:
+                    eq = seen[dt]
+                    pnl = ((eq / prev_eq) - 1) if prev_eq and prev_eq > 0 else 0
+                    rows.append({"date": dt, "equity": eq, "daily_pnl_pct": pnl,
+                                 "kospi_close": kospi_map.get(dt)})
+                    prev_eq = eq
+            except Exception:
+                pass
+
+        if len(rows) < 2:
+            return {"error": "insufficient data", "count": len(rows)}
+
+        try:
+            import math
             returns = [r["daily_pnl_pct"] for r in rows if r["daily_pnl_pct"] is not None]
             equities = [r["equity"] for r in rows if r["equity"] is not None]
             kospi = [r["kospi_close"] for r in rows if r["kospi_close"] is not None]
@@ -1608,12 +1876,10 @@ def create_app() -> FastAPI:
             if len(returns) < 2:
                 return {"error": "insufficient return data"}
 
-            # Sharpe (annualized)
             mean_r = sum(returns) / len(returns)
             std_r = (sum((r - mean_r) ** 2 for r in returns) / (len(returns) - 1)) ** 0.5
             sharpe = (mean_r / std_r * (252 ** 0.5)) if std_r > 0 else 0
 
-            # Sortino (downside deviation)
             neg_returns = [r for r in returns if r < 0]
             if neg_returns:
                 down_dev = (sum(r ** 2 for r in neg_returns) / len(neg_returns)) ** 0.5
@@ -1621,7 +1887,6 @@ def create_app() -> FastAPI:
             else:
                 sortino = 0
 
-            # MDD
             peak = equities[0]
             max_dd = 0
             for eq in equities:
@@ -1631,7 +1896,6 @@ def create_app() -> FastAPI:
                 if dd < max_dd:
                     max_dd = dd
 
-            # CAGR
             if len(equities) >= 2 and equities[0] > 0:
                 total_return = equities[-1] / equities[0]
                 years = len(equities) / 252
@@ -1639,18 +1903,12 @@ def create_app() -> FastAPI:
             else:
                 cagr = 0
 
-            # Win rate
             wins = sum(1 for r in returns if r > 0)
             win_rate = wins / len(returns) * 100 if returns else 0
-
-            # Daily return stats
             best_day = max(returns)
             worst_day = min(returns)
-
-            # Cumulative return
             cum_return = equities[-1] / equities[0] - 1 if equities[0] > 0 else 0
 
-            # KOSPI comparison
             kospi_return = None
             if len(kospi) >= 2 and kospi[0] and kospi[0] > 0:
                 kospi_return = round((kospi[-1] / kospi[0] - 1) * 100, 2)
@@ -1675,12 +1933,46 @@ def create_app() -> FastAPI:
 
     @application.get("/api/rebalance/history")
     async def get_rebalance_history(limit: int = Query(10, ge=1, le=50)):
-        """리밸런스 이력 (report_trades에서 날짜 그룹핑)."""
+        """리밸런스 이력 (LIVE → Lab fallback)."""
+        # Lab fallback
+        try:
+            import json as _json
+            from pathlib import Path as _P
+            from collections import defaultdict
+            t_path = _P(__file__).resolve().parent.parent / "data" / "lab_live" / "trades.json"
+            t_data = _json.loads(t_path.read_text(encoding="utf-8"))
+            t_list = t_data.get("trades", [])
+            if t_list:
+                by_date = defaultdict(lambda: {"buys": 0, "sells": 0, "total": 0,
+                                               "pnl_sum": 0, "pnl_count": 0})
+                for t in t_list:
+                    dt = t.get("exit_date", t.get("entry_date", ""))
+                    if not dt:
+                        continue
+                    by_date[dt]["sells"] += 1
+                    by_date[dt]["total"] += 1
+                    if t.get("pnl_pct") is not None:
+                        by_date[dt]["pnl_sum"] += t["pnl_pct"]
+                        by_date[dt]["pnl_count"] += 1
+                result = []
+                for dt in sorted(by_date.keys(), reverse=True)[:limit]:
+                    d = by_date[dt]
+                    avg_pnl = d["pnl_sum"] / d["pnl_count"] if d["pnl_count"] > 0 else 0
+                    wins = sum(1 for t in t_list
+                               if t.get("exit_date") == dt and (t.get("pnl_pct") or 0) > 0)
+                    result.append({
+                        "date": dt, "buys": 0, "sells": d["sells"],
+                        "total": d["total"], "total_cost": 0,
+                        "closed": d["pnl_count"], "close_wins": wins,
+                        "avg_pnl": round(avg_pnl, 2), "avg_hold": 0,
+                    })
+                return {"rebalances": result, "source": "lab"}
+        except Exception:
+            pass
         try:
             from shared.db.pg_base import connection
             with connection() as conn:
                 cur = conn.cursor()
-                # 리밸런스 날짜 = BUY+SELL이 함께 발생한 날
                 cur.execute("""
                     SELECT date,
                            COUNT(*) FILTER (WHERE side='BUY') AS buys,
@@ -1697,8 +1989,6 @@ def create_app() -> FastAPI:
                 """, (limit,))
                 cols = [d[0] for d in cur.description]
                 rebal_dates = [dict(zip(cols, r)) for r in cur.fetchall()]
-
-                # 각 리밸런스 날짜의 청산 성과
                 result = []
                 for rd in rebal_dates:
                     cur.execute("""
@@ -1716,7 +2006,6 @@ def create_app() -> FastAPI:
                     rd["avg_hold"] = round(close_row[3], 1) if close_row else 0
                     rd["total_cost"] = round(rd["total_cost"], 0)
                     result.append(rd)
-
                 cur.close()
             return {"rebalances": result}
         except Exception as e:
@@ -1970,11 +2259,14 @@ def create_app() -> FastAPI:
                 return {"initialized": False, "lanes": []}
         state = sim.get_state()
         # 전일대비 등락률 enrichment (observer-only)
+        # Lab의 cur_price는 last_run_date 종가 → ref_date=last_run_date로 조회해
+        # 그 "직전 거래일" 종가와 비교해야 함 (시스템 today 쓰면 동일 날짜 반환 → 0%)
         all_pos = [p for lane in state.get("lanes", []) for p in lane.get("positions", [])]
         if all_pos:
             for p in all_pos:
                 p["cur_price"] = p.get("current_price", 0)
-            _enrich_day_change(all_pos)
+            _ref_date = getattr(sim, "_last_run_date", None)
+            _enrich_day_change(all_pos, ref_date=_ref_date)
             for p in all_pos:
                 p.pop("cur_price", None)
         return state
@@ -1984,6 +2276,10 @@ def create_app() -> FastAPI:
         """Meta Layer summary for UI (observer-only)."""
         try:
             from web.lab_live.meta_summary import build_daily_summary
+            from web.lab_live.daily_drivers import (
+                build_drivers_for_lane, build_kospi_series,
+            )
+            from data.db_provider import DbProvider
             sim = _lab_live_sim.get("sim")
             if not sim or not sim._initialized:
                 return {"ok": False}
@@ -1993,9 +2289,181 @@ def create_app() -> FastAPI:
             summary = build_daily_summary(trade_date)
             if not summary:
                 return {"ok": False}
+
+            # ── Daily drivers 주입 (카드 확장 섹션용) ──
+            # 안전: 실패 시 drivers만 비우고 summary는 유지
+            try:
+                db = DbProvider()
+                kospi_series = build_kospi_series(db, trade_date, window=30)
+                sector_map = getattr(sim, "_sector_map", {}) or {}
+                init_cash = getattr(sim.config, "initial_cash", 100_000_000)
+                sfit = summary.get("strategy_fit", {}) or {}
+                for sname, lane in getattr(sim, "_lanes", {}).items():
+                    drv = build_drivers_for_lane(
+                        lane=lane,
+                        sname=sname,
+                        trade_date=trade_date,
+                        sector_map=sector_map,
+                        initial_cash=init_cash,
+                        kospi_series=kospi_series,
+                        db_provider=db,
+                        window=30,
+                    )
+                    if sname in sfit:
+                        sfit[sname]["drivers"] = drv
+                    else:
+                        sfit[sname] = {"drivers": drv}
+                summary["strategy_fit"] = sfit
+            except Exception as _drv_err:
+                # drivers 실패는 non-fatal
+                summary["drivers_error"] = str(_drv_err)
+
+            # ── Live Promotion 판정 주입 ──────────────────────
+            # Per LIVE_PROMOTION_CRITERIA.md: hard gates + readiness + composition
+            try:
+                from lab.promotion.engine import evaluate_promotion_batch
+                from lab.promotion.adapters import (
+                    lane_to_metrics, runtime_to_ops, build_data_quality, resolve_factor,
+                )
+                import json as _json
+                # Ops evidence (structured state + fallback). UNKNOWN 유지 — 0 대체 금지.
+                ops = runtime_to_ops()
+
+                # ohlcv_sync state
+                _sync_path = _Path(__file__).resolve().parent.parent / "data" / "lab_live" / "ohlcv_sync.json"
+                _sync = {}
+                if _sync_path.exists():
+                    try:
+                        _sync = _json.loads(_sync_path.read_text(encoding="utf-8"))
+                    except Exception:
+                        _sync = {}
+                run_meta = getattr(sim, "_run_meta", {}) or {}
+
+                # per-strategy inputs
+                # regime_history 는 build_data_quality 내부에서 strategy_name 기반으로
+                # 조회한다 (hardcoded fallback 제거). history 없으면 UNKNOWN.
+                init_cash = getattr(sim.config, "initial_cash", 100_000_000)
+                strategies_data = []
+                dq_map: dict = {}
+                for sname, lane in getattr(sim, "_lanes", {}).items():
+                    dq_strat = build_data_quality(
+                        run_meta, _sync, summary.get("strategy_fit", {}),
+                        strategy_name=sname,
+                    )
+                    dq_map[sname] = dq_strat
+
+                    metrics = lane_to_metrics(
+                        lane, strategy=sname, initial_cash=init_cash, market="KR",
+                    )
+                    # positions snapshot for composition check
+                    positions_snap = {}
+                    for tk, pos in (getattr(lane, "positions", {}) or {}).items():
+                        sec_info = sector_map.get(tk, {}) if isinstance(sector_map.get(tk), dict) else {}
+                        positions_snap[tk] = {
+                            "sector": sec_info.get("sector", "Other"),
+                            "weight": float(
+                                (getattr(pos, "qty", 0) * getattr(pos, "current_price", 0))
+                                / max(1.0, (lane.cash + sum(
+                                    p.qty * p.current_price for p in lane.positions.values()
+                                )))
+                            ),
+                            "qty": getattr(pos, "qty", 0),
+                            "current_price": getattr(pos, "current_price", 0),
+                        }
+                    strategies_data.append({
+                        "metrics": metrics,
+                        "equity_history": getattr(lane, "equity_history", []) or [],
+                        "positions": positions_snap,
+                        "factor_tag": resolve_factor(sname),
+                    })
+
+                promo = evaluate_promotion_batch(
+                    strategies_data,
+                    ops_map={s["metrics"].strategy: ops for s in strategies_data},
+                    data_quality_map=dq_map,
+                )
+                summary["promotion"] = promo
+
+                # 각 strategy_fit에 promotion 요약 주입 (UI 표시용)
+                sfit = summary.get("strategy_fit", {}) or {}
+                for sname, result in promo.get("per_strategy", {}).items():
+                    if sname not in sfit:
+                        sfit[sname] = {}
+                    sfit[sname]["promotion"] = {
+                        "status": result.get("status"),
+                        "total_score": result.get("total_score"),
+                        "hard_pass": result.get("hard_pass"),
+                        "critical_fail": result.get("critical_fail"),
+                        "blockers": result.get("blockers", []),
+                        "evidence_missing": result.get("evidence_missing", []),
+                        "failures_by_category": result.get("failures_by_category", {}),
+                        "evidence_coverage": result.get("evidence_coverage"),
+                        "unknown_fields": result.get("unknown_fields", []),
+                        "subscores": result.get("subscores", {}),
+                        "group": result.get("group"),
+                        "versions": result.get("versions", {}),
+                    }
+                summary["strategy_fit"] = sfit
+            except Exception as _pro_err:
+                summary["promotion_error"] = str(_pro_err)
+
             return {"ok": True, **summary}
         except Exception as e:
             return {"ok": False, "error": str(e)}
+
+    # ── Debug: Data Events + Market Context ──────────────────
+    # 두 엔드포인트 분리 (Jeff 제약 #5): market_context 는 "현재 상태",
+    # data_events 는 "이벤트 로그". 같은 패널에 섞지 않음.
+
+    @application.get("/api/debug/data_events")
+    async def debug_data_events(
+        limit: int = Query(50, ge=1, le=200),
+        min_level: str = Query("", description="DEBUG|INFO|WARN|ERROR|CRITICAL"),
+        sources: str = Query("", description="comma-separated substring match"),
+    ):
+        """순환 buffer 에서 최근 데이터/환경 이벤트 조회 (UI DEBUG 패널용)."""
+        try:
+            from web.data_events import get_events, get_escalation_states
+            src_list = [s.strip() for s in sources.split(",") if s.strip()] if sources else None
+            events = get_events(
+                limit=limit,
+                min_level=min_level or None,
+                sources=src_list,
+            )
+            return {
+                "ok": True,
+                "events": events,
+                "active_escalations": get_escalation_states(),
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e), "events": []}
+
+    @application.get("/api/debug/market_context")
+    async def debug_market_context():
+        """
+        현재 시장 컨텍스트 (effective_trade_date, index_ready, run_mode).
+        engine._run_meta.market_context 에서 추출. 아직 run 안 됐으면 null.
+        """
+        sim = _lab_live_sim.get("sim")
+        if not sim or not sim._initialized:
+            return {"ok": False, "reason": "lab_live not initialized"}
+
+        run_meta = getattr(sim, "_run_meta", None) or {}
+        mctx = run_meta.get("market_context")
+        if not mctx:
+            return {
+                "ok": False,
+                "reason": "no run yet",
+                "last_run_date": getattr(sim, "_last_run_date", None),
+            }
+
+        return {
+            "ok": True,
+            "market_context": mctx,
+            "last_run_date": getattr(sim, "_last_run_date", None),
+            "selected_source": run_meta.get("selected_source"),
+            "data_last_date": run_meta.get("data_last_date"),
+        }
 
     @application.get("/api/lab/live/trades")
     async def lab_live_trades(limit: int = Query(50, ge=1, le=500)):
@@ -2057,8 +2525,7 @@ def create_app() -> FastAPI:
     @application.get("/api/lab/strategy/runs")
     async def strategy_lab_runs():
         """List completed Strategy Lab runs."""
-        import sys as _sys
-        _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        # sys.path already prepared by _bootstrap_path at top of module
         lab_dir = Path(__file__).resolve().parent.parent / "report" / "output" / "lab"
         runs = []
         if lab_dir.exists():
@@ -2542,11 +3009,62 @@ _regime_lock = threading.Lock()  # P0-1: protect _regime_history concurrent acce
 
 def _get_global_provider():
     if _global_provider_cache["instance"] is None:
-        import sys
-        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        # sys.path already prepared by _bootstrap_path at top of module
         from data.rest_provider import KiwoomRestProvider
         _global_provider_cache["instance"] = KiwoomRestProvider(server_type="REAL")
     return _global_provider_cache["instance"]
+
+
+def _enrich_day_change_fast(holdings: list) -> None:
+    """경량 전일대비 enrich — Kiwoom prev_close_price 우선, DB fallback.
+    모듈 레벨 (create_app 클로저 우회, SSE generator에서 호출 가능).
+
+    소스 순서:
+      1. h["prev_close_price"] from Kiwoom (kt00018 응답의 pred_close_pric)
+      2. DB ohlcv 테이블 get_prev_closes (Kiwoom에서 빠진 종목만)
+    """
+    prev_closes = {}  # code → float
+    missing = []
+    for h in holdings:
+        code = h.get("code", "")
+        pcp = h.get("prev_close_price", 0) or 0
+        try:
+            pcp = float(pcp)
+        except Exception:
+            pcp = 0
+        if code and pcp > 0:
+            prev_closes[code] = pcp
+        elif code:
+            missing.append(code)
+
+    # DB fallback (prev_close_price 0인 종목만)
+    if missing:
+        try:
+            from data.db_provider import DbProvider
+            db = DbProvider()
+            data = db.get_prev_closes(missing, max_stale_bdays=5)
+            for code, info in data.items():
+                pc = info.get("prev_close", 0) if info else 0
+                if pc > 0:
+                    prev_closes[code] = float(pc)
+        except Exception:
+            pass
+
+    for h in holdings:
+        try:
+            code = h.get("code", "")
+            cp = float(h.get("cur_price", 0) or 0)
+            pc = prev_closes.get(code, 0)
+            if cp > 0 and pc > 0:
+                h["prev_close"] = pc
+                h["day_change_pct"] = round((cp - pc) / pc * 100, 2)
+                h["day_change_reason"] = None
+            else:
+                h["day_change_pct"] = None
+                h["day_change_reason"] = "no_prev_close"
+        except Exception:
+            h["day_change_pct"] = None
+            h["day_change_reason"] = "enrich_error"
 
 
 async def _sse_generator(
@@ -2594,6 +3112,12 @@ async def _sse_generator(
                     provider = _get_global_provider()
                     summary = await asyncio.to_thread(provider.query_account_summary)
                     if summary.get("error") is None:
+                        # 전일 등락률 enrich — Kiwoom pred_close_pric 직접 사용
+                        # (create_app 클로저의 _enrich_day_change 대신 모듈 레벨 helper)
+                        try:
+                            _enrich_day_change_fast(summary.get("holdings", []))
+                        except Exception as _e:
+                            logging.getLogger("web").debug(f"[DAY_CHG] enrich failed: {_e}")
                         _portfolio_cache["data"] = {
                             "holdings_count": len(summary.get("holdings", [])),
                             "cash": summary.get("available_cash", 0),
@@ -2601,6 +3125,7 @@ async def _sse_generator(
                             "total_buy": summary.get("총매입금액", 0),
                             "total_eval": summary.get("총평가금액", 0),
                             "total_pnl": summary.get("총평가손익금액", 0),
+                            "prev_eval_amt": summary.get("전일평가금액", 0),
                             "pnl_pct": round(summary.get("총평가손익금액", 0) / max(summary.get("총매입금액", 1), 1) * 100, 2),
                             "holdings": summary.get("holdings", []),
                         }
@@ -2613,6 +3138,11 @@ async def _sse_generator(
                 data["account"] = _portfolio_cache["data"]
 
             # ── Rebalance (every 10th cycle, offset 2) ──
+            # Also caches the FULL runtime dict so the auto-trading gate
+            # (compute_auto_trading_state via cache.get("runtime")) can read
+            # last_batch_completed_at / business_date / snapshot_version.
+            # Without this wiring the gate sees an empty dict and emits a
+            # permanent BATCH_MISSING even after the batch wrote the file.
             if cycle % 10 == 2:
                 try:
                     rt_file = _GEN04_STATE_DIR / "runtime_state_live.json"
@@ -2620,6 +3150,7 @@ async def _sse_generator(
                         with open(rt_file, "r", encoding="utf-8") as _f:
                             _rt = json.load(_f)
                         _portfolio_cache["rebal"] = _rt.get("last_rebalance_date", "")
+                        _portfolio_cache["runtime"] = _rt
                 except Exception:
                     pass
             if _portfolio_cache.get("rebal"):
@@ -2628,10 +3159,11 @@ async def _sse_generator(
             # ── DD Guard + Trail Stops + RECON (every 10th cycle, offset 3) ──
             # Single file read for dd_guard + trail_stops (same source)
             if cycle % 10 == 3:
-                total_asset = (_portfolio_cache.get("data") or {}).get("total_asset", 0)
+                _acct = _portfolio_cache.get("data") or {}
+                total_asset = _acct.get("total_asset", 0)
                 _pstate_raw = _safe_read_json(str(_GEN04_STATE_DIR / "portfolio_state_live.json"))
                 _pstate_fb = _get_or_fallback("portfolio_state", _pstate_raw)
-                _portfolio_cache["dd_guard"] = _compute_dd_guard_from(total_asset, _pstate_fb)
+                _portfolio_cache["dd_guard"] = _compute_dd_guard_from(total_asset, _acct)
                 _portfolio_cache["trail_stops"] = _read_trail_stops_from(_pstate_fb)
                 _portfolio_cache["recon"] = _compute_recon_status()
 
@@ -2763,23 +3295,25 @@ async def _sse_generator(
                         holdings_count=_acct.get("holdings_count", 0),
                     )
 
-                    # Phase 1: REST_DB equity 병행 기록 (observer, 격리)
+                    # REST_DB EOD snapshot (broker truth, 하루 1회)
                     try:
-                        from web.rest_state_db import sync_equity_snapshot
+                        from web.rest_state_db import sync_equity_snapshot, get_eod_equity
                         from datetime import date as _date_cls
                         _today = _date_cls.today().isoformat()
-                        _dd = _portfolio_cache.get("dd_guard") or {}
                         _is_eod = (_hour >= 15 and _min >= 30)
-                        sync_equity_snapshot(
-                            market_date=_today,
-                            equity=cur_equity,
-                            cash=_acct.get("cash", 0),
-                            holdings_count=_acct.get("holdings_count", 0),
-                            peak_equity=_dd.get("source_peak", 0) or 0,
-                            prev_close_equity=_dd.get("source_prev_close", 0) or 0,
-                            is_eod=_is_eod,
-                            snapshot_id=_portfolio_cache.get("_last_snapshot_id", ""),
-                        )
+                        if _is_eod and cur_equity > 0 and get_eod_equity(_today) is None:
+                            sync_equity_snapshot(
+                                market_date=_today,
+                                equity=cur_equity,
+                                cash=_acct.get("cash", 0),
+                                holdings_count=_acct.get("holdings_count", 0),
+                                is_eod=True,
+                                snapshot_id=_portfolio_cache.get("_last_snapshot_id", ""),
+                            )
+                            logging.getLogger("web").info(
+                                f"[REST_DB] EOD snapshot saved: date={_today} "
+                                f"equity={cur_equity:,.0f}"
+                            )
                     except Exception as _db_err:
                         logging.getLogger("web").debug(f"[REST_DB] equity sync: {_db_err}")
                 except Exception:
@@ -2876,6 +3410,23 @@ async def _sse_generator(
             _pc_age = (now - _pc_ts) if _pc_ts else None
             data["cache_age_sec"] = round(max(0.0, _pc_age), 1) if _pc_age is not None else None
             data["_data_source"] = "UI_CACHE"
+            # P2: auto trading state (advisory read-only) — parity with /api/state one-shot path
+            try:
+                from kr.risk.auto_trading_gate import compute_auto_trading_state
+                from kr.risk.strategy_health import compute_strategy_health
+                _guard = getattr(application.state, "guard", None)
+                _runtime = (_portfolio_cache.get("runtime") or {})
+                _equity_dd = float((_portfolio_cache.get("dd_guard") or {}).get("equity_dd_pct", 0.0) or 0.0)
+                _health = compute_strategy_health(equity_dd_pct=_equity_dd)
+                _auto = compute_auto_trading_state(
+                    guard=_guard, runtime=_runtime,
+                    strategy_health=_health,
+                )
+                data["auto_trading"] = _auto.to_dict()
+                data["strategy_health"] = _health
+            except Exception as _e:
+                data["auto_trading"] = {"enabled": False, "blockers": [f"EVAL_ERROR:{type(_e).__name__}"],
+                                        "reason_summary": "eval_error"}
             # snapshot_id / payload_id — 모든 필드 확정 후 증가
             _payload_seq["n"] += 1
             data["snapshot_id"] = _payload_seq["n"]

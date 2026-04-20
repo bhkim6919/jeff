@@ -593,6 +593,32 @@ def run_eod(ctx: LiveContext) -> None:
         except Exception as e:
             logger.warning(f"[EOD_CSV_TO_PG] intraday failed: {e}")
 
+        # ── Ops metrics persist (promotion evidence source) ──
+        # OrderTracker 의 structured ops snapshot 을 kr/data/ops/ops_metrics.json 으로
+        # 써서 promotion collector 가 UNKNOWN 과 0 을 구분할 수 있게 한다.
+        # runtime_state 로는 누적 evidence 를 확대하지 않음 (역할 분리).
+        try:
+            from runtime import ops_metrics as _om
+            _parts = [_om.aggregate_from_tracker(tracker)]
+            # startup phase 에서 session-level fail 을 ctx 에 매달아뒀다면 집계
+            _startup_fail = getattr(ctx, "ops_startup_evidence", None)
+            if isinstance(_startup_fail, dict):
+                _parts.append(_om.aggregate_from_startup(
+                    dirty_exit_recovery_fail_count=_startup_fail.get("dirty_exit_recovery_fail_count"),
+                    pending_external_stale_cleanup_fail_count=_startup_fail.get("pending_external_stale_cleanup_fail_count"),
+                    state_uncertain_days_recent=_startup_fail.get("state_uncertain_days_recent"),
+                ))
+            _recon_fail = getattr(ctx, "ops_reconcile_evidence", None)
+            if isinstance(_recon_fail, dict):
+                _parts.append(_om.aggregate_from_reconcile(
+                    recon_ok_streak_days=_recon_fail.get("recon_ok_streak_days"),
+                    broker_mismatch_unresolved_count=_recon_fail.get("broker_mismatch_unresolved_count"),
+                    recon_unreliable_events_24h=_recon_fail.get("recon_unreliable_events_24h"),
+                ))
+            _om.merge_and_save(*_parts, origin=f"eod:{ctx.trading_mode}")
+        except Exception as e:
+            logger.warning(f"[OPS_METRICS] EOD persist failed (non-fatal): {e}")
+
         # Shutdown cleanup
         try:
             state_mgr.mark_shutdown("eod_complete")
