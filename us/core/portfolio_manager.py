@@ -387,7 +387,24 @@ class PortfolioManagerUS:
     def apply_recon(self, result: ReconResult,
                     broker_holdings: List[dict],
                     broker_cash: float) -> None:
-        """Apply RECON result (FORCE_SYNC or SAFE_SYNC)."""
+        """Apply RECON result (FORCE_SYNC or SAFE_SYNC).
+
+        INVARIANT-1 (broker truth):
+            모든 positions/cash는 broker 값을 직접 덮어씀.
+            내부 계산값(PnL, market_value 등)은 이후 update_prices()가 갱신.
+
+        INVARIANT-2 (pending zeroing):
+            FORCE_SYNC/SAFE_SYNC 시 pending_sell_qty 및 last_sell_order_at을
+            반드시 0/""으로 초기화.
+            → 이후 sync_pending_with_broker()가 동일 broker snapshot 기준으로 재설정.
+            이 초기화를 제거하거나 순서를 바꾸면 stale pending이 trail stop을 영구 차단함.
+
+        호출 순서 보장 (위반 금지):
+            apply_recon(result, holdings, cash)   # 1. broker truth 반영 + pending=0
+            sync_pending_with_broker(open_orders)  # 2. 동일 snapshot으로 pending 재설정
+            runtime_data["last_recon_ok"] = ...    # 3. gate runtime 기록
+            state_mgr.save_all(...)                # 4. atomic 저장
+        """
         if result.action == "FORCE_SYNC":
             self._rebuild_from_broker(broker_holdings, broker_cash)
         elif result.action == "SAFE_SYNC":
@@ -453,10 +470,25 @@ class PortfolioManagerUS:
 
     def sync_pending_with_broker(self, open_orders: List[dict]) -> None:
         """
-        Startup: sync pending_sell_qty with broker open orders.
-        - pending>0 + SELL order exists → keep
-        - pending>0 + no SELL order + holding exists → clear pending
-        - pending>0 + no holding → clear (interpreted as FILLED)
+        pending_sell_qty를 broker open orders 기준으로 재설정.
+
+        호출 시점:
+          - 스타트업 (startup Phase 1.5 이후)
+          - periodic RECON 후 (apply_recon 직후, 동일 open_orders snapshot)
+
+        INVARIANT-3 (snapshot 일관성):
+            open_orders는 apply_recon에 전달된 것과 동일 broker 조회 결과여야 함.
+            다른 시점에 조회한 open_orders를 사용하면 pending 상태가 불일치할 수 있음.
+
+        INVARIANT-4 (단방향 권한):
+            이 함수는 pending_sell_qty만 수정. positions qty/avg_price는 건드리지 않음.
+            broker truth 반영(qty/price)은 apply_recon 전용.
+
+        결과:
+          - pending>0 + broker SELL order 존재 → pending = remaining (유지)
+          - pending>0 + broker SELL order 없음 + position 있음 → pending=0 (PENDING_CLEAR)
+          - pending>0 + no position → pending=0 (PENDING_FILLED)
+          - pending=0 → 변경 없음 (LOG_ONLY 경로에서도 안전)
         """
         orders_by_sym: Dict[str, List[dict]] = {}
         for o in open_orders:

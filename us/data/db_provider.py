@@ -20,6 +20,20 @@ from shared.db.pg_base import connection as pg_connection, get_conn as _pg_get_c
 
 logger = logging.getLogger("qtron.us.db")
 
+
+def _count_bdays(start_dt, end_dt) -> int:
+    """주말 제외한 거래일 수 (간이 계산, 공휴일 미반영)."""
+    if start_dt >= end_dt:
+        return 0
+    from datetime import timedelta
+    cnt = 0
+    cur = start_dt
+    while cur < end_dt:
+        cur += timedelta(days=1)
+        if cur.weekday() < 5:  # 0=Mon, 4=Fri
+            cnt += 1
+    return cnt
+
 # ── Connection (pg_base 경유) ────────────────────────────────
 # INT-P0-001: credentials must come from environment (.env). No hardcoded fallback.
 
@@ -105,6 +119,69 @@ class DbProviderUS:
 
         logger.info(f"[DB_US] Loaded {len(result)} stocks ({len(df):,} rows)")
         return result
+
+    def get_prev_closes(self, symbols: List[str], max_stale_bdays: int = 3,
+                        ref_date: str = None) -> Dict[str, dict]:
+        """
+        보유종목의 전일 종가를 batch 조회 (US ohlcv_us 테이블).
+
+        ref_date: None이면 date.today() 사용. Lab에선 last_run_date 전달해야
+                  cur_price(=last_run_date close)와 다른 직전 거래일 close 반환됨.
+        max_stale_bdays: 거래일 기준 오래되면 stale=True.
+
+        Returns: {symbol: {"prev_close": float, "date": str, "stale": bool}}
+        """
+        if not symbols:
+            return {}
+        conn = self._conn()
+        try:
+            if ref_date:
+                ref_str = ref_date if isinstance(ref_date, str) else ref_date.isoformat()
+                try:
+                    ref_dt = date.fromisoformat(ref_str)
+                except Exception:
+                    ref_dt = date.today()
+            else:
+                ref_dt = date.today()
+                ref_str = ref_dt.isoformat()
+            placeholders = ",".join(["%s"] * len(symbols))
+            query = f"""
+                WITH ranked AS (
+                    SELECT symbol, date, close,
+                           ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) as rn
+                    FROM ohlcv_us
+                    WHERE symbol IN ({placeholders})
+                      AND date < %s
+                )
+                SELECT symbol, date, close FROM ranked WHERE rn = 1
+            """
+            params = symbols + [ref_str]
+            cur = conn.cursor()
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            cur.close()
+
+            result = {}
+            for sym, dt, close in rows:
+                if isinstance(dt, str):
+                    dt = date.fromisoformat(dt)
+                # 거래일 기준 stale (주말 제외, 공휴일 +1 여유)
+                bdays = _count_bdays(dt, ref_dt)
+                stale = bdays > (max_stale_bdays + 1)
+                result[sym] = {
+                    "prev_close": float(close) if close else 0,
+                    "date": str(dt),
+                    "stale": stale,
+                }
+            return result
+        except Exception as e:
+            logger.warning(f"[DB_US] get_prev_closes failed: {e}")
+            return {}
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     def load_close_dict(self, min_history: int = 252) -> Dict[str, pd.Series]:
         """close_dict for scoring. {symbol: Series(index=date, values=close)}."""

@@ -196,6 +196,25 @@ def get_eod_equity(market_date: str) -> Optional[dict]:
     return dict(zip(cols, row))
 
 
+def get_prev_eod_equity(today: str) -> Optional[dict]:
+    """today 이전 가장 최근 EOD snapshot 조회."""
+    with connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM rest_equity_snapshots "
+            "WHERE market_date<%s AND is_eod=1 "
+            "ORDER BY market_date DESC LIMIT 1",
+            (today,),
+        )
+        row = cur.fetchone()
+        if not row:
+            cur.close()
+            return None
+        cols = [d[0] for d in cur.description]
+        cur.close()
+    return dict(zip(cols, row))
+
+
 # ── Validation Log ────────────────────────────────────────────
 
 def log_validation(

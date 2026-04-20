@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 > nul
 cd /d "C:\Q-TRON-32_ARCHIVE\kr"
-set PYTHON=C:\Q-TRON-32_ARCHIVE\.venv64\Scripts\python.exe
+set PYTHON=C:\Q-TRON-32_ARCHIVE\.venv64\Scripts\pythonw.exe
 set PORT=8080
 
 :: Kill existing process on port

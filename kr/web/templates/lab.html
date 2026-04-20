@@ -7,12 +7,364 @@
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="/static/lab.css">
-    <link rel="stylesheet" href="/static/nav.css">
+    <link rel="stylesheet" href="/static/nav.css?v=3">
+    <link rel="stylesheet" href="/static/themes.css?v=2">
+    <script src="/static/themes.js?v=2"></script>
+    <style>
+        /* ── Strategy Card Expand/Collapse ───────────────────────── */
+        .stlab-card {
+            transition: background-color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease;
+            cursor: pointer;
+        }
+        .stlab-card:hover {
+            box-shadow: 0 4px 12px rgba(74, 163, 255, 0.12);
+        }
+        .stlab-card .meta-expand-hint {
+            margin-left: 6px;
+            opacity: 0.6;
+            font-size: 11px;
+            transition: opacity 0.2s;
+        }
+        .stlab-card:hover .meta-expand-hint { opacity: 1; }
+
+        .stlab-card.stlab-card-expanded {
+            background: rgba(10, 15, 25, 0.85);
+            grid-column: span 3;  /* 3칸 폭으로 확장 (responsive safe) */
+            box-shadow: 0 8px 32px rgba(74, 163, 255, 0.25);
+            transform: scale(1.0);
+            z-index: 10;
+            position: relative;
+        }
+        @media (max-width: 1200px) {
+            .stlab-card.stlab-card-expanded { grid-column: span 2; }
+        }
+        @media (max-width: 800px) {
+            .stlab-card.stlab-card-expanded { grid-column: span 1; }
+        }
+
+        /* ── Expanded Panel Layout ─────────────────────────────── */
+        .stlab-expanded-panel {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255,255,255,0.15);
+            animation: stlabExpandFade 0.3s ease;
+        }
+        @keyframes stlabExpandFade {
+            from { opacity: 0; transform: translateY(-4px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .stlab-expanded-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .stlab-expanded-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #4aa3ff;
+            letter-spacing: 0.3px;
+        }
+        .stlab-expanded-close {
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #ccc;
+            width: 22px; height: 22px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 14px;
+            line-height: 1;
+            padding: 0;
+            transition: all 0.15s;
+        }
+        .stlab-expanded-close:hover {
+            background: rgba(255,85,119,0.2);
+            border-color: #ff5577;
+            color: #ff5577;
+        }
+
+        .stlab-expanded-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .stlab-expanded-section {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 6px;
+            padding: 8px 10px;
+        }
+        .stlab-expanded-chart { grid-column: span 2; }
+        .stlab-expanded-wide  { grid-column: span 2; }
+
+        .stlab-expanded-section-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: #a8b8cc;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+            border-bottom: 1px dotted rgba(255,255,255,0.1);
+            padding-bottom: 4px;
+        }
+        .stlab-expanded-kv {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            padding: 2px 0;
+        }
+        .stlab-expanded-kv span { color: #a8b8cc; }
+        .stlab-expanded-kv b { font-weight: 600; }
+        .stlab-expanded-regime {
+            margin-top: 6px;
+            padding: 4px 8px;
+            background: rgba(74,163,255,0.08);
+            border-radius: 4px;
+            font-size: 11px;
+            color: #c8d8ec;
+            text-align: center;
+        }
+
+        /* ── Contributors ───────────────────────────────────── */
+        .stlab-contrib-row {
+            display: grid;
+            grid-template-columns: 120px 1fr 90px;
+            gap: 8px;
+            align-items: center;
+            padding: 4px 0;
+            font-size: 12px;
+        }
+        .stlab-contrib-name {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+        }
+        .stlab-contrib-code {
+            font-size: 10px;
+            color: #8090a8;
+            font-family: monospace;
+        }
+        .stlab-contrib-bar-wrap {
+            height: 14px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .stlab-contrib-bar {
+            height: 100%;
+            transition: width 0.4s ease;
+            border-radius: 3px;
+        }
+        .stlab-contrib-val {
+            text-align: right;
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+        }
+        .stlab-contrib-val small {
+            font-size: 10px;
+            color: #8090a8;
+        }
+        .stlab-baseline-tag {
+            display: inline-block;
+            margin-left: 4px;
+            font-size: 9px;
+            padding: 1px 4px;
+            border-radius: 3px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            vertical-align: middle;
+        }
+        .stlab-baseline-new  { background: rgba(255, 213, 79, 0.18); color: #ffd54f; border: 1px solid rgba(255,213,79,0.3); }
+        .stlab-baseline-hold { background: rgba(100, 150, 200, 0.15); color: #8fb3d9; border: 1px solid rgba(100,150,200,0.25); }
+
+        /* ── Sector Donut ───────────────────────────────────── */
+        .stlab-sector-wrap {
+            display: grid;
+            grid-template-columns: 110px 1fr;
+            gap: 14px;
+            align-items: center;
+        }
+        .stlab-sector-donut { flex-shrink: 0; }
+        .stlab-sector-legend {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            font-size: 11px;
+        }
+        .stlab-sector-legend-row {
+            display: grid;
+            grid-template-columns: 12px 1fr auto auto;
+            gap: 6px;
+            align-items: center;
+        }
+        .stlab-sector-swatch {
+            width: 10px; height: 10px;
+            border-radius: 2px;
+            display: inline-block;
+        }
+        .stlab-sector-name { color: #c8d8ec; }
+        .stlab-sector-weight {
+            font-weight: 600;
+            color: #fff;
+        }
+        .stlab-sector-count {
+            color: #8090a8;
+            font-size: 10px;
+        }
+
+        /* ── 기타 카드 dimming (확장 카드가 있을 때) ────────── */
+        .stlab-cards:has(.stlab-card-expanded) .stlab-card:not(.stlab-card-expanded) {
+            opacity: 0.45;
+            transform: scale(0.98);
+        }
+
+        /* ── Live Promotion Badge (LIVE_PROMOTION_CRITERIA) ──── */
+        .promo-box {
+            margin-top: 8px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.08);
+            font-size: 11px;
+        }
+        .promo-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .promo-status {
+            font-weight: 700;
+            font-size: 11px;
+            letter-spacing: 0.3px;
+        }
+        .promo-score-wrap {
+            font-family: monospace;
+        }
+        .promo-score {
+            font-size: 16px;
+            font-weight: 700;
+            color: #e6eefc;
+        }
+        .promo-score-unit {
+            font-size: 10px;
+            color: #8fa3c0;
+            margin-left: 1px;
+        }
+        .promo-score-na {
+            font-size: 14px;
+            color: #8fa3c0;
+        }
+        .promo-group {
+            font-size: 10px;
+            color: #a8b8cc;
+            margin-bottom: 6px;
+        }
+        .promo-group b { color: #fff; }
+
+        .promo-subs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 3px 8px;
+            margin-bottom: 6px;
+        }
+        .promo-sub-row {
+            display: grid;
+            grid-template-columns: 28px 1fr 18px;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+        }
+        .promo-sub-lbl {
+            color: #a8b8cc;
+            font-weight: 600;
+        }
+        .promo-sub-bar-wrap {
+            height: 6px;
+            background: rgba(255,255,255,0.08);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .promo-sub-bar {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+        .promo-sub-bar-hi  { background: #00d4aa; }
+        .promo-sub-bar-mid { background: #4aa3ff; }
+        .promo-sub-bar-lo  { background: #ff9966; }
+        .promo-sub-val {
+            font-family: monospace;
+            text-align: right;
+            font-size: 10px;
+            color: #e6eefc;
+        }
+
+        .promo-blockers {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 3px;
+            margin-top: 2px;
+            border-top: 1px dotted rgba(255,255,255,0.1);
+            padding-top: 5px;
+        }
+        .promo-blocker-chip {
+            background: rgba(255,85,119,0.12);
+            border: 1px solid rgba(255,85,119,0.25);
+            color: #ff99aa;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 9px;
+            font-family: monospace;
+            letter-spacing: 0.2px;
+        }
+        /* Evidence missing — 노란 경고 (증거 결여, incident 아님) */
+        .promo-chip-evidence {
+            background: rgba(255,213,79,0.15);
+            border-color: rgba(255,213,79,0.4);
+            color: #ffd54f;
+            font-weight: 600;
+        }
+        /* Ops failure — 빨강 (실제 incident) */
+        .promo-chip-ops {
+            background: rgba(255,85,119,0.18);
+            border-color: rgba(255,85,119,0.4);
+            color: #ff7788;
+        }
+        /* Sample insufficient — 파랑 (시간만 있으면 해결) */
+        .promo-chip-sample {
+            background: rgba(74,163,255,0.12);
+            border-color: rgba(74,163,255,0.3);
+            color: #7cb2ff;
+        }
+        /* Other (quality/performance) — 회색 */
+        .promo-chip-other {
+            background: rgba(160,160,160,0.12);
+            border-color: rgba(160,160,160,0.3);
+            color: #bbb;
+        }
+        .promo-blocker-more {
+            color: #8fa3c0;
+            font-size: 9px;
+            padding: 1px 4px;
+        }
+        /* Evidence coverage indicator */
+        .promo-cov {
+            margin-left: auto;
+            font-size: 9px;
+            font-family: monospace;
+            padding: 1px 5px;
+            border-radius: 3px;
+        }
+        .promo-cov-ok  { background: rgba(0,212,170,0.12); color: #00d4aa; }
+        .promo-cov-mid { background: rgba(74,163,255,0.12); color: #4aa3ff; }
+        .promo-cov-low { background: rgba(255,213,79,0.15); color: #ffd54f; }
+    </style>
 </head>
 <body>
 
     <div id="qtron-nav"></div>
-    <script src="/static/nav.js"></script>
+    <script src="/static/nav.js?v=3"></script>
     <script>window.__qtronNav.renderNav(document.getElementById('qtron-nav'));</script>
 
     <main id="main">
@@ -195,7 +547,58 @@
 
         <!-- Positions Table -->
         <section class="lab-section" id="live-positions-section" style="display:none">
-            <div class="section-title"><span>현재 보유 종목</span></div>
+            <div class="section-title">
+                <span>현재 보유 종목</span>
+                <span style="margin-left:auto;display:inline-flex;align-items:center;gap:10px;">
+                    <label for="live-pos-strategy-filter" style="font-size:13px;color:#e6e6e6;font-weight:600;">전략:</label>
+                    <select id="live-pos-strategy-filter" class="live-pos-filter-select">
+                        <option value="__ALL__">전체</option>
+                    </select>
+                    <span id="live-pos-count" style="font-size:12px;color:#c8c8c8;font-weight:500;"></span>
+                </span>
+                <style>
+                    .live-pos-filter-select {
+                        padding: 6px 28px 6px 10px;
+                        font-size: 13px;
+                        font-weight: 600;
+                        background: #1a1f2e;
+                        color: #ffffff;
+                        border: 1px solid #3a4558;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        min-width: 180px;
+                        appearance: none;
+                        -webkit-appearance: none;
+                        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M0 0l5 6 5-6z' fill='%23ffffff'/></svg>");
+                        background-repeat: no-repeat;
+                        background-position: right 10px center;
+                    }
+                    .live-pos-filter-select:hover { border-color: #5a6b85; }
+                    .live-pos-filter-select:focus { outline: 2px solid #4a90e2; border-color: #4a90e2; }
+                    .live-pos-filter-select option {
+                        background: #1a1f2e;
+                        color: #ffffff;
+                        font-weight: 500;
+                        padding: 6px;
+                    }
+                    .live-pos-filter-select option:checked,
+                    .live-pos-filter-select option:hover {
+                        background: #2d3748;
+                        color: #4aa3ff;
+                    }
+                    @media (prefers-color-scheme: light) {
+                        .live-pos-filter-select,
+                        .live-pos-filter-select option {
+                            background: #ffffff;
+                            color: #1a1f2e;
+                        }
+                        .live-pos-filter-select {
+                            border-color: #cbd5e0;
+                            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M0 0l5 6 5-6z' fill='%231a1f2e'/></svg>");
+                        }
+                    }
+                </style>
+            </div>
             <div class="stlab-table-wrap">
                 <table class="stlab-table" id="live-pos-table">
                     <thead>
@@ -206,8 +609,11 @@
                             <th>Qty</th>
                             <th>Entry</th>
                             <th>Current</th>
+                            <th>전일%</th>
                             <th>P&L%</th>
                             <th>P&L</th>
+                            <th title="현재가치 / 전체 equity">Weight</th>
+                            <th title="이 포지션이 전체 수익률에 기여한 %포인트 (pnl / 초기자본)">Contrib</th>
                             <th>Entry Date</th>
                         </tr>
                     </thead>
@@ -246,8 +652,25 @@
         <span>가상 시뮬레이션 전용 (실제 주문 없음)</span>
     </footer>
 
-    <script src="/static/lab.js"></script>
-    <script src="/static/strategy_lab.js"></script>
-    <script src="/static/lab_live.js"></script>
+    <!-- ── Theme Switcher ─────────────────────────────────── -->
+    <div class="qtron-theme-footer">
+        <span class="ftr-title">🎨 Theme</span>
+        <div class="qtron-theme-tabs">
+            <button class="qtron-theme-tab" data-theme-set="light">Light</button>
+            <button class="qtron-theme-tab" data-theme-set="dark">Dark</button>
+            <button class="qtron-theme-tab" data-theme-set="pastel">Pastel</button>
+            <button class="qtron-theme-tab" data-theme-set="pro">Pro</button>
+        </div>
+        <span class="qtron-device-info" id="qtron-device-info"></span>
+        <span class="qtron-saved-indicator" id="qtron-saved-indicator">✓ 저장됨</span>
+        <div class="qtron-save-toggle">
+            <input type="checkbox" id="qtron-save-default" checked>
+            <label for="qtron-save-default">디바이스별 저장</label>
+        </div>
+    </div>
+
+    <script src="/static/lab.js?v=4"></script>
+    <script src="/static/strategy_lab.js?v=1"></script>
+    <script src="/static/lab_live.js?v=1"></script>
 </body>
 </html>

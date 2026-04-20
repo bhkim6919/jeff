@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initCopyJson();
     initProfitTabs();
     initTestOrder();
+    initDataEventsPanel();    // P2.4: Data supply 이벤트 + Market Context 패널
 
     // SSE 연결 전 캐시 스냅샷 선호출 → 빈 화면 제거
     try {
@@ -162,7 +163,7 @@ function updateDashboard(data) {
     updateHeroBadges(data);
     updateRegimeDisplay(data);
     updateDonutChart(data);
-    updateCompareChart(data);
+
     updateSectorView(data);
     updateSectorRegime(data);
     updateTrailStops(data);
@@ -730,15 +731,8 @@ function renderProfit() {
     }
 }
 
-// Store account data for profit section + comparison tracking
-let _dayTrough = Infinity;  // track intraday lowest equity
-
 function storeAccountData(data) {
     if (data.account) window._lastAccountData = data.account;
-    // Track intraday trough
-    const asset = (data.account || {}).total_asset || 0;
-    if (asset > 0 && asset < _dayTrough) _dayTrough = asset;
-    // Update comparisons from dd_guard
     updateProfitComparisons(data);
 }
 
@@ -749,21 +743,28 @@ function updateProfitComparisons(data) {
 
     const prevClose = dd.source_prev_close || 0;
     const peak = dd.source_peak || 0;
-    const trough = _dayTrough < Infinity ? _dayTrough : 0;
+    const trough = dd.source_trough || 0;
 
-    const setCmp = (id, cur, ref) => {
+    const setCmp = (id, cur, ref, titleDate) => {
         const el = document.getElementById(id);
-        if (!el || !ref || ref <= 0) { if (el) el.textContent = '--'; return; }
+        if (!el) return;
+        if (!ref || ref <= 0) {
+            el.textContent = '--';
+            el.className = 'profit-sub-value neutral';
+            el.title = '';
+            return;
+        }
         const diff = cur - ref;
         const pct = ((cur / ref) - 1) * 100;
         const sign = diff >= 0 ? '+' : '';
         el.textContent = `${sign}${formatKRW(diff)} (${sign}${pct.toFixed(2)}%)`;
         el.className = 'profit-sub-value ' + (diff > 0 ? 'positive' : diff < 0 ? 'negative' : 'neutral');
+        if (titleDate) el.title = `기준: ${titleDate}`;
     };
 
-    setCmp('cmp-prev-close', asset, prevClose);
-    setCmp('cmp-peak', asset, peak);
-    setCmp('cmp-trough', asset, trough);
+    setCmp('cmp-prev-close', asset, prevClose, dd.prev_close_date);
+    setCmp('cmp-peak', asset, peak, dd.peak_date);
+    setCmp('cmp-trough', asset, trough, dd.trough_date);
 }
 
 // ── Holdings List (토스 스타일) ──────────────────────
@@ -820,7 +821,187 @@ function updateHoldingsList(data) {
     }
     html += '</div>';
     container.innerHTML = html;
+
+    // ── 분봉 hover 바인딩 ──────────────────────────────────
+    bindMiniCardHoverChart();
 }
+
+// ── Mini Chart Hover (분봉 ka10080) ─────────────────────────
+(function() {
+    // 싱글톤 tooltip + 상태
+    let tipEl = null;
+    let currentCode = null;
+    let hoverTimer = null;
+    const chartCache = {};  // {code: {ts, data}}
+    const CACHE_TTL_MS = 60 * 1000;
+
+    function ensureTooltip() {
+        if (tipEl) return tipEl;
+        tipEl = document.createElement('div');
+        tipEl.id = 'mini-chart-tip';
+        tipEl.style.cssText = `
+            position: fixed; z-index: 9999;
+            background: #0d1420; color: #e6eefc;
+            border: 1px solid #2d3748; border-radius: 8px;
+            padding: 10px; min-width: 360px; max-width: 420px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            font-size: 11px; pointer-events: none;
+            opacity: 0; transition: opacity 0.15s;
+            display: none;
+        `;
+        document.body.appendChild(tipEl);
+        return tipEl;
+    }
+
+    function hideTip() {
+        if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
+        if (tipEl) {
+            tipEl.style.opacity = '0';
+            setTimeout(() => { if (tipEl && tipEl.style.opacity === '0') tipEl.style.display = 'none'; }, 160);
+        }
+        currentCode = null;
+    }
+
+    function positionTip(ev) {
+        if (!tipEl) return;
+        const pad = 10;
+        const W = tipEl.offsetWidth || 380;
+        const H = tipEl.offsetHeight || 180;
+        let x = ev.clientX + pad;
+        let y = ev.clientY + pad;
+        if (x + W > window.innerWidth)  x = ev.clientX - W - pad;
+        if (y + H > window.innerHeight) y = ev.clientY - H - pad;
+        tipEl.style.left = x + 'px';
+        tipEl.style.top  = y + 'px';
+    }
+
+    function renderChart(data, code, name) {
+        const bars = (data && data.bars) || [];
+        const tip = ensureTooltip();
+        if (!bars.length) {
+            tip.innerHTML = `<div style="font-weight:700;margin-bottom:6px;">${name} (${code})</div>
+                             <div style="opacity:0.6">분봉 데이터 없음 ${data.error ? '('+data.error+')' : ''}</div>`;
+            return;
+        }
+        const W = 360, H = 120, PAD = 8;
+        const closes = bars.map(b => b.close);
+        const highs  = bars.map(b => b.high);
+        const lows   = bars.map(b => b.low);
+        const vols   = bars.map(b => b.volume);
+        const maxP = Math.max(...highs);
+        const minP = Math.min(...lows);
+        const rangeP = Math.max(1, maxP - minP);
+        const maxV = Math.max(...vols, 1);
+
+        const stepX = (W - 2 * PAD) / Math.max(1, bars.length - 1);
+
+        // Close line path
+        const linePath = closes.map((c, i) => {
+            const x = PAD + i * stepX;
+            const y = H - PAD - ((c - minP) / rangeP) * (H - 2 * PAD - 30);  // leave 30px for volume
+            return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+        }).join(' ');
+
+        // Volume bars
+        const volBars = vols.map((v, i) => {
+            const x = PAD + i * stepX;
+            const h = (v / maxV) * 24;
+            const y = H - PAD - h;
+            return `<rect x="${(x-1).toFixed(1)}" y="${y.toFixed(1)}" width="2" height="${h.toFixed(1)}" fill="#3a4558"/>`;
+        }).join('');
+
+        const firstClose = closes[0];
+        const lastClose = closes[closes.length - 1];
+        const pct = firstClose ? ((lastClose / firstClose - 1) * 100) : 0;
+        const pctCls = pct >= 0 ? '#F04452' : '#3182F6';
+        const pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+        const firstBar = bars[0], lastBar = bars[bars.length - 1];
+
+        tip.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <div><b>${name}</b> <span style="color:#8fa3c0;font-size:10px;">${code}</span></div>
+                <div style="color:${pctCls};font-weight:700;">${pctStr}</div>
+            </div>
+            <div style="display:flex;gap:10px;font-size:10px;color:#8fa3c0;margin-bottom:4px;">
+                <span>현재 <b style="color:#e6eefc">${lastClose.toLocaleString()}</b></span>
+                <span>고 ${Math.max(...highs).toLocaleString()}</span>
+                <span>저 ${Math.min(...lows).toLocaleString()}</span>
+                <span>vol ${lastBar.volume.toLocaleString()}</span>
+            </div>
+            <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" style="display:block;">
+                <line x1="${PAD}" y1="${H-PAD-24}" x2="${W-PAD}" y2="${H-PAD-24}" stroke="#2d3748" stroke-dasharray="2,2"/>
+                ${volBars}
+                <path d="${linePath}" fill="none" stroke="${pctCls}" stroke-width="1.5"/>
+            </svg>
+            <div style="display:flex;justify-content:space-between;font-size:9px;color:#6b7994;margin-top:2px;">
+                <span>${firstBar.time ? firstBar.time.slice(0,2)+':'+firstBar.time.slice(2,4) : ''}</span>
+                <span style="opacity:0.6">1분봉 · 최근 ${bars.length}개</span>
+                <span>${lastBar.time ? lastBar.time.slice(0,2)+':'+lastBar.time.slice(2,4) : ''}</span>
+            </div>
+        `;
+    }
+
+    async function fetchAndShow(card, ev) {
+        const code = card.dataset.code;
+        if (!code) return;
+        currentCode = code;
+        const name = card.querySelector('.mini-name')?.textContent || code;
+
+        const tip = ensureTooltip();
+        tip.style.display = 'block';
+        tip.innerHTML = `<div><b>${name}</b> <span style="opacity:0.6">${code}</span></div>
+                         <div style="padding:16px 0;text-align:center;opacity:0.6;">분봉 불러오는 중…</div>`;
+        tip.style.opacity = '1';
+        positionTip(ev);
+
+        // 캐시 확인
+        const cached = chartCache[code];
+        if (cached && (Date.now() - cached.ts) < CACHE_TTL_MS) {
+            if (currentCode === code) {
+                renderChart(cached.data, code, name);
+                positionTip(ev);
+            }
+            return;
+        }
+        try {
+            const resp = await fetch(`/api/chart/minute/${code}?tic_scope=1&bars=60`);
+            const data = await resp.json();
+            chartCache[code] = { ts: Date.now(), data };
+            if (currentCode === code) {  // 다른 카드로 이동 안 했을 때만
+                renderChart(data, code, name);
+                positionTip(ev);
+            }
+        } catch(e) {
+            if (currentCode === code) {
+                tip.innerHTML = `<div><b>${name}</b></div><div style="color:#ef4444;">조회 실패: ${e}</div>`;
+            }
+        }
+    }
+
+    window.bindMiniCardHoverChart = function() {
+        const container = document.getElementById('holdings-list');
+        if (!container || container._hoverBound) return;
+        container._hoverBound = true;
+
+        container.addEventListener('mouseover', (ev) => {
+            const card = ev.target.closest('.mini-card');
+            if (!card) return;
+            if (hoverTimer) clearTimeout(hoverTimer);
+            // 250ms 지연 — 빠르게 지나가면 fetch 안 함
+            hoverTimer = setTimeout(() => fetchAndShow(card, ev), 250);
+        });
+        container.addEventListener('mousemove', (ev) => {
+            if (tipEl && tipEl.style.display === 'block') positionTip(ev);
+        });
+        container.addEventListener('mouseout', (ev) => {
+            const related = ev.relatedTarget;
+            if (related && related.closest && related.closest('.mini-card')) return;
+            hideTip();
+        });
+        // 카드 영역 밖으로 나가면 close
+        container.addEventListener('mouseleave', hideTip);
+    };
+})();
 
 // ── Alert Banner ─────────────────────────────────────────────
 
@@ -2267,109 +2448,6 @@ function updateTradesTimeline(data) {
     container.innerHTML = html;
 }
 
-// ── KOSPI vs Portfolio Comparison Chart (DB-backed) ─────────
-
-let _compareData = null;
-let _compareLastFetch = 0;
-
-function updateCompareChart(data) {
-    const canvas = document.getElementById('compare-chart');
-    if (!canvas) return;
-
-    const now = Date.now();
-    // Fetch from DB API every 60s
-    if (!_compareData || (now - _compareLastFetch) > 60000) {
-        _compareLastFetch = now;
-        fetch('/api/chart/today')
-            .then(r => r.json())
-            .then(d => { _compareData = d.snapshots || []; _drawCompareChart(canvas); })
-            .catch(() => {});
-        return;
-    }
-    _drawCompareChart(canvas);
-}
-
-function _drawCompareChart(canvas) {
-    if (!_compareData || _compareData.length < 2) return;
-
-    const ctx = canvas.getContext('2d');
-    const dpr = window.devicePixelRatio || 1;
-    const W = canvas.width, H = canvas.height;
-    const pad = {t: 12, b: 22, l: 44, r: 14};
-    ctx.clearRect(0, 0, W, H);
-
-    const kospiPts = _compareData.map(s => ({t: s.t, v: s.kospi || 0}));
-    const portPts = _compareData.map(s => ({t: s.t, v: s.portfolio || 0}));
-
-    const allVals = [...kospiPts.map(p=>p.v), ...portPts.map(p=>p.v)];
-    let yMin = Math.min(0, ...allVals);
-    let yMax = Math.max(0, ...allVals);
-    const yPad = Math.max(0.5, (yMax - yMin) * 0.15);
-    yMin -= yPad; yMax += yPad;
-
-    const chartW = W - pad.l - pad.r;
-    const chartH = H - pad.t - pad.b;
-    function yToPixel(v) { return pad.t + chartH - (v - yMin) / (yMax - yMin) * chartH; }
-
-    // Grid lines
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-    ctx.lineWidth = 1;
-    const zeroY = yToPixel(0);
-    ctx.beginPath(); ctx.moveTo(pad.l, zeroY); ctx.lineTo(W - pad.r, zeroY); ctx.stroke();
-
-    // Draw line function
-    function drawLine(points, color, lineW) {
-        if (points.length < 2) return;
-        const step = chartW / Math.max(points.length - 1, 1);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = lineW;
-        ctx.lineJoin = 'round';
-        ctx.beginPath();
-        points.forEach((p, i) => {
-            const x = pad.l + i * step;
-            const y = yToPixel(p.v);
-            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        });
-        ctx.stroke();
-
-        // Area fill
-        ctx.globalAlpha = 0.05;
-        ctx.fillStyle = color;
-        ctx.lineTo(pad.l + (points.length-1) * step, zeroY);
-        ctx.lineTo(pad.l, zeroY);
-        ctx.closePath();
-        ctx.fill();
-        ctx.globalAlpha = 1.0;
-    }
-
-    drawLine(kospiPts, '#58a6ff', 1.5);
-    drawLine(portPts, '#F04452', 2);
-
-    // Y labels
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.font = '10px monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText(yMax.toFixed(1) + '%', pad.l - 4, pad.t + 10);
-    ctx.fillText(yMin.toFixed(1) + '%', pad.l - 4, H - pad.b);
-    ctx.fillText('0%', pad.l - 4, zeroY + 3);
-
-    // Time labels
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
-    const n = kospiPts.length;
-    if (n > 0) {
-        ctx.fillText(kospiPts[0].t, pad.l, H - 4);
-        if (n > 1) ctx.fillText(kospiPts[n-1].t, pad.l + chartW, H - 4);
-        if (n > 4) ctx.fillText(kospiPts[Math.floor(n/2)].t, pad.l + chartW/2, H - 4);
-    }
-
-    // Current values (top-right)
-    const lastK = kospiPts[n-1]; const lastP = portPts[portPts.length-1];
-    ctx.textAlign = 'right';
-    ctx.font = '11px monospace';
-    if (lastP) { ctx.fillStyle = '#F04452'; ctx.fillText((lastP.v>=0?'+':'') + lastP.v.toFixed(2) + '%', W - pad.r, pad.t + 12); }
-    if (lastK) { ctx.fillStyle = '#58a6ff'; ctx.fillText((lastK.v>=0?'+':'') + lastK.v.toFixed(2) + '%', W - pad.r, pad.t + 24); }
-}
 
 // ── Regime Display (Gradient Bar) ────────────────────────────
 
@@ -2493,4 +2571,155 @@ function updateRegimeDisplay(data) {
         if (sExact) sExact.textContent = stats.exact_match_rate != null ? stats.exact_match_rate + '%' : '--';
         if (sW1) sW1.textContent = stats.within_one_step_rate != null ? stats.within_one_step_rate + '%' : '--';
     }
+}
+
+// ── P2.4: Data Events + Market Context Panel ──────────────────
+// Jeff 제약 #5: market_context (현재 상태) / data_events (로그) 명확히 분리.
+// API endpoints:
+//   GET /api/debug/market_context
+//   GET /api/debug/data_events?limit=50&min_level=WARN&sources=KOSPI
+
+let _dataEventsTimer = null;
+
+function initDataEventsPanel() {
+    // 폴링 주기 10초 (Jeff 로드맵 P2.4)
+    loadMarketContext();
+    loadDataEvents();
+    _dataEventsTimer = setInterval(() => {
+        if (currentMode === 'debug') {
+            loadMarketContext();
+            loadDataEvents();
+        }
+    }, 10000);
+
+    // 필터 이벤트
+    const lvl = document.getElementById('devt-filter-level');
+    const src = document.getElementById('devt-filter-source');
+    if (lvl) lvl.addEventListener('change', loadDataEvents);
+    if (src) src.addEventListener('input', _debounce(loadDataEvents, 300));
+}
+
+function _debounce(fn, ms) {
+    let t;
+    return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
+
+async function loadMarketContext() {
+    try {
+        const r = await fetch('/api/debug/market_context');
+        const d = await r.json();
+        updateMarketContextPanel(d);
+    } catch (e) { /* silent */ }
+}
+
+function updateMarketContextPanel(d) {
+    const badge = document.getElementById('mctx-mode-badge');
+    const ids = {
+        'mctx-effective': '--',
+        'mctx-stock': '--',
+        'mctx-kospi': '--',
+        'mctx-ready': '--',
+        'mctx-runmode': '--',
+        'mctx-lastrun': '--',
+        'mctx-source': '--',
+        'mctx-reasons': '--',
+    };
+
+    if (!d || !d.ok || !d.market_context) {
+        Object.entries(ids).forEach(([id, v]) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = v;
+        });
+        if (badge) {
+            badge.textContent = d && d.reason ? d.reason : 'NO DATA';
+            badge.className = 'mctx-badge mctx-idle';
+        }
+        return;
+    }
+
+    const m = d.market_context;
+    const runMode = m.run_mode || 'UNKNOWN';
+    const setText = (id, v) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = v != null ? v : '--';
+    };
+    setText('mctx-effective', m.effective_trade_date);
+    setText('mctx-stock', m.stock_last_date);
+    setText('mctx-kospi', m.kospi_last_date);
+    setText('mctx-ready', m.index_ready ? '✓ YES' : '✗ NO');
+    setText('mctx-runmode', runMode);
+    setText('mctx-lastrun', d.last_run_date);
+    setText('mctx-source', d.selected_source);
+    setText('mctx-reasons', (m.degraded_reasons || []).join(' · ') || '—');
+
+    // ready 색상
+    const readyEl = document.getElementById('mctx-ready');
+    if (readyEl) readyEl.className = 'v ' + (m.index_ready ? 'status-ok' : 'status-warn');
+    const rmEl = document.getElementById('mctx-runmode');
+    if (rmEl) rmEl.className = 'v ' + (runMode === 'OK' ? 'status-ok' : 'status-warn');
+
+    if (badge) {
+        badge.textContent = runMode;
+        badge.className = 'mctx-badge ' + (runMode === 'OK' ? 'mctx-ok' : 'mctx-degraded');
+    }
+}
+
+async function loadDataEvents() {
+    try {
+        const lvl = document.getElementById('devt-filter-level');
+        const src = document.getElementById('devt-filter-source');
+        const params = new URLSearchParams({ limit: '50' });
+        if (lvl && lvl.value) params.set('min_level', lvl.value);
+        if (src && src.value.trim()) params.set('sources', src.value.trim());
+        const r = await fetch('/api/debug/data_events?' + params);
+        const d = await r.json();
+        updateDataEventsTable(d.events || []);
+    } catch (e) { /* silent */ }
+}
+
+function updateDataEventsTable(events) {
+    const tbody = document.getElementById('devt-body');
+    if (!tbody) return;
+    if (!events || events.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-row">이벤트 없음</td></tr>';
+        return;
+    }
+
+    const levelCls = {
+        'DEBUG': '',
+        'INFO': 'badge-ok',
+        'WARN': 'badge-retry',
+        'ERROR': 'badge-error',
+        'CRITICAL': 'badge-error',
+    };
+
+    let html = '';
+    for (const ev of events) {
+        const tsStr = _fmtEventTs(ev.ts);
+        const dupBadge = ev.suppressed_count > 0
+            ? `<span class="mctx-badge mctx-degraded" title="${ev.suppressed_count}건 중복 흡수">${ev.suppressed_count}x</span>`
+            : '';
+        const escalatedMark = ev.escalated ? ' ⚡' : '';
+        const rowCls = (ev.level === 'CRITICAL' || ev.level === 'ERROR') ? 'trace-error'
+                     : (ev.level === 'WARN' ? 'trace-timeout' : '');
+
+        html += `
+            <tr class="${rowCls}">
+                <td class="mono">${tsStr}</td>
+                <td class="mono" title="${esc(ev.source)}">${truncate(ev.source, 22)}</td>
+                <td><span class="status-badge ${levelCls[ev.level] || ''}">${ev.level}${escalatedMark}</span></td>
+                <td class="mono" title="${esc(ev.code)}">${truncate(ev.code, 22)}</td>
+                <td class="error-cell" title="${esc(ev.message)}">${truncate(ev.message, 50)}</td>
+                <td>${dupBadge}</td>
+            </tr>
+        `;
+    }
+    tbody.innerHTML = html;
+}
+
+function _fmtEventTs(ts) {
+    if (!ts) return '--';
+    const d = new Date(ts * 1000);
+    const p = (n) => n.toString().padStart(2, '0');
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${d.getMilliseconds().toString().padStart(3, '0')}`;
 }

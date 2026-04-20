@@ -1,21 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#1a1a2e"/>
-      <stop offset="100%" style="stop-color:#16213e"/>
-    </linearGradient>
-    <linearGradient id="ring" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#00c853"/>
-      <stop offset="100%" style="stop-color:#58a6ff"/>
-    </linearGradient>
-  </defs>
-  <!-- Background -->
-  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
-  <!-- Q circle (ring) -->
-  <circle cx="30" cy="30" r="16" fill="none" stroke="url(#ring)" stroke-width="4.5"/>
-  <!-- Q tail (diagonal) -->
-  <line x1="40" y1="40" x2="52" y2="52" stroke="#00c853" stroke-width="4.5" stroke-linecap="round"/>
-  <!-- Pulse line (trading signal) -->
-  <polyline points="10,44 18,44 22,36 26,50 30,42 34,44 42,44"
-            fill="none" stroke="#F04452" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+  <!-- 태극 문양만 — 최대 크기 (4괘 제거, 배경 둥근 흰바탕만 유지) -->
+  <rect width="64" height="64" rx="10" fill="#ffffff"/>
+  <g transform="translate(32 32)">
+    <!-- 빨강 반원 (위/좌) + 파랑 꼬리 -->
+    <path d="M -30 0 A 30 30 0 0 1 30 0 A 15 15 0 0 1 0 0 A 15 15 0 0 0 -30 0 Z" fill="#CD2E3A"/>
+    <!-- 파랑 반원 (아래/우) + 빨강 꼬리 -->
+    <path d="M -30 0 A 30 30 0 0 0 30 0 A 15 15 0 0 0 0 0 A 15 15 0 0 1 -30 0 Z" fill="#0047A0"/>
+  </g>
 </svg>

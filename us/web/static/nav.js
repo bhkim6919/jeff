@@ -72,6 +72,8 @@
                                 onclick="window.__qtronNav.switchMarket('US')">US</button>
                     </div>
                     <div class="qnav-badges" id="qnav-badges"></div>
+                    <span id="nav-batch-badge" class="qnav-batch-badge" style="display:none"></span>
+                    <span id="nav-auto-gate-badge" class="qnav-gate-badge gate-unknown" style="display:none" title="AUTO GATE">AUTO GATE: …</span>
                 </div>
                 <nav class="qnav-menu">
                     <button class="qnav-item ${page === 'dashboard' ? 'active' : ''}"
@@ -112,6 +114,12 @@
             </div>
         `;
 
+        // Batch badge
+        _startBatchBadge(market);
+
+        // Auto Gate badge (P2 advisory observability)
+        _startAutoGateBadge(market);
+
         // Clock
         function tick() {
             const now = new Date();
@@ -127,6 +135,156 @@
         }
         tick();
         setInterval(tick, 1000);
+    }
+
+    // ── Batch Badge ─────────────────────────────────────────────
+
+    let _batchPollTimer = null;
+
+    function _startBatchBadge(market) {
+        _fetchBatchBadge(market);
+        if (_batchPollTimer) clearInterval(_batchPollTimer);
+        _batchPollTimer = setInterval(() => _fetchBatchBadge(market), 5 * 60 * 1000);
+    }
+
+    async function _fetchBatchBadge(market) {
+        const el = document.getElementById('nav-batch-badge');
+        if (!el) return;
+        try {
+            if (market === 'US') {
+                const r = await fetch('/api/rebalance/status');
+                const d = await r.json();
+                // UI-P0-001: "완료" = 당일 장 마감(16:00 ET) 이후 실제로 배치가 돈 경우만.
+                // DST/EST 모두 정확해야 함 — Intl.DateTimeFormat 으로 ET wall-clock 비교.
+                let done = false;
+                if (d.last_batch_business_date &&
+                    d.last_batch_business_date === d.business_date &&
+                    d.snapshot_created_at) {
+                    try {
+                        const created = new Date(d.snapshot_created_at);
+                        // created 시점의 ET wall-clock을 뽑아서 date 및 hour 비교
+                        const fmt = new Intl.DateTimeFormat('en-US', {
+                            timeZone: 'America/New_York',
+                            year: 'numeric', month: '2-digit', day: '2-digit',
+                            hour: '2-digit', minute: '2-digit', hour12: false,
+                        });
+                        const parts = Object.fromEntries(
+                            fmt.formatToParts(created).map(p => [p.type, p.value])
+                        );
+                        const createdEtDate = `${parts.year}-${parts.month}-${parts.day}`;
+                        const createdEtHour = parseInt(parts.hour, 10);
+                        // business_date가 created의 ET 날짜와 같고, ET hour >= 16 이어야 완료.
+                        done = (createdEtDate === d.business_date) && (createdEtHour >= 16);
+                    } catch (_) {
+                        done = false;
+                    }
+                }
+                _setBatchBadge(el, done, 'US');
+            } else {
+                const r = await fetch('/api/batch/status');
+                const d = await r.json();
+                _setBatchBadge(el, !!d.kr_done, 'KR');
+            }
+        } catch (_) {}
+    }
+
+    // ── AUTO GATE Badge ─────────────────────────────────────────
+
+    let _autoGatePollTimer = null;
+
+    function _startAutoGateBadge(market) {
+        _fetchAutoGateBadge(market);
+        if (_autoGatePollTimer) clearInterval(_autoGatePollTimer);
+        _autoGatePollTimer = setInterval(() => _fetchAutoGateBadge(market), 30 * 1000);
+    }
+
+    async function _fetchAutoGateBadge(market) {
+        const el = document.getElementById('nav-auto-gate-badge');
+        if (!el) return;
+        try {
+            let auto = null, health = null;
+            if (market === 'US') {
+                const r = await fetch('/api/status/summary');
+                const d = await r.json();
+                auto = d.auto_trading || null;
+                health = (auto && auto.strategy_health_detail) || null;
+            } else {
+                const r = await fetch('/api/state');
+                const d = await r.json();
+                auto = d.auto_trading || null;
+                health = d.strategy_health || null;
+            }
+            _setAutoGateBadge(el, auto, health, market);
+        } catch (e) {
+            el.textContent = 'AUTO GATE: NO DATA';
+            el.className = 'qnav-gate-badge gate-unknown';
+            el.title = 'API fetch failed: ' + (e && e.message || e);
+            el.style.display = 'inline-flex';
+        }
+    }
+
+    function _setAutoGateBadge(el, auto, health, market) {
+        if (!auto) {
+            el.textContent = 'AUTO GATE: UNKNOWN';
+            el.className = 'qnav-gate-badge gate-unknown';
+            el.title = 'auto_trading field missing from API response';
+            el.style.display = 'inline-flex';
+            return;
+        }
+        const mode = (auto.mode || 'advisory').toLowerCase();
+        const enabled = auto.enabled === true;
+        const top = auto.highest_priority_blocker || '';
+        const blockers = Array.isArray(auto.blockers) ? auto.blockers : [];
+        const computed = auto.computed_at || '';
+        const healthStatus = (health && health.status) || auto.strategy_health || 'UNKNOWN';
+        const warmup = !!(health && health.warmup_active);
+
+        let stale = false;
+        if (computed) {
+            const t = Date.parse(computed);
+            if (!isNaN(t) && (Date.now() - t) > 5 * 60 * 1000) stale = true;
+        } else {
+            stale = true;
+        }
+
+        let label, cls;
+        if (mode === 'enforcing' && !enabled) {
+            label = 'AUTO GATE: BLOCKED';
+            cls = 'gate-blocked';
+        } else if (mode === 'enforcing' && enabled) {
+            label = 'AUTO GATE: ENFORCING';
+            cls = 'gate-enforcing';
+        } else {
+            label = enabled ? 'AUTO GATE: ADVISORY (OK)' : 'AUTO GATE: ADVISORY';
+            cls = 'gate-advisory';
+        }
+        if (stale) label += ' · STALE';
+
+        el.textContent = top ? `${label} · ${top}` : label;
+        el.className = 'qnav-gate-badge ' + cls + (stale ? ' gate-stale' : '');
+        const tip = [
+            `Market: ${market}`,
+            `Mode: ${auto.mode || 'advisory'}`,
+            `Enabled: ${enabled}`,
+            `Top blocker: ${top || '(none)'}`,
+            `Blockers: ${blockers.length ? blockers.join(', ') : '(none)'}`,
+            `Health: ${healthStatus}${warmup ? ' (warm-up)' : ''}`,
+            `Risk: ${auto.risk_level || 'NORMAL'}`,
+            `Buy scale: ${auto.buy_scale != null ? auto.buy_scale : '-'}`,
+            `Last eval: ${computed || '(unknown)'}${stale ? ' [STALE]' : ''}`,
+        ].join('\n');
+        el.title = tip;
+        el.style.display = 'inline-flex';
+    }
+
+    function _setBatchBadge(el, done, market) {
+        if (done) {
+            el.textContent = `BATCH ✓`;
+            el.title = `${market} 오늘 배치 완료`;
+            el.style.display = 'inline-flex';
+        } else {
+            el.style.display = 'none';
+        }
     }
 
     // ── Telegram Modal Functions ──
@@ -254,5 +412,7 @@
 
     // Expose API
     window.__qtronNav = { switchMarket, navigateTo, getCurrentMarket, renderNav,
-                          openTelegram, closeTelegram, sendTelegram, _fileChanged, _clearFile };
+                          openTelegram, closeTelegram, sendTelegram, _fileChanged, _clearFile,
+                          refreshBatchBadge: () => _fetchBatchBadge(getCurrentMarket()),
+                          refreshAutoGateBadge: () => _fetchAutoGateBadge(getCurrentMarket()) };
 })();

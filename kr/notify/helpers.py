@@ -92,3 +92,98 @@ def _notify_advisor(alerts: list, recommendations: list):
             _tg_send(f"<b>Advisor 추천</b>\n" + "\n".join(lines), "INFO")
     except Exception as e:
         logging.getLogger("gen4.notify").warning(f"[NOTIFY_ADVISOR_FAIL] {e}")
+
+
+# ── Data Pipeline Failure Alert ───────────────────────────────
+import atexit
+import threading
+
+_ALERT_MAX_CTX_LINES   = 3
+_ALERT_MAX_CTX_VAL_LEN = 60
+_ALERT_MAX_REASON_LEN  = 200
+_pending_alert_threads: list = []   # atexit flush용
+
+
+def _build_data_alert_msg(source: str, reason: str, context: dict | None) -> str:
+    msg = (
+        f"🚨 <b>Data Pipeline Failure</b>\n"
+        f"Source: <code>{source}</code>\n"
+        f"Reason: {reason[:_ALERT_MAX_REASON_LEN]}"
+    )
+    if context:
+        items = list(context.items())[:_ALERT_MAX_CTX_LINES]
+        ctx_lines = [f"{k}: {str(v)[:_ALERT_MAX_CTX_VAL_LEN]}" for k, v in items]
+        if ctx_lines:
+            msg += "\n" + "\n".join(ctx_lines)
+    msg += "\n\n⚠ 후속 배치/EOD가 stale 데이터로 진행될 수 있음"
+    return msg
+
+
+def _send_data_alert_async(event_key: str, msg: str, reason: str) -> None:
+    """비동기 fire-and-forget. atexit handler가 최대 2초 join으로 완충."""
+    def _worker():
+        try:
+            from notify.telegram_bot import send
+            from notify.alert_state import record_sent
+            ok = send(msg, severity="CRITICAL")
+            if ok:
+                record_sent(event_key, "CRITICAL", state=reason[:100])
+                logging.getLogger("gen4.notify").warning(f"[DATA_ALERT_SENT] {event_key}")
+            else:
+                logging.getLogger("gen4.notify").warning(f"[DATA_ALERT_SEND_FAIL] {event_key}")
+        except Exception as e:
+            logging.getLogger("gen4.notify").warning(f"[DATA_ALERT_THREAD_FAIL] {event_key}: {e}")
+
+    t = threading.Thread(target=_worker, daemon=True)
+    _pending_alert_threads.append(t)
+    t.start()
+
+
+def _flush_alert_threads(timeout: float = 2.0) -> None:
+    """atexit: 종료 직전 최대 timeout초 대기해 delivery 보장."""
+    for t in _pending_alert_threads:
+        if t.is_alive():
+            t.join(timeout=timeout)
+
+
+atexit.register(_flush_alert_threads)
+
+
+def _reason_key(reason: str) -> str:
+    """reason 앞 30자의 MD5 해시 8자 → event_key 세분화용."""
+    import hashlib
+    return hashlib.md5(reason[:30].encode("utf-8", errors="ignore")).hexdigest()[:8]
+
+
+def alert_data_failure(source: str, reason: str, context: dict = None) -> bool:
+    """
+    외부 데이터 소스 실패 CRITICAL 알림.
+
+    Dedup 정책: 같은 날 같은 source + 같은 장애 유형 1회.
+    event_key  = "data_failure:{source}:{reason_hash8}:{today_date}"
+    category   = "data_pipeline:{source}"  (source 단위 독립 burst)
+
+    같은 source라도 다른 장애(HTTP 429 vs empty response)는 각각 독립 alert.
+
+    Args:
+        source:  시스템/공급원 이름 (e.g. "yfinance", "fundamental", "lab_live")
+        reason:  장애 설명 (200자 자동 truncate)
+        context: 부가 정보 dict (최대 3 키, 값 60자 truncate)
+    Returns: True=alert 큐잉됨, False=dedup skip or notify disabled
+    """
+    if not _NOTIFY_OK:
+        return False
+    try:
+        from notify.alert_state import can_send
+        from datetime import date as _date
+        category  = f"data_pipeline:{source}"
+        event_key = f"data_failure:{source}:{_reason_key(reason)}:{_date.today()}"
+        if not can_send(event_key, "CRITICAL", category=category):
+            logging.getLogger("gen4.notify").info(f"[DATA_ALERT_DEDUP_SKIP] {event_key}")
+            return False
+        msg = _build_data_alert_msg(source, reason, context)
+        _send_data_alert_async(event_key, msg, reason)
+        return True
+    except Exception as e:
+        logging.getLogger("gen4.notify").warning(f"[DATA_ALERT_FAIL] {source}: {e}")
+        return False

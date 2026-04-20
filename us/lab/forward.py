@@ -235,6 +235,13 @@ class ForwardTrader:
         existing_run = _load_json(run_path)
         if existing_run:
             if existing_run["status"] == "DONE" and not force:
+                # Recovery: if meta lost last_successful_eod_date (e.g. after reset+init),
+                # restore it from this completed run so meta API works
+                if not meta.get("last_successful_eod_date"):
+                    meta["last_successful_eod_date"] = eod_date
+                    meta["day_count"] = max(meta.get("day_count", 0), 1)
+                    _save_meta(meta)
+                    logger.info(f"[FORWARD] Recovered last_successful_eod_date={eod_date} from existing run")
                 return {"error": f"EOD already DONE for {eod_date}", "run": existing_run}
             if existing_run["status"] == "RUNNING":
                 return {"error": f"EOD RUNNING for {eod_date}. Wait or check stale lock."}
@@ -287,8 +294,50 @@ class ForwardTrader:
                             "prev_close": float(series.iloc[-2]) if len(series) > 1 else float(series.iloc[-1]),
                             "change_pct": 0,
                         }
+                logger.warning(
+                    f"[US_OHLC_SOURCE] DB fallback: OHLC unavailable, "
+                    f"using close for O/H/L. Signals degraded. "
+                    f"symbols={len(snapshots_data)}"
+                )
 
             close_dict = {sym: d["price"] for sym, d in snapshots_data.items() if d.get("price", 0) > 0}
+            # OHLC dicts: use actual values from snapshot, close fallback only as last resort
+            open_dict_snap = {}
+            high_dict_snap = {}
+            low_dict_snap = {}
+            for sym, d in snapshots_data.items():
+                if d.get("price", 0) <= 0:
+                    continue
+                o = d.get("open", 0)
+                h = d.get("high", 0)
+                l = d.get("low", 0)
+                c = d["price"]
+                # Fallback: if OHLC missing, use close with warning
+                if o <= 0:
+                    o = c
+                if h <= 0:
+                    h = c
+                if l <= 0:
+                    l = c
+                open_dict_snap[sym] = o
+                high_dict_snap[sym] = h
+                low_dict_snap[sym] = l
+
+            # OHLC invariant check: H>=max(O,C), L<=min(O,C)
+            _ohlc_violations = []
+            for sym in list(open_dict_snap.keys())[:500]:
+                o = open_dict_snap[sym]
+                h = high_dict_snap[sym]
+                l = low_dict_snap[sym]
+                c = close_dict.get(sym, 0)
+                if c > 0 and (h < max(o, c) - 0.01 or l > min(o, c) + 0.01):
+                    _ohlc_violations.append(sym)
+            if _ohlc_violations:
+                _samples = _ohlc_violations[:3]
+                logger.warning(
+                    f"[US_OHLC_INVARIANT] {len(_ohlc_violations)} symbols violate "
+                    f"H>=max(O,C) or L<=min(O,C). samples={_samples}"
+                )
 
             # Also load historical for signal generation
             from data.db_provider import DbProviderUS
@@ -332,9 +381,9 @@ class ForwardTrader:
                         date=eod_date,
                         day_idx=state.day_count,
                         close_dict={s: close_dict[s] for s in valid if s in close_dict},
-                        open_dict={s: close_dict.get(s, 0) for s in valid},
-                        high_dict={s: close_dict.get(s, 0) for s in valid},
-                        low_dict={s: close_dict.get(s, 0) for s in valid},
+                        open_dict={s: open_dict_snap.get(s, close_dict.get(s, 0)) for s in valid},
+                        high_dict={s: high_dict_snap.get(s, close_dict.get(s, 0)) for s in valid},
+                        low_dict={s: low_dict_snap.get(s, close_dict.get(s, 0)) for s in valid},
                         volume_dict={},
                     )
 
@@ -428,6 +477,39 @@ class ForwardTrader:
                         sold_today.add(sym)
 
                     # 4+5. BUY execution (same-day re-entry prohibited)
+                    # ── P2.4: Auto Trading Gate hook (BUY-only, strategy-scoped) ─
+                    try:
+                        from risk.execution_guard_hook import guard_buy_execution
+                        _fwd_rt = {
+                            "last_batch_completed_at": eod_date,
+                            "last_recon_ok": True,
+                            "data_stale": False,
+                            "auto_gate_enforce": False,  # forward sim stays advisory
+                        }
+                        _fwd_health = {"status": "HEALTHY"}  # sim context, pre-flight
+                        _fwd_dec = guard_buy_execution(
+                            runtime=_fwd_rt, strategy_health=_fwd_health
+                        )
+                        _req_id = f"fwd-{strat_name}-{eod_date}"
+                        if _fwd_dec.block_buy:
+                            logger.critical(
+                                f"[BUY_BLOCKED_BY_AUTO_GATE] market=US req={_req_id} "
+                                f"mode={_fwd_dec.mode} top={_fwd_dec.highest_blocker}"
+                            )
+                            buys = []  # drop buys only; SELL above already executed
+                        elif not _fwd_dec.enabled:
+                            logger.info(
+                                f"[BUY_ADVISORY] market=US req={_req_id} "
+                                f"mode={_fwd_dec.mode} top={_fwd_dec.highest_blocker}"
+                            )
+                        else:
+                            logger.debug(
+                                f"[BUY_GATE_ALLOWED] market=US req={_req_id} "
+                                f"mode={_fwd_dec.mode}"
+                            )
+                    except Exception as _ge:
+                        logger.error(f"[BUY_GATE_EVAL_ERROR] {type(_ge).__name__}: {_ge}")
+
                     available_slots = max_pos - len(state.positions)
                     for buy in buys[:available_slots]:
                         sym = buy.get("symbol", "")
@@ -542,15 +624,41 @@ class ForwardTrader:
         finally:
             _release_lock(eod_date)
 
-    def get_state(self) -> dict:
-        """Get current state for dashboard (HEAD pointer based)."""
+    def get_state(self, include_positions: bool = False) -> dict:
+        """Get current state for dashboard (HEAD pointer based).
+
+        include_positions=True: 포지션 상세 list + weight/contrib 포함 (드라이버 계산용).
+        """
         meta = _load_meta()
         run_id = meta.get("last_committed_run_id", "")
         if not run_id:
             return {"meta": meta, "strategies": {}}
 
+        # Current prices: 최신 ohlcv_us close 로드 (포지션 평가용)
+        close_dict_latest = {}
+        if include_positions:
+            try:
+                from data.db_provider import get_db
+                db = get_db()
+                conn = db._conn()
+                cur = conn.cursor()
+                cur.execute("""
+                    WITH ranked AS (
+                        SELECT symbol, date, close,
+                               ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) as rn
+                        FROM ohlcv_us
+                    )
+                    SELECT symbol, close FROM ranked WHERE rn=1
+                """)
+                for sym, c in cur.fetchall():
+                    close_dict_latest[sym] = float(c) if c else 0
+                cur.close(); conn.close()
+            except Exception as _e:
+                logger.warning(f"[FORWARD] latest close load failed: {_e}")
+
         version_dir = VERSIONS_DIR / run_id
         strategies = {}
+        _INITIAL = 100_000.0
         if version_dir.exists():
             for f in sorted(version_dir.glob("*.json")):
                 data = _load_json(f)
@@ -558,19 +666,17 @@ class ForwardTrader:
                     name = data.get("strategy_name", f.stem)
                     eq_hist = data.get("equity_history", [])
                     last_eq = eq_hist[-1][1] if eq_hist else 100_000
-                    first_eq = eq_hist[0][1] if eq_hist else 100_000
-                    pnl_pct = (last_eq / first_eq - 1) * 100 if first_eq > 0 else 0
+                    pnl_pct = (last_eq / _INITIAL - 1) * 100
 
-                    # Simple MDD
-                    mdd = 0
+                    mdd = 0.0
                     if eq_hist:
-                        peak = 0
+                        peak = _INITIAL
                         for _, eq in eq_hist:
                             peak = max(peak, eq)
-                            dd = (eq - peak) / peak * 100 if peak > 0 else 0
+                            dd = (eq - peak) / peak * 100 if peak > 0 else 0.0
                             mdd = min(mdd, dd)
 
-                    strategies[name] = {
+                    entry = {
                         "equity": round(last_eq, 2),
                         "pnl_pct": round(pnl_pct, 2),
                         "mdd": round(mdd, 2),
@@ -579,6 +685,44 @@ class ForwardTrader:
                         "day_count": data.get("day_count", 0),
                         "last_eod_date": data.get("last_eod_date", ""),
                     }
+
+                    if include_positions:
+                        raw_positions = data.get("positions", {}) or {}
+                        cash = data.get("cash", 0)
+                        # 현재 equity (cur_price 기반 mark-to-market)
+                        cur_equity = cash + sum(
+                            p.get("quantity", 0) * close_dict_latest.get(sym, p.get("avg_price", 0))
+                            for sym, p in raw_positions.items()
+                        )
+                        pos_list = []
+                        for sym, p in raw_positions.items():
+                            qty = p.get("quantity", 0)
+                            avg = p.get("avg_price", 0)
+                            cur_p = close_dict_latest.get(sym, avg)
+                            pos_value = qty * cur_p
+                            pnl_amt = (cur_p - avg) * qty
+                            pos_pnl_pct = ((cur_p / avg - 1) * 100) if avg > 0 else 0
+                            weight = (pos_value / cur_equity * 100) if cur_equity > 0 else 0
+                            contrib = (pnl_amt / _INITIAL * 100) if _INITIAL > 0 else 0
+                            pos_list.append({
+                                "symbol": sym,
+                                "quantity": qty,
+                                "avg_price": round(avg, 2),
+                                "current_price": round(cur_p, 2),
+                                "pnl_pct": round(pos_pnl_pct, 2),
+                                "pnl_amount": round(pnl_amt, 2),
+                                "weight_pct": round(weight, 2),
+                                "contrib_pct": round(contrib, 2),
+                                "entry_date": p.get("entry_date", ""),
+                                "entry_day_idx": p.get("entry_day_idx", 0),
+                                "high_watermark": p.get("high_watermark", 0),
+                            })
+                        entry["cash"] = round(cash, 2)
+                        entry["equity_mtm"] = round(cur_equity, 2)
+                        entry["position_list"] = pos_list
+                        entry["equity_history"] = eq_hist
+
+                    strategies[name] = entry
 
         return {"meta": meta, "strategies": strategies}
 
@@ -612,6 +756,16 @@ class ForwardTrader:
         meta_src = STATE_DIR / "meta.json"
         if meta_src.exists():
             shutil.copy2(meta_src, archive_path / "meta.json")
+
+        # Archive run files too
+        if RUNS_DIR.exists():
+            for rf in RUNS_DIR.glob("*.json"):
+                shutil.copy2(rf, archive_path / f"run_{rf.name}")
+                rf.unlink()
+        # Clean locks
+        if LOCKS_DIR.exists():
+            for lf in LOCKS_DIR.glob("*.lock"):
+                lf.unlink()
 
         logger.info(f"[FORWARD] Archived to {archive_path}")
 

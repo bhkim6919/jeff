@@ -34,6 +34,10 @@ class Position:
     # ── Entry-time metadata (observation only, not used in trading logic) ──
     entry_rank: int = 0            # momentum rank at entry (1~20, 0=unrecorded)
     score_mom: float = 0.0         # momentum score at entry
+    # ── RECON isolation flag (set by reconcile on QTY_SPIKE; trade gates skip) ──
+    # Clears on next successful RECON sync OR after 24h fallback (P1-2).
+    reconcile_pending: bool = False
+    reconcile_pending_since: Optional[str] = None  # ISO ts when spike was set
 
     @property
     def market_value(self) -> float:
@@ -59,6 +63,8 @@ class Position:
             "trail_skip_days": self.trail_skip_days,
             "entry_rank": self.entry_rank,
             "score_mom": self.score_mom,
+            "reconcile_pending": self.reconcile_pending,
+            "reconcile_pending_since": self.reconcile_pending_since,
         }
 
     @classmethod
@@ -81,6 +87,8 @@ class Position:
             trail_skip_days=d.get("trail_skip_days", 0),
             entry_rank=d.get("entry_rank", 0),
             score_mom=d.get("score_mom", 0.0),
+            reconcile_pending=bool(d.get("reconcile_pending", False)),
+            reconcile_pending_since=d.get("reconcile_pending_since"),
         )
 
 

@@ -73,6 +73,9 @@ def fetch_alpaca_snapshots(symbols: List[str], provider=None) -> Dict[str, dict]
 
                     results[sym] = {
                         "price": cur_price,
+                        "open": float(daily.get("o", 0)),
+                        "high": float(daily.get("h", 0)),
+                        "low": float(daily.get("l", 0)),
                         "prev_close": prev_close,
                         "change_pct": change_pct,
                         "volume": volume,

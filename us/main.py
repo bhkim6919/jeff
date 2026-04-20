@@ -20,15 +20,25 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Set
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# sys.path bootstrap — us/ + project root (single source: us/_bootstrap_path.py)
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # audit:allow-syspath: bootstrap-locator
+import _bootstrap_path  # noqa: F401  -- side-effect: sys.path setup
+
+_LOG_DIR = Path(__file__).resolve().parent / "logs"
+_LOG_DIR.mkdir(exist_ok=True)
+_LOG_FILE = _LOG_DIR / f"us_app_{datetime.now().strftime('%Y%m%d')}.log"
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     datefmt="%H:%M:%S",
+    handlers=[
+        logging.StreamHandler(),                              # stdout
+        logging.FileHandler(_LOG_FILE, encoding="utf-8"),     # us/logs/us_app_YYYYMMDD.log
+    ],
 )
 logger = logging.getLogger("qtron.us.main")
+logger.info(f"[BOOT] log file: {_LOG_FILE}")
 
 
 def _now_iso() -> str:
@@ -125,6 +135,72 @@ def run_batch():
     n = collector.collect_ohlcv(sp500, period="2y")
     print(f"  Downloaded: {n} stocks")
 
+    # US-P0-003: OHLCV quality gate — halt if failed_ratio > 10%
+    _failed_ratio = getattr(collector, "last_failed_ratio", 0.0)
+    _last_errors = getattr(collector, "last_errors", 0)
+    _last_total = getattr(collector, "last_total", len(sp500))
+    if _failed_ratio > 0.10:
+        msg = (
+            f"[US_BATCH_HALT_DATA_QUALITY] failed_ratio={_failed_ratio:.2%} "
+            f"({_last_errors}/{_last_total}) > 10% — batch aborted. "
+            f"State NOT updated. Retry after network/yfinance recovery.")
+        print(msg)
+        logger = logging.getLogger("qtron.us.main")
+        logger.critical(msg)
+        try:
+            from notify.telegram_bot import send as _tg_send
+            _tg_send(msg, severity="CRITICAL")
+        except Exception:
+            pass
+        return
+
+    # DB freshness gate — expected last_date >= business_date - 1 trading day
+    try:
+        from data.alpaca_provider import AlpacaProvider
+        _prov_fresh = AlpacaProvider(config)
+        from core.state_manager import get_current_trading_day
+        _bd_today = get_current_trading_day(_prov_fresh)
+    except Exception:
+        from core.state_manager import get_current_trading_day
+        _bd_today = get_current_trading_day()
+    try:
+        _db_last = db.get_ohlcv_last_date()
+    except AttributeError:
+        _db_last = None
+    except Exception as _e:
+        logging.getLogger("qtron.us.main").warning(
+            f"[US_BATCH_FRESHNESS_QUERY_FAIL] {_e}")
+        _db_last = None
+    if _db_last is not None:
+        try:
+            from datetime import date as _date, timedelta as _td
+            _bd_dt = _date.fromisoformat(_bd_today)
+            # 직전 1영업일 허용 (주말/휴일 대응: 오늘 업데이트 전 상태)
+            _cutoff = _bd_dt - _td(days=4)  # 보수적으로 4일 이내면 OK
+            _db_last_dt = (_db_last if isinstance(_db_last, _date)
+                           else _date.fromisoformat(str(_db_last)[:10]))
+            if _db_last_dt < _cutoff:
+                # P1-5: also emit canonical [BATCH_DATA_STALE] tag for alerting
+                logging.getLogger("qtron.us.main").critical(
+                    f"[BATCH_DATA_STALE] market=US db_last={_db_last_dt} "
+                    f"cutoff={_cutoff} bd={_bd_today}")
+                msg = (
+                    f"[US_BATCH_HALT_DATA_STALE] db_last={_db_last_dt} "
+                    f"< cutoff={_cutoff} (business_date={_bd_today}). "
+                    f"OHLCV too stale — batch aborted.")
+                print(msg)
+                logging.getLogger("qtron.us.main").critical(msg)
+                try:
+                    from notify.telegram_bot import send as _tg_send
+                    _tg_send(msg, severity="CRITICAL")
+                except Exception:
+                    pass
+                return
+            print(f"  [US_BATCH_OHLCV_FRESHNESS_OK] db_last={_db_last_dt}, bd={_bd_today}")
+        except Exception as _e:
+            logging.getLogger("qtron.us.main").warning(
+                f"[US_BATCH_FRESHNESS_PARSE_FAIL] {_e}")
+
     # Step 2: Download index
     print("\n[2] Downloading index data (SPY, QQQ, IWM)...")
     collector.collect_index()
@@ -190,29 +266,35 @@ def run_batch():
     notify_batch_complete(len(universe), len(top))
 
     # ── snapshot_version 저장 (서버 API 경유 — 프로세스 간 충돌 방지) ──
+    # US-P0-001/002: pre-market 배치는 last_batch_business_date를 오늘이 아닌
+    # 직전 종가일(get_last_closed_trading_day)로 기록 → post-close 배치가
+    # 이후에 다시 실행 가능.
     try:
-        from core.state_manager import get_business_date_et, US_ET
+        from core.state_manager import (
+            get_last_closed_trading_day, get_current_trading_day,
+            is_post_market_close, US_ET,
+        )
         from zoneinfo import ZoneInfo
 
-        # business_date
         try:
             from data.alpaca_provider import AlpacaProvider
             prov = AlpacaProvider(config)
-            today_bd = get_business_date_et(prov)
         except Exception:
-            today_bd = get_business_date_et()
+            prov = None
 
         et_now = datetime.now(ZoneInfo("US/Eastern"))
-        sv = f"{today_bd}_batch_{int(et_now.timestamp())}"
+        post_close = is_post_market_close(et_now)
 
-        # 서버 API로 저장 (uvicorn 프로세스와 충돌 방지)
-        import requests as _req
-        try:
-            resp = _req.post("http://localhost:8081/api/rebalance/phase", json={
-                "phase": "BATCH_DONE",
-            }, timeout=5)
-        except Exception:
-            pass  # phase 전이 실패해도 직접 저장으로 fallback
+        if post_close:
+            # 정규 post-close batch — 오늘 거래일로 기록
+            today_bd = get_current_trading_day(prov) if prov else get_current_trading_day()
+            bd_marker = "POST_CLOSE"
+        else:
+            # pre-market / 장중 수동 실행 — 직전 종가일로 기록
+            today_bd = get_last_closed_trading_day(prov) if prov else get_last_closed_trading_day()
+            bd_marker = "PRE_MARKET"
+
+        sv = f"{today_bd}_batch_{int(et_now.timestamp())}_{bd_marker}"
 
         # 직접 파일 저장 (서버가 안 떠있을 때 대비)
         import json as _json
@@ -224,12 +306,25 @@ def run_batch():
         rt["snapshot_version"] = sv
         rt["snapshot_created_at"] = et_now.isoformat()
         rt["last_batch_business_date"] = today_bd
-        rt["batch_fresh"] = True
+        rt["last_batch_post_close"] = post_close  # P0-001 marker
+        # batch_fresh는 compute_batch_fresh가 post-close 여부까지 검증하므로
+        # 여기서는 단순 참값만 저장 (execute 쪽에서 재평가).
+        rt["batch_fresh"] = bool(post_close)
         rt["rebal_phase"] = "BATCH_DONE"
+        # 새 배치: attempt tracking 초기화
+        rt["last_rebal_attempt_snapshot"] = ""
+        rt["last_rebal_attempt_at"] = ""
+        rt["last_rebal_attempt_result"] = ""
+        rt["last_rebal_attempt_count"] = 0
+        rt["last_rebal_attempt_reason"] = ""
         with open(rt_path, "w", encoding="utf-8") as f:
             _json.dump(rt, f, ensure_ascii=False, indent=2, default=str)
 
-        print(f"  [US_BATCH_OK] snapshot={sv}")
+        print(f"  [US_BATCH_OK] snapshot={sv} post_close={post_close}")
+        # P1-5: explicit marker for post-close confirmed batches (UI badge gate)
+        if post_close:
+            print(f"  [BATCH_POST_CLOSE_CONFIRMED] bd={today_bd} "
+                  f"created_et={et_now.isoformat()} snapshot={sv}")
     except Exception as e:
         print(f"  [US_BATCH_SNAPSHOT_FAIL] {e}")
 
@@ -349,8 +444,17 @@ def run_live():
         portfolio.apply_recon(recon, holdings, acct["cash"])
         runtime_data = state_mgr.mark_startup()
         runtime_data["broker_snapshot_at"] = _now_iso()
+        # P2-RECON-2 fix (2026-04-17): 스타트업 RECON 결과를 runtime에 기록.
+        # Gate는 rt.get("last_recon_ok", True)로 읽으므로 명시적으로 False 기록 필수.
+        runtime_data["last_recon_ok"] = recon.clean  # FORCE/SAFE_SYNC = not clean
+        runtime_data["state_uncertain"] = recon.state_uncertain and not recon.clean
+        runtime_data["last_recon_at"] = _now_iso()
         state_mgr.save_all(portfolio.to_dict(), runtime_data)
-        logger.info(f"  RECON applied: {recon.action}")
+        logger.info(f"  RECON applied: {recon.action} last_recon_ok={recon.clean}")
+    else:
+        # NONE / LOG_ONLY / LOG_WARNING — also persist recon result
+        # P2-RECON-2 (continued): clean RECON도 명시 기록 (default True 의존 제거)
+        pass  # Will be written at Phase 4 Startup Save below
 
     portfolio.broker_snapshot_at = _now_iso()
 
@@ -366,6 +470,16 @@ def run_live():
     runtime_data = state_mgr.mark_startup()
     runtime_data["broker_snapshot_at"] = portfolio.broker_snapshot_at
     runtime_data["last_price_update_at"] = ""
+    # P2-RECON-2 (2026-04-17): 스타트업 RECON 결과 항상 기록 (NONE 포함).
+    # FORCE_SYNC/SAFE_SYNC 분기에서 이미 saved → 여기서는 mark_startup 덮어쓰기 방지
+    # 위 분기에서 runtime_data["last_recon_ok"] 설정됐으므로 재설정하지 않음.
+    # NONE/LOG_ONLY 경우에만 여기서 설정.
+    if "last_recon_ok" not in runtime_data:
+        runtime_data["last_recon_ok"] = recon.clean
+        # dirty_exit으로 인해 state_uncertain=True가 세팅되더라도,
+        # RECON이 clean이면 상태가 검증됐으므로 즉시 해제
+        runtime_data["state_uncertain"] = recon.state_uncertain and not recon.clean
+        runtime_data["last_recon_at"] = _now_iso()
 
     # P0 fix: DD tracking 초기화 (fail-closed: 미초기화 시 buy 차단)
     portfolio.init_dd_tracking()
@@ -373,6 +487,10 @@ def run_live():
     # P0 fix: stale execute_lock 정리 (이전 크래시 잔여 lock 해제)
     if state_mgr.clear_stale_execute_lock():
         logger.info("[STARTUP] Stale execute_lock cleared from previous crash")
+
+    # P1-3: pre-market batch_fresh 정규화 (snapshot_created_at < today 16:00 ET → False)
+    if state_mgr.normalize_batch_state_at_startup(provider):
+        logger.warning("[STARTUP] batch_fresh normalized (pre-market snapshot detected)")
 
     state_mgr.save_all(portfolio.to_dict(), runtime_data)
 
@@ -544,7 +662,20 @@ def run_live():
                 state_mgr.save_all(portfolio.to_dict(), runtime_data)
                 last_save_time = now
 
-            # 8. Periodic RECON (10 min, log only)
+            # 8. Periodic RECON (10 min, apply + persist)
+            # P2-RECON-1 fix (2026-04-17): 로그만 찍던 주기적 RECON을
+            # SAFE_SYNC 실제 적용 + runtime_data 갱신으로 변경.
+            # 브로커 포지션 드리프트(수동 거래/시스템 오류)를 10분 내 교정.
+            #
+            # INVARIANT (RECON cycle 고정 순서 — STEP 3+ 수정 금지):
+            #   1. broker fetch (_holdings, _acct, _orders) — 단일 snapshot
+            #   2. reconcile_with_broker()               — diff 계산
+            #   3. apply_recon()                         — broker truth 반영 + pending=0
+            #   4. sync_pending_with_broker(_orders)     — 동일 _orders 기준 pending 재설정
+            #   5. runtime_data["last_recon_ok"] 등 기록 — gate truth 갱신
+            #   6. state_mgr.save_all()                  — atomic 저장
+            #
+            #   이 순서를 바꾸면: stale pending 잔존 / gate 오판 / trail stop 영구 차단.
             if now - last_recon_time >= RECON_INTERVAL:
                 _holdings = provider.query_account_holdings()
                 _acct = provider.query_account_summary()
@@ -553,8 +684,73 @@ def run_live():
                     _recon = portfolio.reconcile_with_broker(
                         _holdings, _acct.get("cash", 0), False, _orders
                     )
+                    # Persist recon state to runtime (gate reads last_recon_ok)
+                    runtime_data["last_recon_ok"] = _recon.clean
+                    runtime_data["state_uncertain"] = _recon.state_uncertain
+                    runtime_data["last_recon_at"] = _now_iso()
+
                     if not _recon.clean:
-                        logger.warning(f"[RECON_PERIODIC] {_recon.action}")
+                        logger.warning(
+                            f"[RECON_PERIODIC] action={_recon.action} "
+                            f"added={len(_recon.added)} removed={len(_recon.removed)} "
+                            f"qty_mismatch={len(_recon.qty_mismatch)}"
+                        )
+                        # Apply correction — SAFE_SYNC only (FORCE_SYNC requires dirty_exit)
+                        if _recon.action in ("SAFE_SYNC",):
+                            portfolio.apply_recon(_recon, _holdings, _acct.get("cash", 0))
+                            logger.info(f"[RECON_PERIODIC] SAFE_SYNC applied")
+                        elif _recon.action == "FORCE_SYNC":
+                            # Periodic RECON은 dirty_exit 없이 FORCE_SYNC 드문 케이스.
+                            # 포지션 추가/삭제 중 qty 큰 차이 → apply + CRITICAL 알림.
+                            portfolio.apply_recon(_recon, _holdings, _acct.get("cash", 0))
+                            logger.critical(
+                                f"[RECON_PERIODIC_FORCE] Unexpected FORCE_SYNC in periodic "
+                                f"RECON — large divergence. added={_recon.added} "
+                                f"removed={_recon.removed}"
+                            )
+                            try:
+                                from notify import telegram_bot as _notify
+                                _notify.send(
+                                    f"[RECON_FORCE] Periodic RECON detected large divergence.\n"
+                                    f"added={_recon.added} removed={_recon.removed}",
+                                    severity="CRITICAL",
+                                )
+                            except Exception:
+                                pass
+
+                        # P2-PENDING-1 fix (2026-04-17): apply_recon 후 pending 재동기화.
+                        # 순서 보장: apply_recon(pending=0) → sync_pending(broker 기준 재설정)
+                        # 동일 _orders snapshot 사용 — 일관성 보장.
+                        portfolio.sync_pending_with_broker(_orders)
+
+                        # [RECON_POST] invariant log — correction 후 상태 검증용
+                        _pending_total = sum(
+                            p.pending_sell_qty for p in portfolio.positions.values()
+                        )
+                        logger.warning(
+                            f"[RECON_POST] action={_recon.action} "
+                            f"positions={len(portfolio.positions)} "
+                            f"cash={portfolio.cash:.2f} "
+                            f"pending_sell_total={_pending_total} "
+                            f"last_recon_ok={runtime_data.get('last_recon_ok')} "
+                            f"state_uncertain={runtime_data.get('state_uncertain')}"
+                        )
+
+                        # Save immediately after any RECON correction
+                        state_mgr.save_all(portfolio.to_dict(), runtime_data)
+                        last_save_time = now
+                    else:
+                        # Clean RECON — still persist recon_ok=True + sync pending
+                        runtime_data["last_recon_ok"] = True
+                        runtime_data["state_uncertain"] = False
+                        # P2-PENDING-1 fix: clean RECON에서도 pending 동기화.
+                        # stale pending_sell_qty가 fill event 없이 10분 이상 지속되는 경우 해제.
+                        portfolio.sync_pending_with_broker(_orders)
+                else:
+                    # Holdings/account query failed — mark recon unreliable
+                    runtime_data["recon_unreliable"] = True
+                    runtime_data["last_recon_at"] = _now_iso()
+                    logger.warning("[RECON_PERIODIC_FAIL] Holdings or account query failed")
                 last_recon_time = now
 
             # 9. Log status

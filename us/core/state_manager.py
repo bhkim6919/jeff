@@ -56,41 +56,58 @@ _REBAL_DEFAULTS = {
     "execute_lock": False,
     "execute_lock_acquired_at": "",
     "execute_lock_owner": "",
+    # Attempt tracking: snapshot 기반 idempotency
+    "last_rebal_attempt_snapshot": "",     # 마지막 시도한 snapshot_version
+    "last_rebal_attempt_at": "",           # 시도 시각 (ISO)
+    "last_rebal_attempt_result": "",       # SUCCESS / PARTIAL / FAILED / REJECTED
+    "last_rebal_attempt_count": 0,         # 같은 snapshot 내 실행 횟수 (REJECTED 미포함)
+    "last_rebal_attempt_reason": "",       # reject/fail 사유
 }
 
 MAX_STALENESS_HOURS = 12
 LOCK_TIMEOUT_MINUTES = 10
 
 
-# ── Business Date (단일 기준 함수) ──────────────────────────
+# ── Business Date (개념별 분리: last_closed vs current) ───────
+# US-P0-002: 기존 get_business_date_et는 "가장 최근 종가일"과 "달력상 오늘"을
+# 혼재 처리했음. 이제 두 개념을 별도 함수로 분리:
+#   - get_last_closed_trading_day(): 종가 확정된 가장 최근 거래일 (execute gate)
+#   - get_current_trading_day():     오늘이 거래일이면 오늘, 아니면 마지막 거래일 (batch)
+# get_business_date_et는 하위호환 유지 — get_last_closed_trading_day 별칭.
 
-def get_business_date_et(provider=None) -> str:
+# 미국 주식 장 마감: 16:00 ET (DST/EST 모두 동일 wall-clock)
+MARKET_CLOSE_HOUR_ET = 16
+
+
+def get_last_closed_trading_day(provider=None) -> str:
+    """종가 확정된 가장 최근 거래일 (execute gate / compute_batch_fresh 기준).
+    - 1차: Alpaca calendar (provider). 오늘이 거래일인데 16:00 ET 이전이면 전 거래일 반환.
+    - 2차: 요일 기반 fallback (holiday 오판 방지, today 반환 금지).
     """
-    US/Eastern 기준 현재 영업일. 모든 곳에서 이 함수만 사용.
-    - 1차: Alpaca calendar (provider)
-    - 2차: fallback → "어제" 기준 (holiday 오판 방지)
-    """
-    # 1차: provider
+    et_now = datetime.now(US_ET)
     try:
         if provider and hasattr(provider, "get_calendar"):
-            from datetime import date as _date
-            today = datetime.now(US_ET).date()
+            today = et_now.date()
             cal = provider.get_calendar(
                 start=(today - timedelta(days=7)).isoformat(),
                 end=today.isoformat(),
             )
             if cal:
-                # cal is list of trading days, get the most recent
                 trading_days = [d for d in cal if d <= today.isoformat()]
                 if trading_days:
                     bd = trading_days[-1]
-                    logger.debug(f"[BUSINESS_DATE_PROVIDER] {bd}")
-                    return bd if isinstance(bd, str) else str(bd)
+                    bd_str = bd if isinstance(bd, str) else str(bd)
+                    # 오늘이 거래일인데 아직 16:00 ET 이전이면 직전 거래일 반환
+                    if bd_str == today.isoformat() and et_now.hour < MARKET_CLOSE_HOUR_ET:
+                        prev = [d for d in trading_days if (d if isinstance(d, str) else str(d)) != bd_str]
+                        if prev:
+                            bd_str = prev[-1] if isinstance(prev[-1], str) else str(prev[-1])
+                    logger.debug(f"[LAST_CLOSED_TRADING_DAY_PROVIDER] {bd_str}")
+                    return bd_str
     except Exception as e:
-        logger.warning(f"[BUSINESS_DATE_PROVIDER_FAIL] {e}")
+        logger.warning(f"[LAST_CLOSED_TRADING_DAY_PROVIDER_FAIL] {e}")
 
-    # 2차: fallback — "어제" (holiday 오판 방지, today 반환 금지)
-    et_now = datetime.now(US_ET)
+    # 2차: fallback — 주말/평일에 따라 가장 가까운 평일 (today 반환 금지)
     wd = et_now.weekday()
     if wd == 0:    # Mon → Fri
         fallback = (et_now - timedelta(days=3)).date()
@@ -98,16 +115,70 @@ def get_business_date_et(provider=None) -> str:
         fallback = (et_now - timedelta(days=2)).date()
     elif wd == 5:  # Sat → Fri
         fallback = (et_now - timedelta(days=1)).date()
-    else:          # Tue–Fri → yesterday
-        fallback = (et_now - timedelta(days=1)).date()
+    else:          # Tue–Fri
+        # 장 마감 전이면 전일, 장 마감 후면 오늘(현 평일)
+        if et_now.hour >= MARKET_CLOSE_HOUR_ET:
+            fallback = et_now.date()
+        else:
+            fallback = (et_now - timedelta(days=1)).date()
 
     result = fallback.strftime("%Y-%m-%d")
-    logger.warning(f"[BUSINESS_DATE_FALLBACK] {result}")
+    logger.warning(f"[LAST_CLOSED_TRADING_DAY_FALLBACK] {result}")
     return result
 
 
+def get_current_trading_day(provider=None) -> str:
+    """달력상 오늘이 거래일이면 오늘, 아니면 가장 가까운 과거 거래일.
+    - batch 시작 시 "이 배치가 다루는 거래일" 라벨로 사용.
+    - 장 마감 전이어도 오늘을 반환 (pre-market 배치는 따로 marker 로 표기).
+    """
+    et_now = datetime.now(US_ET)
+    today = et_now.date()
+    try:
+        if provider and hasattr(provider, "get_calendar"):
+            cal = provider.get_calendar(
+                start=(today - timedelta(days=7)).isoformat(),
+                end=today.isoformat(),
+            )
+            if cal:
+                trading_days = [d for d in cal if d <= today.isoformat()]
+                if trading_days:
+                    bd = trading_days[-1]
+                    bd_str = bd if isinstance(bd, str) else str(bd)
+                    return bd_str
+    except Exception as e:
+        logger.warning(f"[CURRENT_TRADING_DAY_PROVIDER_FAIL] {e}")
+
+    wd = today.weekday()
+    if wd >= 5:  # 주말 → 금요일
+        fallback = today - timedelta(days=(wd - 4))
+    else:
+        fallback = today
+    return fallback.strftime("%Y-%m-%d")
+
+
+# 하위호환: 기존 호출처는 "종가 확정" semantics를 원하는 경우가 많음
+def get_business_date_et(provider=None) -> str:
+    """DEPRECATED alias — prefer get_last_closed_trading_day().
+    기존 호출처와의 하위 호환 유지."""
+    return get_last_closed_trading_day(provider)
+
+
+def is_post_market_close(now_et: Optional[datetime] = None) -> bool:
+    """현재 ET 시각이 당일 장 마감(16:00) 이후인가 (평일만)."""
+    if now_et is None:
+        now_et = datetime.now(US_ET)
+    if now_et.weekday() >= 5:
+        return False
+    return now_et.hour >= MARKET_CLOSE_HOUR_ET
+
+
 def compute_batch_fresh(rs: dict, today_bd: str) -> bool:
-    """batch_fresh = 데이터 기준 (date + snapshot + phase + staleness)."""
+    """batch_fresh = 데이터 기준 (date + snapshot + phase + staleness + post-close).
+
+    US-P0-001: pre-market 배치(04:54 ET 등)는 stale data 사용이므로 fresh 아님.
+    snapshot_created_at이 business_date의 16:00 ET 이후인 경우만 fresh.
+    """
     if rs.get("last_batch_business_date", "") != today_bd:
         return False
     if not rs.get("snapshot_version", ""):
@@ -124,8 +195,30 @@ def compute_batch_fresh(rs: dict, today_bd: str) -> bool:
         created = datetime.fromisoformat(created_at)
         if created.tzinfo is None:
             created = created.replace(tzinfo=US_ET)
+        created_et = created.astimezone(US_ET)
+
+        # Staleness gate
         age = (et_now - created).total_seconds()
-        return age < MAX_STALENESS_HOURS * 3600
+        if age >= MAX_STALENESS_HOURS * 3600:
+            logger.warning(
+                f"[BATCH_FRESH_STALE] created={created_et.isoformat()} "
+                f"age={age / 3600:.1f}h >= {MAX_STALENESS_HOURS}h")
+            return False
+
+        # US-P0-001: post-close gate — created_at must be >= 16:00 ET of today_bd.
+        try:
+            y, m, d = [int(x) for x in today_bd.split("-")]
+            close_et = datetime(y, m, d, MARKET_CLOSE_HOUR_ET, 0, 0, tzinfo=US_ET)
+            if created_et < close_et:
+                logger.warning(
+                    f"[BATCH_FRESH_PRE_MARKET] created={created_et.isoformat()} "
+                    f"< close={close_et.isoformat()} — pre-market batch, "
+                    f"treat as not-fresh")
+                return False
+        except Exception as _e:
+            logger.warning(f"[BATCH_FRESH_CLOSE_PARSE_FAIL] {_e} — accepting by age only")
+
+        return True
     except Exception:
         return False
 
@@ -280,6 +373,70 @@ class StateManagerUS:
         rt["shutdown_reason"] = reason
         return rt
 
+    def normalize_batch_state_at_startup(self, provider=None) -> bool:
+        """P1-3: Force batch_fresh=False if snapshot_created_at predates the
+        batch's own business_date 16:00 ET close. Prevents pre-market batches
+        from lingering as "fresh" after a restart. Also forces False if the
+        stored last_batch_post_close marker is False.
+
+        Returns True if state was modified.
+        """
+        with self._lock:
+            rt = self.load_runtime() or {}
+            if not rt.get("batch_fresh", False):
+                return False  # already not-fresh; nothing to do
+
+            # Direct marker (written by us/main.py batch path): pre-market run
+            if rt.get("last_batch_post_close") is False:
+                rt["batch_fresh"] = False
+                ts = _now_iso()
+                seq = self._next_seq()
+                rt["saved_at"] = ts
+                rt["version_seq"] = seq
+                self._atomic_write(self._runtime_path, rt)
+                logger.warning("[BATCH_STATE_NORMALIZED] last_batch_post_close=False "
+                               "→ batch_fresh forced False")
+                return True
+
+            created_at = rt.get("snapshot_created_at", "")
+            if not created_at:
+                rt["batch_fresh"] = False
+                ts = _now_iso()
+                seq = self._next_seq()
+                rt["saved_at"] = ts
+                rt["version_seq"] = seq
+                self._atomic_write(self._runtime_path, rt)
+                logger.warning("[BATCH_STATE_NORMALIZED] batch_fresh=True without "
+                               "snapshot_created_at → forced False")
+                return True
+
+            # Compare created_at against batch's own business_date close.
+            # Prefer last_batch_business_date (batch's own label); fallback to today.
+            bd_str = rt.get("last_batch_business_date") \
+                or get_last_closed_trading_day(provider)
+            try:
+                created = datetime.fromisoformat(created_at)
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=US_ET)
+                created_et = created.astimezone(US_ET)
+                y, m, d = [int(x) for x in bd_str.split("-")]
+                close_et = datetime(y, m, d, MARKET_CLOSE_HOUR_ET, 0, 0, tzinfo=US_ET)
+                if created_et < close_et:
+                    rt["batch_fresh"] = False
+                    ts = _now_iso()
+                    seq = self._next_seq()
+                    rt["saved_at"] = ts
+                    rt["version_seq"] = seq
+                    self._atomic_write(self._runtime_path, rt)
+                    logger.warning(
+                        f"[BATCH_STATE_NORMALIZED] created={created_et.isoformat()} "
+                        f"< close={close_et.isoformat()} for bd={bd_str} "
+                        f"— batch_fresh forced False (pre-market snapshot)")
+                    return True
+            except Exception as e:
+                logger.warning(f"[BATCH_STATE_NORMALIZE_FAIL] {e} — leaving state as-is")
+            return False
+
     def was_dirty_exit(self) -> bool:
         """True if started_at exists but shutdown_at is missing."""
         rt = self.load_runtime()
@@ -333,6 +490,35 @@ class StateManagerUS:
             ok = self._atomic_write(self._runtime_path, rt)
             if ok:
                 logger.info(f"[US_REBAL_PHASE] {current} → {new_phase}")
+            return ok, ""
+
+    def transition_phase_with_updates(
+        self, new_phase: str, updates: dict
+    ) -> Tuple[bool, str]:
+        """Transition phase + merge additional fields in 1 atomic write."""
+        _EXTRA_ALLOWED = {"prev_regime_ema", "prev_regime_level"}
+        with self._lock:
+            rt = self.load_runtime() or {}
+            current = rt.get("rebal_phase", "IDLE")
+            allowed = _VALID_TRANSITIONS.get(current, [])
+            if new_phase not in allowed:
+                reason = f"Invalid transition: {current} → {new_phase} (allowed: {allowed})"
+                logger.warning(f"[US_REBAL_PHASE] REJECTED: {reason}")
+                return False, reason
+            rt["rebal_phase"] = new_phase
+            for k, v in updates.items():
+                if k in _REBAL_DEFAULTS or k in _EXTRA_ALLOWED:
+                    rt[k] = v
+            ts = _now_iso()
+            seq = self._next_seq()
+            rt["saved_at"] = ts
+            rt["version_seq"] = seq
+            ok = self._atomic_write(self._runtime_path, rt)
+            if ok:
+                logger.info(
+                    f"[US_REBAL_PHASE] {current} → {new_phase} "
+                    f"+{list(updates.keys())}"
+                )
             return ok, ""
 
     def clear_stale_execute_lock(self) -> bool:
@@ -427,6 +613,38 @@ class StateManagerUS:
                     blocks.append(f"OPEN_ORDERS: {len(oo)}")
             except Exception:
                 pass
+
+        # 9. P2.4: Auto Trading Gate (BUY-only enforcement, advisory by default)
+        try:
+            from risk.execution_guard_hook import guard_buy_execution
+            from risk.strategy_health import compute_strategy_health
+            rt_full = self.load_runtime() or {}
+            _equity_dd = float(rt_full.get("equity_dd_pct", 0.0) or 0.0)
+            _health = compute_strategy_health(equity_dd_pct=_equity_dd)
+            _decision = guard_buy_execution(runtime=rt_full, strategy_health=_health)
+            if _decision.block_buy:
+                blocks.append(
+                    f"AUTO_GATE_BLOCKED: top={_decision.highest_blocker} "
+                    f"mode={_decision.mode}"
+                )
+                logger.critical(
+                    f"[BUY_BLOCKED_BY_AUTO_GATE] market=US req=compute_execute "
+                    f"top={_decision.highest_blocker} mode={_decision.mode} "
+                    f"reason={_decision.reason}"
+                )
+            elif not _decision.enabled:
+                logger.info(
+                    f"[BUY_ADVISORY] market=US req=compute_execute "
+                    f"mode={_decision.mode} top={_decision.highest_blocker} "
+                    f"reason={_decision.reason}"
+                )
+            else:
+                logger.info(
+                    f"[BUY_GATE_ALLOWED] market=US req=compute_execute "
+                    f"mode={_decision.mode} buy_scale={_decision.buy_scale:.2f}"
+                )
+        except Exception as _ge:
+            logger.error(f"[BUY_GATE_EVAL_ERROR] {type(_ge).__name__}: {_ge}", exc_info=True)
 
         return (len(blocks) == 0, blocks)
 

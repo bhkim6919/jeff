@@ -120,6 +120,15 @@ class KiwoomRestProvider(BrokerProvider):
         self._batch_active = False
         self._batch_ws_event_count = 0
 
+        # 8005 Circuit Breaker (P5 추가, 2026-04-17)
+        # 연속 8005 N회 → provider 를 일정 시간 halt. 300ms/req 스팸 방지 + 명시적 알림
+        self._cb_lock = threading.Lock()
+        self._cb_consecutive_8005 = 0
+        self._cb_halt_until: float = 0.0   # epoch sec — 이 시각까지 모든 _request 차단
+        self._cb_threshold = 5              # 연속 N회
+        self._cb_halt_sec = 180              # 차단 시간
+        self._cb_last_8005_event_sent: float = 0.0
+
         # Sector map
         self._sector_map: Dict[str, str] = {}
         if sector_map_path:
@@ -141,6 +150,65 @@ class KiwoomRestProvider(BrokerProvider):
 
     # ── Central HTTP Request ──────────────────────────────────
 
+    def _is_8005(self, data: dict) -> bool:
+        """
+        8005 Token 무효 에러 감지 — 여러 형태 커버.
+        Kiwoom 응답 포맷 변동 가능성 고려 (return_code=1, return_code=8005, 메시지에 [8005:...] 등).
+        """
+        rc = data.get("return_code", 0)
+        msg = str(data.get("return_msg", ""))
+        if rc == 8005:
+            return True
+        if "[8005:" in msg or "[8005]" in msg:
+            return True
+        if rc == 1 and ("Token" in msg or "token" in msg or "토큰" in msg):
+            return True
+        return False
+
+    def _cb_note_success(self) -> None:
+        """정상 응답 받으면 circuit breaker 리셋."""
+        with self._cb_lock:
+            if self._cb_consecutive_8005 > 0 or self._cb_halt_until > 0:
+                # Recovery signal — CRITICAL 이었으면 emit INFO
+                try:
+                    from web.data_events import emit_event, Level
+                    emit_event(
+                        source="KIWOOM.token",
+                        level=Level.INFO,
+                        code="consecutive_8005",
+                        message=f"Kiwoom 인증 복구됨 (연속 실패 리셋)",
+                        telegram=False,   # Recovery Telegram 은 emit_event 내부에서 처리
+                    )
+                except Exception:
+                    pass
+            self._cb_consecutive_8005 = 0
+            self._cb_halt_until = 0.0
+
+    def _cb_note_8005(self) -> None:
+        """8005 받을 때마다 호출. threshold 도달 시 halt + emit."""
+        with self._cb_lock:
+            self._cb_consecutive_8005 += 1
+            if self._cb_consecutive_8005 >= self._cb_threshold and self._cb_halt_until == 0.0:
+                self._cb_halt_until = time.time() + self._cb_halt_sec
+                try:
+                    from web.data_events import emit_event, Level
+                    emit_event(
+                        source="KIWOOM.token",
+                        level=Level.CRITICAL,
+                        code="consecutive_8005",
+                        message=(
+                            f"Kiwoom 8005 연속 {self._cb_consecutive_8005}회 — "
+                            f"{self._cb_halt_sec}s halt"
+                        ),
+                        details={
+                            "consecutive": self._cb_consecutive_8005,
+                            "halt_sec": self._cb_halt_sec,
+                        },
+                        telegram=True,
+                    )
+                except Exception:
+                    pass
+
     def _request(
         self,
         api_id: str,
@@ -152,6 +220,14 @@ class KiwoomRestProvider(BrokerProvider):
         """Central REST API caller with rate limit, token refresh, and tracker."""
         if not self._alive:
             return {"return_code": -1, "return_msg": "Provider shut down"}
+
+        # Circuit breaker: halt 중이면 즉시 에러 반환 (300ms spam 방지)
+        if self._cb_halt_until > 0 and time.time() < self._cb_halt_until:
+            remain = int(self._cb_halt_until - time.time())
+            return {
+                "return_code": -1,
+                "return_msg": f"Circuit breaker halted ({remain}s remaining) — 8005 consecutive",
+            }
 
         # Rate limit
         elapsed = time.time() - self._last_request_time
@@ -181,15 +257,25 @@ class KiwoomRestProvider(BrokerProvider):
 
             data = resp.json()
 
-            # Token expired → refresh and retry once
-            if data.get("return_code") == 1 and retry_on_401:
-                msg = data.get("return_msg", "")
-                if "토큰" in msg or "token" in msg.lower() or "401" in msg:
-                    logger.warning(f"[REST] Token expired, refreshing...")
+            # Raw response 로깅 (P5 — 포맷 변경 진단용, DEBUG 레벨)
+            logger.debug(
+                f"[REST_RAW] {api_id} rc={data.get('return_code')} "
+                f"msg={str(data.get('return_msg', ''))[:120]}"
+            )
+
+            # 8005 직접 감지 (return_code=1 외 케이스 커버)
+            if self._is_8005(data):
+                msg = str(data.get("return_msg", ""))
+                self._cb_note_8005()
+                if retry_on_401:
+                    logger.warning(f"[REST] 8005 detected, refreshing token...")
                     self._token_mgr.invalidate()
                     api_tracker.record_request_end(
-                        req_id, status="retry", latency_ms=latency, error="token_expired", retry_count=1)
-                    return self._request(api_id, path, body, retry_on_401=False, related_code=related_code)
+                        req_id, status="retry", latency_ms=latency,
+                        error="8005_token_invalid", retry_count=1)
+                    return self._request(
+                        api_id, path, body, retry_on_401=False, related_code=related_code
+                    )
 
             rc = data.get("return_code", -1)
             if rc not in (0, None):
@@ -203,6 +289,8 @@ class KiwoomRestProvider(BrokerProvider):
             else:
                 api_tracker.record_request_end(
                     req_id, status="ok", http_status=resp.status_code, latency_ms=latency)
+                # 성공 응답 → circuit breaker 리셋
+                self._cb_note_success()
 
             return data
 
@@ -595,15 +683,20 @@ class KiwoomRestProvider(BrokerProvider):
         available_cash = prsm_asset - tot_eval
 
         holdings = []
+        prev_eval_amt_total = 0
         for item in data.get("acnt_evlt_remn_indv_tot", []):
             code = item.get("stk_cd", "").replace("A", "")
             name = _decode_name(item.get("stk_nm", ""))
+            qty = int(item.get("rmnd_qty", "0"))
+            pred_close = abs(int(item.get("pred_close_pric", "0") or "0"))
+            prev_eval_amt_total += pred_close * qty
             holdings.append({
                 "code": code,
                 "name": name,
-                "qty": int(item.get("rmnd_qty", "0")),
+                "qty": qty,
                 "avg_price": int(item.get("pur_pric", "0")),
                 "cur_price": int(item.get("cur_prc", "0")),
+                "prev_close_price": pred_close,
                 "eval_amt": int(item.get("evlt_amt", "0")),
                 "pnl": int(item.get("evltv_prft", "0")),
                 "pnl_rate": item.get("prft_rt", "0"),
@@ -633,6 +726,7 @@ class KiwoomRestProvider(BrokerProvider):
             "총매입금액": int(data.get("tot_pur_amt", "0")),
             "총평가금액": tot_eval,
             "총평가손익금액": int(data.get("tot_evlt_pl", "0")),
+            "전일평가금액": prev_eval_amt_total,
             "holdings": holdings,
             "available_cash": available_cash,
             "error": None,
@@ -644,6 +738,83 @@ class KiwoomRestProvider(BrokerProvider):
             "_status": result.status,
             "_consistency": result.consistency,
             "_ws_events_during_batch": result.ws_events_during_batch,
+        }
+
+    def query_minute_chart(self, code: str, tic_scope: str = "1",
+                           base_dt: str = "", max_bars: int = 90) -> Dict:
+        """주식분봉차트조회요청 (ka10080) — 단일 종목 분봉 데이터.
+
+        Args:
+            code: 종목코드 (6자리)
+            tic_scope: 틱범위 "1"/"3"/"5"/"10"/"15"/"30"/"45"/"60" (분)
+            base_dt: 기준일자 YYYYMMDD (빈 값이면 당일)
+            max_bars: 최근 N개 bar만 반환 (default 90개 = 1분봉 1.5시간)
+
+        Returns:
+            {
+              "code": "005930",
+              "tic_scope": "1",
+              "bars": [
+                {"time": "093000", "open":..., "high":..., "low":..., "close":..., "volume":...},
+                ...
+              ],
+              "error": None or str,
+            }
+        """
+        body = {
+            "stk_cd": code,
+            "tic_scope": str(tic_scope),
+            "upd_stkpc_tp": "1",  # 수정주가 적용
+        }
+        if base_dt:
+            body["base_dt"] = base_dt
+
+        try:
+            data = self._request("ka10080", "/api/dostk/chart", body)
+        except Exception as e:
+            return {"code": code, "tic_scope": tic_scope, "bars": [], "error": str(e)}
+
+        if data.get("return_code") != 0:
+            return {
+                "code": code, "tic_scope": tic_scope, "bars": [],
+                "error": data.get("return_msg", "unknown"),
+            }
+
+        raw_bars = data.get("stk_min_pole_chart_qry", []) or []
+        # Kiwoom 응답 순서가 일관되지 않을 수 있어 cntr_tm 기준으로 강제 오름차순 정렬
+        # (x축: 왼쪽=오래된, 오른쪽=최신)
+        try:
+            raw_bars = sorted(raw_bars, key=lambda b: str(b.get("cntr_tm", "")))
+        except Exception:
+            pass
+        # max_bars 적용 (최근 N개 — 정렬 후 끝에서 자름)
+        if len(raw_bars) > max_bars:
+            raw_bars = raw_bars[-max_bars:]
+
+        bars = []
+        for b in raw_bars:
+            # Kiwoom은 가격 앞에 +/-/공백 부호가 붙기도 함 → abs(int)
+            def _ab(v):
+                try: return abs(int(str(v).replace("+", "").replace("-", "").strip() or "0"))
+                except Exception: return 0
+            cntr_tm = str(b.get("cntr_tm", ""))  # YYYYMMDDHHMMSS
+            # time 부분만 추출 (HHMMSS)
+            t = cntr_tm[8:] if len(cntr_tm) >= 14 else cntr_tm
+            bars.append({
+                "time": t,
+                "datetime": cntr_tm,
+                "open": _ab(b.get("open_pric")),
+                "high": _ab(b.get("high_pric")),
+                "low": _ab(b.get("low_pric")),
+                "close": _ab(b.get("cur_prc")),
+                "volume": _ab(b.get("trde_qty")),
+            })
+
+        return {
+            "code": code,
+            "tic_scope": tic_scope,
+            "bars": bars,
+            "error": None,
         }
 
     def query_sellable_qty(self, code: str) -> Dict:

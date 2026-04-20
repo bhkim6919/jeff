@@ -28,8 +28,13 @@ def collect_meta_us(
     runtime_states: Dict[str, Any],
     spy_series: Optional[pd.Series],
     sector_map: Dict[str, dict],
+    snapshot_version: str = "",
+    run_meta: Optional[Dict] = None,
+    universe_count: int = 0,
 ) -> None:
     """Collect and store all US meta metrics from runtime snapshot."""
+    _sv = snapshot_version or (run_meta or {}).get("snapshot_version", "")
+
     try:
         data_snapshot_id = _compute_snapshot_id(eod_date, close_dict, spy_series)
 
@@ -40,9 +45,10 @@ def collect_meta_us(
         )
         meta_db.save_market_context(mc)
 
-        # 2. Strategy daily + exposure
+        # 2. Strategy daily + exposure + risk
         sd_rows = []
         se_rows = []
+        sr_rows = []
         for sname, scfg in sorted(strategies.items()):
             state = runtime_states.get(sname)
             if not state:
@@ -62,10 +68,42 @@ def collect_meta_us(
             )
             se_rows.append(se)
 
+            sr = _compute_strategy_risk_us(eod_date, sname, state, _sv)
+            sr_rows.append(sr)
+
         meta_db.save_strategy_daily(sd_rows)
         meta_db.save_strategy_exposure(se_rows)
+        meta_db.save_strategy_risk_daily(sr_rows)
 
-        # 3. Verify
+        # 3. Run quality
+        meta_db.save_run_quality({
+            "trade_date": eod_date,
+            "snapshot_version": _sv,
+            "market": "US",
+            "sync_status": (run_meta or {}).get("sync_status", "?"),
+            "selected_source": (run_meta or {}).get("selected_source", "Alpaca"),
+            "data_snapshot_id": data_snapshot_id,
+            "degraded_flag": (run_meta or {}).get("degraded_flag", 0),
+            "ohlc_invariant_warn_count": (run_meta or {}).get("ohlc_invariant_warn_count", 0),
+        })
+
+        # 4. Universe snapshot
+        meta_db.save_universe_snapshot({
+            "trade_date": eod_date,
+            "snapshot_version": _sv,
+            "universe_count_raw": universe_count,
+            "universe_count_filtered": len(close_dict),
+            "tradable_count": len(close_dict),
+        })
+
+        # 5. Recommendation log (EOD 직후 확실히 저장)
+        try:
+            from lab.meta_summary import build_daily_summary_us
+            build_daily_summary_us(eod_date)
+        except Exception as e:
+            logger.warning(f"[META] recommendation_log save failed (non-fatal): {e}")
+
+        # 6. Verify
         _sanity_check(mc, sd_rows)
         verification = meta_db.verify_row_counts(eod_date, len(strategies))
         if verification["missing_strategies"]:
@@ -73,7 +111,8 @@ def collect_meta_us(
         else:
             logger.info(
                 f"[META_OK] {eod_date}: mc=1, sd={verification['strategy_daily']}, "
-                f"se={verification['exposure_daily']}"
+                f"se={verification['exposure_daily']}, "
+                f"rq=1, sr={len(sr_rows)}, usd=1, rec=1"
             )
 
     except Exception as e:
@@ -200,7 +239,8 @@ def _compute_strategy_daily(
     pos_value = 0.0
     for sym, pos in positions.items():
         price = close_dict.get(sym, 0)
-        qty = pos.get("qty", 0) if isinstance(pos, dict) else getattr(pos, "qty", 0)
+        _q = pos.get("quantity") if isinstance(pos, dict) else getattr(pos, "quantity", None)
+        qty = _q if _q is not None else (pos.get("qty", 0) if isinstance(pos, dict) else getattr(pos, "qty", 0))
         if price > 0 and qty > 0:
             pos_value += qty * price
     equity = cash + pos_value
@@ -214,6 +254,22 @@ def _compute_strategy_daily(
         prev_equity = initial_cash
 
     daily_return = round((equity - prev_equity) / prev_equity, 6) if prev_equity > 0 else None
+
+    # ── Data quality gate (KR/US 동일 기준: _OUTLIER_THRESHOLD=0.5) ──
+    _OUTLIER_THRESHOLD = 0.5
+    if daily_return is not None and abs(daily_return) > _OUTLIER_THRESHOLD:
+        logger.warning(
+            f"[META_RETURN_DEBUG] {eod_date} {sname}: OUTLIER daily_return={daily_return} "
+            f"equity={equity:.2f} prev={prev_equity:.2f} → set None"
+        )
+        daily_return = None
+
+    if len(positions) > 0 and pos_value < 1e-8:
+        logger.warning(
+            f"[META_RETURN_DEBUG] {eod_date} {sname}: SNAPSHOT_MISMATCH "
+            f"position_count={len(positions)} pos_value={pos_value:.2f}"
+        )
+
     cumul_return = round((equity - initial_cash) / initial_cash, 6) if initial_cash > 0 else None
 
     # Win/loss
@@ -239,7 +295,8 @@ def _compute_strategy_daily(
         for sym, pos in positions.items():
             entry_date = pos.get("entry_date") if isinstance(pos, dict) else getattr(pos, "entry_date", "")
             if entry_date == eod_date:
-                qty = pos.get("qty", 0) if isinstance(pos, dict) else getattr(pos, "qty", 0)
+                _q = pos.get("quantity") if isinstance(pos, dict) else getattr(pos, "quantity", None)
+                qty = _q if _q is not None else (pos.get("qty", 0) if isinstance(pos, dict) else getattr(pos, "qty", 0))
                 price = close_dict.get(sym, 0)
                 trade_amount += qty * price
         # Exits are not tracked in final state, so this is BUY-side only
@@ -247,6 +304,21 @@ def _compute_strategy_daily(
 
     cash_ratio = round(cash / equity, 4) if equity > 0 else None
     gross_exposure = round(pos_value / equity, 4) if equity > 0 else None
+
+    # DQ_EQUIV: pos_value==0 ↔ gross_exposure==0 동치 검증 로그
+    pv_zero = abs(pos_value) < 1e-8
+    ge_zero = gross_exposure is None or abs(gross_exposure) < 1e-8
+    if pv_zero != ge_zero:
+        logger.warning(
+            f"[META_DQ_EQUIV] {eod_date} {sname}: pv_zero={pv_zero} ge_zero={ge_zero} "
+            f"pos_value={pos_value:.4f} gross_exposure={gross_exposure} equity={equity:.2f}"
+        )
+
+    logger.debug(
+        f"[META_RETURN_DEBUG] {eod_date} {sname}: dr={daily_return} cr={cumul_return} "
+        f"pc={len(positions)} pv={pos_value:.2f} ge={gross_exposure} "
+        f"cash={cash:.2f} equity={equity:.2f}"
+    )
 
     return {
         "trade_date": eod_date,
@@ -282,7 +354,8 @@ def _compute_strategy_exposure(
     equity = cash
     weights = {}
     for sym, pos in positions.items():
-        qty = pos.get("qty", 0) if isinstance(pos, dict) else getattr(pos, "qty", 0)
+        _q = pos.get("quantity") if isinstance(pos, dict) else getattr(pos, "quantity", None)
+        qty = _q if _q is not None else (pos.get("qty", 0) if isinstance(pos, dict) else getattr(pos, "qty", 0))
         price = close_dict.get(sym, 0)
         val = qty * price
         equity += val
@@ -322,6 +395,106 @@ def _compute_strategy_exposure(
         "sector_top1_weight": sector_top1_weight,
         "sector_dispersion": sector_disp,
     }
+
+
+# ── Strategy Risk (US) ────────────────────────────────────────
+
+def _compute_strategy_risk_us(
+    eod_date: str,
+    sname: str,
+    state: Any,
+    snapshot_version: str = "",
+) -> dict:
+    """Compute rolling risk metrics from equity_history. NULL if insufficient data."""
+    if isinstance(state, dict):
+        eh = state.get("equity_history", [])
+    else:
+        eh = getattr(state, "equity_history", [])
+
+    equities = []
+    for e in eh:
+        if isinstance(e, (list, tuple)):
+            equities.append(float(e[1]) if len(e) > 1 else 0)
+        elif isinstance(e, dict):
+            equities.append(e.get("equity", 0))
+        else:
+            equities.append(float(e) if e else 0)
+
+    n = len(equities)
+    result = {
+        "trade_date": eod_date,
+        "strategy": sname,
+        "snapshot_version": snapshot_version,
+        "daily_mdd": None,
+        "rolling_5d_return": None,
+        "rolling_20d_return": None,
+        "rolling_20d_mdd": None,
+        "realized_vol_20d": None,
+        "hit_rate_20d": None,
+        "avg_hold_days": None,
+        "slippage_bps_est": None,
+        "cost_bps_est": None,
+    }
+
+    if n < 2:
+        return result
+
+    returns = []
+    for i in range(1, n):
+        if equities[i - 1] > 0:
+            returns.append((equities[i] - equities[i - 1]) / equities[i - 1])
+        else:
+            returns.append(0)
+
+    if len(returns) >= 5:
+        r5 = returns[-5:]
+        cum5 = 1
+        for r in r5:
+            cum5 *= (1 + r)
+        result["rolling_5d_return"] = round(cum5 - 1, 6)
+
+    if len(returns) >= 20:
+        r20 = returns[-20:]
+        cum20 = 1
+        for r in r20:
+            cum20 *= (1 + r)
+        result["rolling_20d_return"] = round(cum20 - 1, 6)
+
+        peak = equities[-21] if len(equities) > 20 else equities[0]
+        max_dd = 0
+        for eq in equities[-20:]:
+            if eq > peak:
+                peak = eq
+            dd = (eq - peak) / peak if peak > 0 else 0
+            if dd < max_dd:
+                max_dd = dd
+        result["rolling_20d_mdd"] = round(max_dd, 6)
+        result["realized_vol_20d"] = round(float(np.std(r20)) * (252 ** 0.5), 6)
+        wins = sum(1 for r in r20 if r > 0)
+        result["hit_rate_20d"] = round(wins / 20, 4)
+    elif len(returns) >= 2:
+        result["realized_vol_20d"] = round(float(np.std(returns)) * (252 ** 0.5), 6)
+        wins = sum(1 for r in returns if r > 0)
+        result["hit_rate_20d"] = round(wins / len(returns), 4)
+
+    if n >= 2:
+        result["daily_mdd"] = round(min(0, returns[-1]), 6)
+
+    # avg_hold_days
+    positions = state.get("positions", {}) if isinstance(state, dict) else getattr(state, "positions", {})
+    hold_days = []
+    for sym, pos in positions.items():
+        ed = pos.get("entry_date") if isinstance(pos, dict) else getattr(pos, "entry_date", "")
+        if ed:
+            try:
+                hold = (pd.Timestamp(eod_date) - pd.Timestamp(ed)).days
+                hold_days.append(hold)
+            except Exception:
+                pass
+    if hold_days:
+        result["avg_hold_days"] = round(np.mean(hold_days), 1)
+
+    return result
 
 
 # ── Sanity ────────────────────────────────────────────────────

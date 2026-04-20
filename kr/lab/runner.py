@@ -158,6 +158,34 @@ def create_strategy(name: str) -> BaseStrategy:
     elif name == "hybrid_qscore":
         from lab.strategies.hybrid_qscore import HybridQScore
         return HybridQScore()
+    # ── B군 HA 전략 ─────────────────────────────────────────
+    elif name == "momentum_base_ha":
+        from lab.strategies.momentum_base_ha import MomentumBaseHA
+        return MomentumBaseHA()
+    elif name == "lowvol_momentum_ha":
+        from lab.strategies.lowvol_momentum_ha import LowVolMomentumHA
+        return LowVolMomentumHA()
+    elif name == "quality_factor_ha":
+        from lab.strategies.quality_factor_ha import QualityFactorHA
+        return QualityFactorHA()
+    elif name == "hybrid_qscore_ha":
+        from lab.strategies.hybrid_qscore_ha import HybridQScoreHA
+        return HybridQScoreHA()
+    elif name == "breakout_trend_ha":
+        from lab.strategies.breakout_trend_ha import BreakoutTrendHA
+        return BreakoutTrendHA()
+    elif name == "mean_reversion_ha":
+        from lab.strategies.mean_reversion_ha import MeanReversionHA
+        return MeanReversionHA()
+    elif name == "liquidity_signal_ha":
+        from lab.strategies.liquidity_signal_ha import LiquiditySignalHA
+        return LiquiditySignalHA()
+    elif name == "sector_rotation_ha":
+        from lab.strategies.sector_rotation_ha import SectorRotationHA
+        return SectorRotationHA()
+    elif name == "vol_regime_ha":
+        from lab.strategies.vol_regime_ha import VolRegimeHA
+        return VolRegimeHA()
     else:
         raise ValueError(f"Unknown strategy: {name}")
 

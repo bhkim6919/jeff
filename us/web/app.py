@@ -7,10 +7,12 @@ Supports KR/US market toggle for cross-market overview.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sys
 import threading
+import time as _time_module
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Query
@@ -19,8 +21,10 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import _bootstrap_path  # noqa: F401  -- side-effect: adds project root for `shared.*`
+# sys.path bootstrap — us/ + project root (single source: us/_bootstrap_path.py)
+# `-m uvicorn web.app:app` 로 기동해도 main.py를 거치지 않으므로 직접 보장.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # us/  # audit:allow-syspath: bootstrap-locator
+import _bootstrap_path  # noqa: F401
 
 from config import USConfig
 from data.alpaca_provider import AlpacaProvider
@@ -63,6 +67,25 @@ def _get_runtime_data() -> dict:
         return {}
 
 
+def is_order_success(result: dict) -> bool:
+    """Alpaca send_order 결과 성공 여부 판정.
+
+    send_order() 정상 응답: {"order_no": <id>, "exec_qty": 0, "status": "SUBMITTED"}
+    send_order() 실패 응답: {"error": "...", "status": "REJECTED"}
+
+    - order_no 존재 + error 없음 → 성공
+    - error 존재 OR order_no 없음 → 실패
+    - None 또는 비-dict → 실패 (P1 fix: 2026-04-17)
+    """
+    if not isinstance(result, dict):
+        return False
+    if result.get("error"):
+        return False
+    if not result.get("order_no"):
+        return False
+    return True
+
+
 # ── App ──────────────────────────────────────────────────────
 
 def create_app() -> FastAPI:
@@ -79,11 +102,31 @@ def create_app() -> FastAPI:
 
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+    # ── Startup: health check (A3) ───────────────────────
+    # US 용 critical dep (alpaca, psycopg2, pytz) import 검증
+    # REQUIRED 누락 시 RuntimeError → 서버 부팅 중단
+    # CRITICAL 누락 시 Telegram + DataEvent + 부팅 허용
+    @app.on_event("startup")
+    async def _startup_health_check():
+        try:
+            # kr/tools 는 namespace package 로 접근 (project root 이미 sys.path 에 있음)
+            from kr.tools.health_check import run_startup_health_check
+            run_startup_health_check(scope="us")
+        except RuntimeError:
+            raise  # REQUIRED 누락 — 부팅 실패 전파
+        except Exception as e:
+            logger.warning(f"[HEALTH_CHECK] self-check failed: {e}")
+
     # ── Pages ────────────────────────────────────────────
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request):
         return templates.TemplateResponse(request, "index.html")
+
+    @app.get("/debug", response_class=HTMLResponse)
+    async def debug_page(request: Request):
+        """US 전용 독립 DEBUG 페이지 (12개 진단 패널)."""
+        return templates.TemplateResponse(request, "debug.html")
 
     # ── API: Health ──────────────────────────────────────
 
@@ -101,9 +144,299 @@ def create_app() -> FastAPI:
             "next_close": clock.get("next_close", ""),
         }
 
+    # ── DEBUG: Market Context US (B1) ───────────────────
+    # KR 의 market_context 는 KOSPI/OHLCV 기준, US 는 Alpaca broker sync 기준.
+    # 구조 대칭을 위해 동일 endpoint prefix + 필드 재해석.
+    @app.get("/api/debug/market_context")
+    async def debug_market_context_us():
+        """
+        US DEBUG: broker sync + market clock + portfolio cache 상태.
+        - broker_snapshot_age_sec: 마지막 계좌 조회 후 경과
+        - portfolio_cache_age_sec: UI 캐시 경과
+        - is_market_open: 현재 US 장 여부
+        - run_mode: OK | DEGRADED (broker sync > 60분 stale 시 DEGRADED)
+        """
+        import time as _t
+        try:
+            p = _get_provider()
+            clock = p.get_clock() or {}
+            connected = p.is_connected()
+
+            now = _t.time()
+            portfolio_age = None
+            if _portfolio_cache_us.get("ts"):
+                portfolio_age = round(now - _portfolio_cache_us["ts"], 1)
+
+            # broker_snapshot_at 추출 (portfolio cache data 에서)
+            broker_snapshot_at = None
+            broker_age_sec = None
+            pdata = _portfolio_cache_us.get("data") or {}
+            if isinstance(pdata, dict):
+                broker_snapshot_at = pdata.get("broker_snapshot_at")
+                if broker_snapshot_at:
+                    try:
+                        from datetime import datetime, timezone
+                        dt = datetime.fromisoformat(broker_snapshot_at.replace("Z", "+00:00"))
+                        broker_age_sec = round((datetime.now(timezone.utc) - dt).total_seconds(), 1)
+                    except Exception:
+                        pass
+
+            # DEGRADED 판정: broker sync 60분 이상 stale OR disconnected
+            reasons = []
+            if not connected:
+                reasons.append("alpaca_disconnected")
+            if broker_age_sec is not None and broker_age_sec > 3600:
+                reasons.append(f"broker_snapshot_stale({int(broker_age_sec)}s)")
+            run_mode = "OK" if not reasons else "DEGRADED"
+
+            return {
+                "ok": True,
+                "scope": "us",
+                "market_context": {
+                    "connected": connected,
+                    "server_type": p.server_type,
+                    "is_market_open": clock.get("is_open", False),
+                    "next_open": clock.get("next_open", ""),
+                    "next_close": clock.get("next_close", ""),
+                    "broker_snapshot_at": broker_snapshot_at,
+                    "broker_snapshot_age_sec": broker_age_sec,
+                    "portfolio_cache_age_sec": portfolio_age,
+                    "run_mode": run_mode,
+                    "degraded_reasons": reasons,
+                },
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    # ── DEBUG: Log tail (D-LOG) ──────────────────────────
+    @app.get("/api/debug/logs")
+    async def debug_logs(lines: int = Query(50, ge=1, le=500)):
+        """us_app_YYYYMMDD.log 의 최근 N 줄."""
+        try:
+            from datetime import datetime
+            from pathlib import Path as _P
+            log_dir = _P(__file__).resolve().parent.parent / "logs"
+            today = datetime.now().strftime("%Y%m%d")
+            log_file = log_dir / f"us_app_{today}.log"
+            if not log_file.exists():
+                # 전날 파일 fallback
+                yday = (datetime.now().replace(hour=0) -
+                        _time_module.timedelta(days=1)).strftime("%Y%m%d") if False else ""
+                return {"ok": False, "reason": "no log file today", "lines": []}
+            # 효율적 tail (파일 전체 읽음 — 작은 파일 가정, 10MB 이하)
+            content = log_file.read_text(encoding="utf-8", errors="replace")
+            all_lines = content.splitlines()
+            tail = all_lines[-lines:] if len(all_lines) > lines else all_lines
+            return {"ok": True, "file": log_file.name, "total_lines": len(all_lines), "lines": tail}
+        except Exception as e:
+            return {"ok": False, "error": str(e), "lines": []}
+
+    # ── DEBUG: Raw state (D-RAW) ─────────────────────────
+    @app.get("/api/debug/raw_state")
+    async def debug_raw_state():
+        """Status summary 를 raw JSON 으로. UI 에서 복사 가능."""
+        try:
+            # status summary 와 동일 데이터 (cache 에서)
+            now = _time_module.time()
+            data = _status_cache.get("data") or {}
+            age = round(now - _status_cache.get("ts", 0), 1)
+            return {"ok": True, "cache_age_sec": age, "summary": data}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    # ── DEBUG: System status (D-SYS) ─────────────────────
+    @app.get("/api/debug/sys")
+    async def debug_sys():
+        """Alpaca system status — account / clock / circuit breaker / rate limit."""
+        try:
+            p = _get_provider()
+            clock = p.get_clock() or {}
+            acct = p.query_account_summary() or {}
+
+            # Circuit breaker state
+            cb_halted = p._cb_is_halted() if hasattr(p, "_cb_is_halted") else False
+            cb_remain = 0
+            cb_errors = 0
+            if hasattr(p, "_cb_halt_until") and hasattr(p, "_cb_consecutive_auth_err"):
+                cb_halt_until = getattr(p, "_cb_halt_until", 0)
+                cb_remain = max(0, int(cb_halt_until - _time_module.time())) if cb_halted else 0
+                cb_errors = getattr(p, "_cb_consecutive_auth_err", 0)
+
+            # Recent trace summary for rate-limit / latency indicator
+            hist = p.get_latency_histogram() if hasattr(p, "get_latency_histogram") else {}
+
+            # API key (masked)
+            key_val = getattr(p, "_api_key", "") or ""
+            key_masked = (key_val[:4] + "****" + key_val[-4:]) if len(key_val) > 8 else "(short)"
+
+            return {
+                "ok": True,
+                "api_key": key_masked,
+                "server_type": getattr(p, "server_type", "?"),
+                "base_url": getattr(p, "_base_url", ""),
+                "connected": p.is_connected(),
+                "clock": clock,
+                "account": {
+                    "equity": acct.get("equity"),
+                    "cash": acct.get("cash"),
+                    "buying_power": acct.get("buying_power"),
+                },
+                "circuit_breaker": {
+                    "halted": cb_halted,
+                    "remaining_sec": cb_remain,
+                    "consecutive_auth_err": cb_errors,
+                },
+                "latency": {
+                    "avg_ms": hist.get("avg"),
+                    "p50_ms": hist.get("p50"),
+                    "p95_ms": hist.get("p95"),
+                    "sample_count": hist.get("count", 0),
+                },
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    # ── DEBUG: Request traces (D-TRACE) ──────────────────
+    @app.get("/api/debug/traces")
+    async def debug_traces(limit: int = Query(50, ge=1, le=200)):
+        """Alpaca API 호출 최근 N건 (method / path / status / latency)."""
+        try:
+            p = _get_provider()
+            if not hasattr(p, "get_traces"):
+                return {"ok": False, "reason": "tracer not available", "traces": []}
+            return {"ok": True, "traces": p.get_traces(limit)}
+        except Exception as e:
+            return {"ok": False, "error": str(e), "traces": []}
+
+    # ── DEBUG: Latency histogram (D-HIST) ────────────────
+    @app.get("/api/debug/histogram")
+    async def debug_histogram(bucket_ms: int = Query(100, ge=10, le=1000)):
+        """Alpaca request latency 분포 (bucket_ms 단위)."""
+        try:
+            p = _get_provider()
+            if not hasattr(p, "get_latency_histogram"):
+                return {"ok": False, "reason": "histogram not available"}
+            return {"ok": True, **p.get_latency_histogram(bucket_ms)}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    # ── DEBUG: WebSocket status (D-WS) ───────────────────
+    @app.get("/api/debug/ws")
+    async def debug_ws():
+        """
+        Alpaca Data Stream (WebSocket) 상태.
+        us/data/alpaca_data.py 의 스트림 인스턴스 찾아서 상태 보고.
+        """
+        try:
+            # AlpacaData / stream 인스턴스 위치는 프로젝트마다 다름 — best effort
+            info = {"available": False, "reason": "data stream module not initialized"}
+            try:
+                from data import alpaca_data as _ad  # type: ignore
+                if hasattr(_ad, "_stream_instance"):
+                    s = _ad._stream_instance
+                    info = {
+                        "available": True,
+                        "connected": getattr(s, "connected", None),
+                        "subscriptions": list(getattr(s, "subscriptions", []) or []),
+                        "last_msg_ts": getattr(s, "last_msg_ts", None),
+                        "msg_count": getattr(s, "msg_count", 0),
+                        "reconnects": getattr(s, "reconnects", 0),
+                    }
+                else:
+                    info = {"available": False, "reason": "alpaca_data has no _stream_instance attribute"}
+            except ImportError:
+                pass
+            return {"ok": True, **info}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    # ── DEBUG: Portfolio state diff (D-DIFF) ─────────────
+    # 이전 snapshot 과 현재 snapshot 을 비교해 변경된 키 표시
+    _diff_prev = {"portfolio": None}
+
+    @app.get("/api/debug/state_diff")
+    async def debug_state_diff():
+        """Portfolio snapshot diff — 이전 호출 대비 현재 값 변경 키."""
+        try:
+            now = _time_module.time()
+            curr = _portfolio_cache_us.get("data") or {}
+            prev = _diff_prev.get("portfolio") or {}
+
+            changes = []
+            # 최상위 key 레벨 단순 diff
+            all_keys = set(list(prev.keys()) + list(curr.keys()))
+            for k in sorted(all_keys):
+                pv = prev.get(k)
+                cv = curr.get(k)
+                if pv != cv:
+                    # value 가 리스트나 dict 일 때는 전체 값 대신 "changed" 표시
+                    pv_short = _diff_short(pv)
+                    cv_short = _diff_short(cv)
+                    changes.append({"key": k, "prev": pv_short, "curr": cv_short})
+
+            # 다음 호출을 위해 현재를 prev 로 저장
+            _diff_prev["portfolio"] = dict(curr) if isinstance(curr, dict) else curr
+
+            return {
+                "ok": True,
+                "changes": changes,
+                "n_changes": len(changes),
+                "snapshot_ts": now,
+                "portfolio_cache_age_sec": (
+                    round(now - _portfolio_cache_us["ts"], 1)
+                    if _portfolio_cache_us.get("ts") else None
+                ),
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def _diff_short(v):
+        """diff 표시용 값 축약."""
+        if v is None:
+            return None
+        if isinstance(v, (int, float, str, bool)):
+            s = str(v)
+            return s if len(s) <= 60 else s[:57] + "..."
+        if isinstance(v, list):
+            return f"<list len={len(v)}>"
+        if isinstance(v, dict):
+            return f"<dict keys={len(v)}>"
+        return f"<{type(v).__name__}>"
+
+    # ── DEBUG: Data Events (A5) ──────────────────────────
+    # KR 과 동일한 tracker 공유 (shared/data_events.py), 단 프로세스 분리로 이벤트 separate.
+    @app.get("/api/debug/data_events")
+    async def debug_data_events(
+        limit: int = Query(50, ge=1, le=200),
+        min_level: str = Query("", description="DEBUG|INFO|WARN|ERROR|CRITICAL"),
+        sources: str = Query("", description="comma-separated substring match"),
+    ):
+        """US DEBUG: 최근 데이터/환경 이벤트 + active escalation 상태."""
+        try:
+            from shared.data_events import get_events, get_escalation_states
+            src_list = [s.strip() for s in sources.split(",") if s.strip()] if sources else None
+            return {
+                "ok": True,
+                "events": get_events(
+                    limit=limit,
+                    min_level=min_level or None,
+                    sources=src_list,
+                ),
+                "active_escalations": get_escalation_states(),
+                "scope": "us",
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e), "events": []}
+
     # ── API: Status Summary (KR-style status bar) ─────
 
     _status_cache = {"data": None, "ts": 0}
+
+    # ENGINE SAFETY: _portfolio_cache_us → UI only (UI_CACHE)
+    # ❌ 주문 판단에 cache 사용 금지. broker API 직접 조회만 판단 기준.
+    # 방향: broker → engine → _portfolio_cache_us → UI  (역방향 금지)
+    _portfolio_cache_us = {"data": None, "ts": 0.0}
+    PORTFOLIO_CACHE_TTL_US = 8  # 초 (polling 10초보다 짧게)
 
     @app.get("/api/status/summary")
     async def status_summary():
@@ -208,6 +541,24 @@ def create_app() -> FastAPI:
             status_title = "Disconnected"
             status_reason = "; ".join(reasons) if reasons else "Broker not reachable"
 
+        # P2: Auto Trading State (advisory)
+        auto_state = {"enabled": False, "blockers": ["UNEVALUATED"],
+                      "risk_level": "UNKNOWN", "strategy_health": "UNKNOWN",
+                      "buy_scale": buy_scale, "reason_summary": ""}
+        try:
+            from risk.auto_trading_gate import compute_auto_trading_state
+            from risk.strategy_health import compute_strategy_health
+            _rt_for_gate = _get_runtime_data() or {}
+            _equity_dd = float(_rt_for_gate.get("equity_dd_pct", 0.0) or 0.0)
+            _health = compute_strategy_health(equity_dd_pct=_equity_dd)
+            _auto = compute_auto_trading_state(
+                runtime=_rt_for_gate, strategy_health=_health,
+            )
+            auto_state = _auto.to_dict()
+            auto_state["strategy_health_detail"] = _health
+        except Exception as _ae:
+            auto_state["blockers"] = [f"EVAL_ERROR:{type(_ae).__name__}"]
+
         result = {
             "status": status,
             "status_title": status_title,
@@ -226,6 +577,7 @@ def create_app() -> FastAPI:
             "regime_level": regime_level,
             "n_holdings": n_holdings,
             "equity": round(acct.get("equity", 0), 2),
+            "auto_trading": auto_state,
         }
 
         _status_cache["data"] = result
@@ -237,22 +589,36 @@ def create_app() -> FastAPI:
     @app.get("/api/account")
     async def account():
         p = _get_provider()
-        return p.query_account_summary()
+        return await asyncio.to_thread(p.query_account_summary)
 
     @app.get("/api/portfolio")
     async def portfolio():
+        now = _time_module.time()
+        # cache hit → copy 반환 (mutable 공유 + 2차 오염 차단)
+        if _portfolio_cache_us["data"] and now - _portfolio_cache_us["ts"] < PORTFOLIO_CACHE_TTL_US:
+            result = dict(_portfolio_cache_us["data"])
+            result["cache_age_sec"] = round(now - _portfolio_cache_us["ts"], 1)
+            return result
+
+        # cache miss → live fetch (non-blocking)
         p = _get_provider()
-        acct = p.query_account_summary()
-        holdings = p.query_account_holdings()
-        return {
+        acct     = await asyncio.to_thread(p.query_account_summary)
+        holdings = await asyncio.to_thread(p.query_account_holdings)
+        result = {
             "market": "US",
             "equity": acct.get("equity", 0),
+            "last_equity": acct.get("last_equity", 0),  # 전일 종가 기준 equity
             "cash": acct.get("cash", 0),
             "buying_power": acct.get("buying_power", 0),
             "portfolio_value": acct.get("portfolio_value", 0),
             "n_holdings": len(holdings),
             "holdings": holdings,
+            "_data_source": "UI_CACHE",
+            "cache_age_sec": 0.0,
         }
+        _portfolio_cache_us["data"] = result
+        _portfolio_cache_us["ts"] = now
+        return dict(result)  # 저장 후에도 copy 반환
 
     # ── API: Target Portfolio ────────────────────────────
 
@@ -348,106 +714,99 @@ def create_app() -> FastAPI:
             _rt = _get_runtime_data()
             buy_allowed, buy_reason, buy_scale = check_buy_permission(_config, _rt, p)
 
+            # ── Categorize: 청산(exits) / 신규(new_entries) / 유지(keeps) ──
+            # 방어: 심볼 정규화 (대문자 + strip), 타겟이 dict일 수도 있음
+            def _norm(s):
+                if isinstance(s, dict):
+                    s = s.get("ticker") or s.get("symbol") or s.get("code") or ""
+                return str(s).strip().upper()
+
+            held_norm = {_norm(k): k for k in current.keys() if _norm(k)}
+            raw_tgt = target.get("target_tickers") or target.get("tickers") or []
+            tgt_norm = {_norm(t): t for t in raw_tgt if _norm(t)}
+
+            held = set(held_norm.keys())
+            tgt = set(tgt_norm.keys())
+            exit_syms = sorted(held - tgt)        # 보유했지만 타겟 아님 → 청산
+            new_syms = sorted(tgt - held)         # 타겟이지만 미보유 → 신규
+            keep_syms = sorted(held & tgt)        # 둘 다 → 유지
+
+            # ── DEBUG LOG: 0/0/0 디버깅용 ──────────────────────────
+            import logging as _log
+            _logger = _log.getLogger("us.web.app")
+            _logger.warning(
+                f"[REBAL_PREVIEW_DBG] held_count={len(held)} tgt_count={len(tgt)} "
+                f"exits={len(exit_syms)} new={len(new_syms)} keeps={len(keep_syms)} "
+                f"holdings_sample={list(current.keys())[:5]} "
+                f"target_sample={list(raw_tgt)[:5] if raw_tgt else []} "
+                f"target_keys={list(target.keys())} "
+                f"intersection_sample={keep_syms[:5]}"
+            )
+
+            def _row(norm_sym):
+                orig = held_norm.get(norm_sym, norm_sym)
+                h = current.get(orig, {}) or {}
+                qty = h.get("quantity", 0) or h.get("qty", 0)
+                px = prices.get(orig, 0) or prices.get(norm_sym, 0)
+                avg = h.get("avg_price", 0) or h.get("buy_price", 0)
+                mv = round(qty * px, 2)
+                pnl_pct = round((px / avg - 1) * 100, 2) if avg else 0
+                return {
+                    "symbol": norm_sym, "qty": qty, "price": round(px, 2),
+                    "avg_price": round(avg, 2), "market_value": mv, "pnl_pct": pnl_pct,
+                }
+
+            exits = [_row(s) for s in exit_syms]
+
+            # 신규 종목: 가격 + 오늘 등락률 (전일 종가 대비)
+            new_entries = []
+            for s in new_syms:
+                orig = tgt_norm.get(s, s)
+                px = prices.get(orig, 0) or prices.get(s, 0)
+                # daily change % via snapshot API
+                try:
+                    chg = p.get_daily_change_pct(orig) if hasattr(p, "get_daily_change_pct") else 0.0
+                except Exception:
+                    chg = 0.0
+                new_entries.append({
+                    "symbol": s,
+                    "price": round(px, 2),
+                    "change_pct": chg,
+                })
+
+            keeps = [_row(s) for s in keep_syms]
+
             return {
                 "ok": True,
                 "target_date": target.get("date", ""),
                 "target_count": len(target.get("target_tickers", [])),
                 "sells": [{"symbol": s.ticker, "qty": s.quantity, "reason": s.reason} for s in sells],
                 "buys": [{"symbol": b.ticker, "qty": b.quantity, "amount": round(b.target_amount, 2), "reason": b.reason} for b in buys],
-                "keep": len(set(current.keys()) & set(target.get("target_tickers", []))),
+                "exits": exits,
+                "new_entries": new_entries,
+                "keeps": keeps,
+                "keep": len(keep_syms),
                 "equity": round(equity, 2),
                 "cash": round(cash, 2),
                 "buy_allowed": buy_allowed,
                 "buy_reason": buy_reason,
                 "buy_scale": buy_scale,
+                "_debug": {
+                    "held_count": len(held),
+                    "tgt_count": len(tgt),
+                    "exits_n": len(exit_syms),
+                    "new_n": len(new_syms),
+                    "keeps_n": len(keep_syms),
+                    "holdings_sample": list(current.keys())[:5],
+                    "target_sample": [_norm(t) for t in raw_tgt[:5]] if raw_tgt else [],
+                    "target_keys": list(target.keys()),
+                },
             }
         except Exception as e:
-            return {"ok": False, "error": str(e)}
+            import traceback as _tb
+            return {"ok": False, "error": str(e), "_traceback": _tb.format_exc()[:500]}
 
-    @app.post("/api/rebalance/execute")
-    async def rebalance_execute(request: Request):
-        """Execute rebalance: SELL first, then BUY. Manual trigger only."""
-        try:
-            body = await request.json()
-            mode = body.get("mode", "sell_and_buy")  # "sell_only" | "buy_only" | "sell_and_buy"
-
-            p = _get_provider()
-            db = _get_db()
-
-            # BUY gate
-            from strategy.execution_gate import check_buy_permission
-            _rt = _get_runtime_data()
-            buy_allowed, buy_reason, buy_scale = check_buy_permission(_config, _rt, p)
-
-            # Open orders check
-            open_orders = p.query_open_orders() or []
-            if open_orders:
-                return {"ok": False, "error": f"Open orders exist ({len(open_orders)}). Cancel first."}
-
-            target = db.get_target_portfolio()
-            if not target:
-                return {"ok": False, "error": "No target portfolio"}
-
-            acct = p.query_account_summary()
-            holdings = p.query_account_holdings()
-            current = {h["code"]: h for h in holdings}
-            equity = acct.get("equity", 0)
-            cash = acct.get("cash", 0)
-
-            prices = {}
-            all_syms = set(current.keys()) | set(target.get("target_tickers", []))
-            for sym in all_syms:
-                px = p.get_current_price(sym)
-                if px > 0:
-                    prices[sym] = px
-
-            from strategy.rebalancer import compute_orders
-            sells, buys = compute_orders(
-                current, target["target_tickers"],
-                equity, cash,
-                _config.BUY_COST, _config.SELL_COST,
-                prices, _config.CASH_BUFFER_RATIO,
-            )
-
-            results = {"sells": [], "buys": [], "sell_count": 0, "buy_count": 0}
-
-            # SELL phase
-            if mode in ("sell_only", "sell_and_buy"):
-                for s in sells:
-                    r = p.send_order(s.ticker, "SELL", s.quantity)
-                    ok = bool(r.get("order_no"))
-                    results["sells"].append({"symbol": s.ticker, "qty": s.quantity, "ok": ok})
-                    if ok:
-                        results["sell_count"] += 1
-
-            # BUY phase
-            if mode in ("buy_only", "sell_and_buy"):
-                if not buy_allowed:
-                    results["buy_blocked"] = buy_reason
-                else:
-                    for b in buys:
-                        scaled_qty = int(b.quantity * buy_scale)
-                        if scaled_qty <= 0:
-                            results["buys"].append({"symbol": b.ticker, "qty": 0, "ok": False, "reason": "scaled_to_zero"})
-                            continue
-                        r = p.send_order(b.ticker, "BUY", scaled_qty)
-                        ok = bool(r.get("order_no"))
-                        results["buys"].append({"symbol": b.ticker, "qty": scaled_qty, "ok": ok})
-                        if ok:
-                            results["buy_count"] += 1
-
-            # Notify
-            from notify.telegram_bot import send
-            send(f"<b>Rebalance Executed</b>\n"
-                 f"Mode: {mode}\n"
-                 f"Sells: {results['sell_count']}/{len(sells)}\n"
-                 f"Buys: {results['buy_count']}/{len(buys)}\n"
-                 f"Scale: {buy_scale:.0%}", "INFO")
-
-            return {"ok": True, **results}
-
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+    # (legacy execute v1 제거됨 — v2 at /api/rebalance/execute 사용)
 
     # ── API: DB Health ───────────────────────────────────
 
@@ -649,6 +1008,11 @@ def create_app() -> FastAPI:
                             pdc = snap.get("prevDailyBar", {})
                             close = dc.get("c", 0)
                             prev_close = pdc.get("c", 0)
+                            # fallback: dailyBar 미갱신 시 latestTrade 사용
+                            if close and prev_close and close == prev_close:
+                                lt = snap.get("latestTrade", {})
+                                if lt.get("p", 0) > 0:
+                                    close = lt["p"]
                             chg = ((close / prev_close - 1) * 100) if prev_close > 0 else 0
                             name = sector_map.get(sym, {}).get("name", sym)
                             stocks.append({
@@ -821,7 +1185,29 @@ def create_app() -> FastAPI:
         from lab.forward import ForwardTrader
         ft = ForwardTrader()
         p = _get_provider()
-        return ft.run_eod(eod_date, provider=p, force=force)
+        result = ft.run_eod(eod_date, provider=p, force=force)
+        # EOD 완료/에러 알림
+        try:
+            from notify.telegram_bot import send
+            if isinstance(result, dict):
+                if result.get("error"):
+                    send(
+                        f"⚠️ <b>US Lab EOD Error</b>\n"
+                        f"Date: {eod_date}\n"
+                        f"{result['error']}",
+                        severity="WARN",
+                    )
+                else:
+                    n_strats = len(result.get("strategies_processed", []))
+                    send(
+                        f"✅ <b>US Lab EOD Complete</b>\n"
+                        f"Date: {eod_date}\n"
+                        f"Strategies: {n_strats}",
+                        severity="INFO",
+                    )
+        except Exception:
+            pass
+        return result
 
     @app.get("/api/lab/forward/state")
     async def forward_state():
@@ -835,17 +1221,64 @@ def create_app() -> FastAPI:
 
     @app.get("/api/lab/forward/meta")
     async def forward_meta():
-        """Meta Layer summary for UI (observer-only)."""
+        """Meta Layer summary for UI (observer-only). Drivers 포함."""
         try:
             from lab.meta_summary import build_daily_summary_us
-            from lab.forward import _load_meta
+            from lab.forward import _load_meta, _save_meta, RUNS_DIR, ForwardTrader
             meta = _load_meta()
             trade_date = meta.get("last_successful_eod_date", "")
+            # Recovery: scan runs/ for latest DONE if meta lost the date
+            if not trade_date and RUNS_DIR.exists():
+                import json as _json
+                for rf in sorted(RUNS_DIR.glob("*.json"), reverse=True):
+                    try:
+                        rd = _json.loads(rf.read_text())
+                        if rd.get("status") == "DONE":
+                            trade_date = rd["eod_date"]
+                            meta["last_successful_eod_date"] = trade_date
+                            meta["day_count"] = max(meta.get("day_count", 0), 1)
+                            _save_meta(meta)
+                            break
+                    except Exception:
+                        continue
             if not trade_date:
                 return {"ok": False}
             summary = build_daily_summary_us(trade_date)
             if not summary:
                 return {"ok": False}
+
+            # ── Daily drivers 주입 (카드 확장 섹션용) ──
+            try:
+                from web.lab_live.daily_drivers import (
+                    build_drivers_for_strategy, build_spy_series, load_sector_map_us,
+                )
+                from data.db_provider import get_db
+                db = get_db()
+                spy_series = build_spy_series(db, trade_date, window=30)
+                sector_map = load_sector_map_us(db)
+                # 포지션 상세 포함 state 조회
+                state = ForwardTrader().get_state(include_positions=True)
+                strategies = state.get("strategies", {}) or {}
+                sfit = summary.get("strategy_fit", {}) or {}
+                for sname, sentry in strategies.items():
+                    drv = build_drivers_for_strategy(
+                        strategy_entry=sentry,
+                        sname=sname,
+                        trade_date=trade_date,
+                        sector_map=sector_map,
+                        spy_series=spy_series,
+                        db_provider=db,
+                        initial_cash=100_000.0,
+                        window=30,
+                    )
+                    if sname in sfit:
+                        sfit[sname]["drivers"] = drv
+                    else:
+                        sfit[sname] = {"drivers": drv}
+                summary["strategy_fit"] = sfit
+            except Exception as _drv_err:
+                summary["drivers_error"] = str(_drv_err)
+
             return {"ok": True, **summary}
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -983,6 +1416,11 @@ def create_app() -> FastAPI:
                 "last_batch_business_date": rs.get("last_batch_business_date", ""),
                 "last_execute_business_date": rs.get("last_execute_business_date", ""),
                 "last_execute_result": rs.get("last_execute_result", ""),
+                "last_rebal_attempt_snapshot": rs.get("last_rebal_attempt_snapshot", ""),
+                "last_rebal_attempt_at": rs.get("last_rebal_attempt_at", ""),
+                "last_rebal_attempt_result": rs.get("last_rebal_attempt_result", ""),
+                "last_rebal_attempt_count": rs.get("last_rebal_attempt_count", 0),
+                "last_rebal_attempt_reason": rs.get("last_rebal_attempt_reason", ""),
                 "business_date": today_bd,
                 "business_date_source": bd_source,
                 "rebal_days": _config.REBAL_DAYS,
@@ -1053,6 +1491,17 @@ def create_app() -> FastAPI:
         today_bd = get_business_date_et(p)
 
         log_ctx = f"req={request_id[:8]} bd={today_bd}"
+        sv = ""  # snapshot_version — set after validation
+
+        def _record_reject(reason_code: str):
+            """Validation reject: attempt 기록 (count 미증가)."""
+            _sv = sm.get_rebal_state().get("snapshot_version", "")
+            sm.update_rebal_state({
+                "last_rebal_attempt_snapshot": _sv,
+                "last_rebal_attempt_at": _dt.now(US_ET).isoformat(),
+                "last_rebal_attempt_result": "REJECTED",
+                "last_rebal_attempt_reason": reason_code,
+            })
 
         # ── 검증 8단계 ──
         sm.clear_stale_execute_lock()
@@ -1061,48 +1510,68 @@ def create_app() -> FastAPI:
         # 1. Idempotency
         if request_id == rs.get("last_execute_request_id", ""):
             logger.warning(f"[US_REBAL_DUP_BLOCK] {log_ctx}")
+            _record_reject("DUPLICATE_REQUEST")
             return {"ok": False, "error": "Duplicate request_id"}
 
         # 2. Already executing
         if rs.get("rebal_phase") == "EXECUTING":
             logger.warning(f"[US_REBAL_EXEC_REJECT] phase=EXECUTING {log_ctx}")
+            _record_reject("ALREADY_EXECUTING")
             return {"ok": False, "error": "Already executing"}
 
         # 3. Same business date
         if rs.get("last_execute_business_date", "") == today_bd:
             logger.warning(f"[US_REBAL_EXEC_REJECT] same_date {log_ctx}")
+            _record_reject("ALREADY_EXECUTED_TODAY")
             return {"ok": False, "error": "Already executed today"}
 
         # 4. Batch fresh
         if not compute_batch_fresh(rs, today_bd):
             logger.warning(f"[US_REBAL_EXEC_REJECT] batch_not_fresh {log_ctx}")
+            _record_reject("BATCH_NOT_FRESH")
             return {"ok": False, "error": "Batch not fresh"}
 
         # 5. Same snapshot
         sv = rs.get("snapshot_version", "")
         if sv and sv == rs.get("last_execute_snapshot_version", ""):
             logger.warning(f"[US_REBAL_EXEC_REJECT] same_snapshot {log_ctx}")
+            _record_reject("SAME_SNAPSHOT")
             return {"ok": False, "error": "Same snapshot already executed"}
 
         # 6. Full allowed check
         allowed, blocks = sm.compute_execute_allowed(p, _config)
         if not allowed:
             logger.warning(f"[US_REBAL_EXEC_REJECT] blocks={blocks} {log_ctx}")
+            _record_reject(blocks[0] if blocks else "UNKNOWN")
             return {"ok": False, "error": f"Blocked: {', '.join(blocks)}"}
 
         # ── LOCK 획득 ──
         if not _execute_lock.acquire(timeout=5):
+            _record_reject("LOCK_TIMEOUT")
             return {"ok": False, "error": "Lock acquisition timeout"}
 
         try:
-            # Save EXECUTING state
             et_now = _dt.now(US_ET)
-            sm.update_rebal_state({
+
+            # Phase discipline: BATCH_DONE → DUE → EXECUTING
+            cur_phase = sm.get_rebal_state().get("rebal_phase", "IDLE")
+            if cur_phase == "BATCH_DONE":
+                ok_due, reason_due = sm.transition_phase("DUE")
+                if not ok_due:
+                    _execute_lock.release()
+                    _record_reject(f"DUE_TRANSITION_FAIL:{reason_due}")
+                    return {"ok": False, "error": f"Phase transition to DUE failed: {reason_due}"}
+
+            ok_exec, reason_exec = sm.transition_phase_with_updates("EXECUTING", {
                 "execute_lock": True,
                 "execute_lock_owner": request_id,
                 "execute_lock_acquired_at": et_now.isoformat(),
-                "rebal_phase": "EXECUTING",
             })
+            if not ok_exec:
+                _execute_lock.release()
+                _record_reject(f"EXEC_TRANSITION_FAIL:{reason_exec}")
+                return {"ok": False, "error": f"Phase transition to EXECUTING failed: {reason_exec}"}
+
             logger.info(f"[US_REBAL_EXEC_START] {log_ctx} mode={mode}")
 
             # ── DOUBLE-CHECK (TOCTOU) ──
@@ -1149,7 +1618,9 @@ def create_app() -> FastAPI:
                 for s in sells:
                     try:
                         r = p.send_order(s.ticker, "SELL", s.quantity)
-                        ok = ("order_no" in r and "error" not in r) if isinstance(r, dict) else False
+                        ok = is_order_success(r)
+                        if not ok:
+                            logger.warning(f"[ORDER_FAIL] SELL {s.ticker} x{s.quantity} result={r}")
                         sell_results.append({"symbol": s.ticker, "qty": s.quantity, "ok": ok})
                         if ok:
                             sell_ok_count += 1
@@ -1170,7 +1641,9 @@ def create_app() -> FastAPI:
                             continue
                         try:
                             r = p.send_order(b.ticker, "BUY", scaled_qty)
-                            ok = ("order_no" in r and "error" not in r) if isinstance(r, dict) else False
+                            ok = is_order_success(r)
+                            if not ok:
+                                logger.warning(f"[ORDER_FAIL] BUY {b.ticker} x{scaled_qty} result={r}")
                             buy_results.append({"symbol": b.ticker, "qty": scaled_qty, "ok": ok})
                             if ok:
                                 buy_ok_count += 1
@@ -1193,7 +1666,8 @@ def create_app() -> FastAPI:
                 exec_result = "FAILED"
                 exec_phase = "FAILED"
 
-            # ── 최종 상태 저장 ──
+            # ── 최종 상태 저장 (transition_phase_with_updates) ──
+            prev_count = sm.get_rebal_state().get("last_rebal_attempt_count", 0)
             final_updates = {
                 "execute_lock": False,
                 "execute_lock_owner": "",
@@ -1203,12 +1677,17 @@ def create_app() -> FastAPI:
                 "last_execute_request_id": request_id,
                 "last_execute_snapshot_version": sv,
                 "last_execute_result": exec_result,
-                "rebal_phase": exec_phase,
+                # attempt tracking (실행 완료 → count 증가)
+                "last_rebal_attempt_snapshot": sv,
+                "last_rebal_attempt_at": _dt.now(US_ET).isoformat(),
+                "last_rebal_attempt_result": exec_result,
+                "last_rebal_attempt_count": prev_count + 1,
+                "last_rebal_attempt_reason": "",
             }
             if exec_result in ("SUCCESS", "PARTIAL"):
                 final_updates["last_rebalance_date"] = today_bd
 
-            sm.update_rebal_state(final_updates)
+            sm.transition_phase_with_updates(exec_phase, final_updates)
 
             logger.info(
                 f"[US_REBAL_EXEC_DONE] {log_ctx} result={exec_result} "
@@ -1242,11 +1721,16 @@ def create_app() -> FastAPI:
         except Exception as e:
             # ── FINALLY: unlock on any failure ──
             logger.error(f"[US_REBAL_EXEC_FAIL] {log_ctx} {e}")
-            sm.update_rebal_state({
+            prev_count = sm.get_rebal_state().get("last_rebal_attempt_count", 0)
+            sm.transition_phase_with_updates("FAILED", {
                 "execute_lock": False,
                 "execute_lock_owner": "",
                 "execute_lock_acquired_at": "",
-                "rebal_phase": "FAILED",
+                "last_rebal_attempt_snapshot": sv,
+                "last_rebal_attempt_at": _dt.now(US_ET).isoformat(),
+                "last_rebal_attempt_result": "FAILED",
+                "last_rebal_attempt_count": prev_count + 1,
+                "last_rebal_attempt_reason": str(e)[:200],
             })
             return {"ok": False, "error": str(e)}
         finally:

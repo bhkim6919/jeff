@@ -2188,43 +2188,6 @@ body.mode-operator #advisor-section {
 .sh-pnl.negative { color: #3182F6; }
 .sh-pnl.neutral  { color: var(--text-dim); }
 
-/* ── KOSPI vs Portfolio Compare Chart ─────────────────────── */
-
-.compare-chart-wrap {
-    margin: 12px 0 16px;
-    padding: 12px 16px;
-    background: var(--bg-card);
-    border-radius: 10px;
-    border: 1px solid var(--border-light);
-}
-
-.compare-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-}
-
-.compare-title {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--text-secondary);
-}
-
-.compare-legend-inline {
-    display: flex;
-    gap: 12px;
-    font-size: 11px;
-    color: var(--text-dim);
-}
-
-.cl-item { display: flex; align-items: center; gap: 4px; }
-.cl-dot { width: 8px; height: 3px; border-radius: 2px; }
-
-#compare-chart {
-    width: 100%;
-    height: 120px;
-}
 
 /* ── Mini Cards Grid (Holdings) ───────────────────────────── */
 
@@ -2612,3 +2575,97 @@ body.mode-operator #advisor-section {
 .rb-hist .rb-bar { width: 80px; height: 4px; }
 .rb-hist .rb-bar-thumb { width: 8px; height: 8px; }
 .rb-hist-label { font-size: 9px; color: var(--text-dim, #8b949e); width: 24px; }
+
+/* ── P2.4: Market Context + Data Events badges ──────────────── */
+.mctx-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 3px;
+    border: 1px solid transparent;
+}
+.mctx-badge.mctx-ok {
+    background: var(--green-bg, #0f3a24);
+    color: var(--green, #3fb950);
+    border-color: var(--green-border, #238636);
+}
+.mctx-badge.mctx-degraded {
+    background: var(--yellow-bg, #3d2e00);
+    color: var(--yellow, #e3b341);
+    border-color: var(--yellow-border, #9e6a03);
+}
+.mctx-badge.mctx-idle {
+    background: rgba(255,255,255,0.04);
+    color: var(--text-dim, #8b949e);
+    border-color: rgba(255,255,255,0.08);
+}
+
+/* ── Debug panel section ID badge (for Jeff ↔ Claude capture 요청) ── */
+.sec-id-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    margin-left: 8px;
+    font-size: 10px;
+    font-family: var(--mono, monospace);
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--text-dim, #8b949e);
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 3px;
+    vertical-align: middle;
+    cursor: help;
+}
+.sec-id-badge:hover {
+    color: var(--text, #e6edf3);
+    border-color: rgba(255,255,255,0.3);
+}
+
+/* ── Debug TOC Navigation (chip list) ─────────────────────────── */
+.debug-toc-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 4px 0;
+}
+.debug-toc-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    font-size: 11px;
+    color: var(--text, #e6edf3);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 4px;
+    text-decoration: none;
+    transition: background 0.15s, border-color 0.15s;
+}
+.debug-toc-chip:hover {
+    background: rgba(88,166,255,0.1);
+    border-color: rgba(88,166,255,0.4);
+}
+.debug-toc-chip code {
+    font-family: var(--mono, monospace);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    color: var(--text-dim, #8b949e);
+    background: rgba(0,0,0,0.25);
+    padding: 1px 5px;
+    border-radius: 2px;
+}
+.debug-toc-chip-new code {
+    color: #58a6ff;
+    background: rgba(88,166,255,0.12);
+}
+
+/* Smooth scroll when clicking TOC anchor */
+html {
+    scroll-behavior: smooth;
+}
+/* 상단 nav bar 높이만큼 scroll offset (고정 헤더 숨김 방지) */
+.section[id^="sec-"] {
+    scroll-margin-top: 80px;
+}

@@ -1,0 +1,57 @@
+# pre-commit hooks for Q-TRON path/bootstrap audit gate.
+#
+# Install once:   pre-commit install
+# Run manually:   pre-commit run --all-files
+#
+# Hooks here are stdlib-only (no PyYAML, no third-party deps) so they work
+# in any python>=3.8 environment without extra setup.
+#
+# Severity policy (see tools/audit/entrypoints.yaml):
+#   primary    -> hard fail (blocks commit)
+#   secondary  -> warn-only by default; --strict in CI escalates
+#   excluded   -> reported but never fails
+#
+# Top-level exclude: .venv/.venv64 are tracked (historically committed) so
+# pre-commit was stashing them and hitting Windows file-lock on running
+# Python interpreters, causing rollback failures that wipe uncommitted work.
+# Ignoring them at the framework level avoids that disaster. See
+# 2026-04-20 incident notes.
+exclude: '^(\.venv|\.venv64)/'
+
+repos:
+  - repo: local
+    hooks:
+      - id: qtron-check-sys-path
+        name: qtron audit -- sys.path mutation tier check
+        entry: python tools/audit/check_sys_path.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      - id: qtron-check-bootstrap
+        name: qtron audit -- _bootstrap_path import presence
+        entry: python tools/audit/check_bootstrap.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      - id: qtron-check-bootstrap-order
+        name: qtron audit -- bootstrap import ordering (AST)
+        entry: python tools/audit/check_bootstrap_order.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      # Anti-pattern report. Never fails, but printed for visibility on every
+      # commit so the C-bucket backlog stays visible.
+      - id: qtron-report-path-hacks
+        name: qtron audit -- excluded library path-hack report (info)
+        entry: python tools/audit/report_path_hacks.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        verbose: true
+        stages: [pre-commit]

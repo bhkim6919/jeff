@@ -14,6 +14,13 @@ Requires: venv python with pykrx
   C:\\Q-TRON-32_ARCHIVE\\.venv\\Scripts\\python.exe main.py --batch
 """
 from __future__ import annotations
+
+# ── Path bootstrap MUST be first import (sys.path setup for shared/) ─────────
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))  # audit:allow-syspath: bootstrap-locator (must precede import _bootstrap_path)
+import _bootstrap_path  # noqa: F401  -- side-effect: sys.path setup
+
 import argparse
 import logging
 import sys
@@ -275,6 +282,39 @@ def _execute_pending_buys(portfolio, pending_buys, config, executor,
         f"cash={portfolio.cash:,.0f}, source={cash_source}")
     logger.info(f"[TRACKER_WIRED] pending_buys tracker={'yes' if tracker else 'no'}")
 
+    # ── P2.4: Auto Trading Gate (BUY-only, T+1 path) ────────────
+    try:
+        from risk.execution_guard_hook import guard_buy_execution
+        from risk.strategy_health import compute_strategy_health
+        _rt_for_gate = state_mgr.load_runtime() or {}
+        _equity_dd = float(_rt_for_gate.get("equity_dd_pct", 0.0) or 0.0)
+        _health = compute_strategy_health(equity_dd_pct=_equity_dd)
+        _decision = guard_buy_execution(
+            runtime=_rt_for_gate, portfolio=portfolio,
+            strategy_health=_health,
+        )
+        from datetime import datetime as _dt
+        _req_id = f"pending-buy-{_dt.now().strftime('%Y%m%d')}"
+        if _decision.block_buy:
+            logger.critical(
+                f"[BUY_BLOCKED_BY_AUTO_GATE] market=KR path=pending_buy "
+                f"req={_req_id} mode={_decision.mode} "
+                f"top={_decision.highest_blocker} reason={_decision.reason} "
+                f"n_skipped={len(pending_buys)}")
+            return (0, len(pending_buys))
+        elif not _decision.enabled:
+            logger.info(
+                f"[BUY_ADVISORY] market=KR path=pending_buy req={_req_id} "
+                f"mode={_decision.mode} top={_decision.highest_blocker} "
+                f"reason={_decision.reason} — proceeding (enforce=OFF)")
+        else:
+            logger.info(
+                f"[BUY_GATE_ALLOWED] market=KR path=pending_buy req={_req_id} "
+                f"mode={_decision.mode} n={len(pending_buys)}")
+    except Exception as _ge:
+        logger.error(f"[BUY_GATE_EVAL_ERROR] path=pending_buy "
+                     f"{type(_ge).__name__}: {_ge}")
+
     # BUY re-entry protection
     _pending_ext_buy_codes = set()
     if tracker:
@@ -402,6 +442,20 @@ def _execute_rebalance_live(portfolio, target, config, executor, provider,
         sell_cost=config.SELL_COST,
         prices=prices,
         cash_buffer=config.CASH_BUFFER_RATIO)
+
+    # KR-P0-003: skip reconcile_pending symbols (QTY_SPIKE isolated by RECON)
+    _pending_codes = {
+        code for code, pos in portfolio.positions.items()
+        if getattr(pos, "reconcile_pending", False)
+    }
+    if _pending_codes:
+        _n_before = (len(sell_orders), len(buy_orders))
+        sell_orders = [o for o in sell_orders if o.ticker not in _pending_codes]
+        buy_orders = [o for o in buy_orders if o.ticker not in _pending_codes]
+        logger.critical(
+            f"[REBAL_SKIP_RECONCILE_PENDING] isolated_codes={sorted(_pending_codes)} "
+            f"sells={_n_before[0]}->{len(sell_orders)} "
+            f"buys={_n_before[1]}->{len(buy_orders)}")
 
     # Execute Sells First
     logger.info(f"Sells: {len(sell_orders)} orders")
@@ -665,7 +719,7 @@ def main():
             print("  This is a safety check to prevent accidental force rebalance.")
             sys.exit(1)
 
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    # sys.path setup already done by `import _bootstrap_path` at top of file.
     from config import Gen4Config
     config = Gen4Config()
     config.ensure_dirs()

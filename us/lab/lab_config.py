@@ -23,6 +23,12 @@ STRATEGY_GROUPS = {
     "macro":  ["sector_rotation"],
     "regime": ["vol_regime"],
     "experimental": ["russell3000_lowvol"],
+    # B군 (HA 필터 적용 독립 전략군)
+    "rebal_ha":  ["momentum_base_ha", "lowvol_momentum_ha", "quality_factor_ha", "hybrid_qscore_ha"],
+    "event_ha":  ["breakout_trend_ha", "mean_reversion_ha", "liquidity_signal_ha"],
+    "macro_ha":  ["sector_rotation_ha"],
+    "regime_ha": ["vol_regime_ha"],
+    "experimental_ha": ["russell3000_lowvol_ha"],
 }
 
 # ── Per-Strategy Config ─────────────────────────────────
@@ -93,6 +99,68 @@ STRATEGY_CONFIGS = {
         "vol_percentile": 0.20, "universe": "RESEARCH_R3000",
         "description": "[EXPERIMENTAL] Gen4 core on Russell 3000 universe",
     },
+    # ── B군 HA 전략 (독립 전략군, A군 파라미터 동일) ──────────────
+    "momentum_base_ha": {
+        "group": "rebal_ha", "version": "v1",
+        "max_positions": 20, "rebal_days": 21, "trail_pct": 0.12,
+        "universe": "RESEARCH_R1000",
+        "description": "B군: MomentumBase + HA entry/exit filter",
+    },
+    "lowvol_momentum_ha": {
+        "group": "rebal_ha", "version": "v1",
+        "max_positions": 20, "rebal_days": 21, "trail_pct": 0.12,
+        "vol_percentile": 0.20, "universe": "RESEARCH_R1000",
+        "description": "B군: LowVol+Mom + HA entry/exit filter",
+    },
+    "quality_factor_ha": {
+        "group": "rebal_ha", "version": "v1",
+        "max_positions": 20, "rebal_days": 21, "trail_pct": 0.12,
+        "universe": "RESEARCH_R1000",
+        "description": "B군: QualityFactor + HA entry/exit filter",
+    },
+    "hybrid_qscore_ha": {
+        "group": "rebal_ha", "version": "v1",
+        "max_positions": 20, "rebal_days": 21, "trail_pct": 0.12,
+        "universe": "RESEARCH_R1000",
+        "description": "B군: HybridQScore + HA entry/exit filter",
+    },
+    "breakout_trend_ha": {
+        "group": "event_ha", "version": "v1",
+        "max_positions": 15, "rebal_days": None, "trail_pct": 0.08,
+        "breakout_window": 60, "universe": "RESEARCH_R1000",
+        "description": "B군: BreakoutTrend + HA entry/exit filter",
+    },
+    "mean_reversion_ha": {
+        "group": "event_ha", "version": "v1",
+        "max_positions": 5, "rebal_days": None, "trail_pct": 0.05,
+        "rsi_entry": 30, "rsi_exit": 50, "max_hold_days": 5,
+        "universe": "RESEARCH_R1000",
+        "description": "B군: MeanReversion + HA entry/exit filter",
+    },
+    "liquidity_signal_ha": {
+        "group": "event_ha", "version": "v1",
+        "max_positions": 10, "rebal_days": None, "trail_pct": 0.10,
+        "vol_surge_ratio": 2.0, "universe": "RESEARCH_R1000",
+        "description": "B군: LiquiditySignal + HA entry/exit filter",
+    },
+    "sector_rotation_ha": {
+        "group": "macro_ha", "version": "v1",
+        "max_positions": 20, "rebal_days": 21, "trail_pct": 0.12,
+        "top_n_sectors": 3, "sector_window": 60, "universe": "RESEARCH_R1000",
+        "description": "B군: SectorRotation + HA entry/exit filter",
+    },
+    "vol_regime_ha": {
+        "group": "regime_ha", "version": "v1",
+        "max_positions": 20, "rebal_days": 21, "trail_pct": 0.12,
+        "universe": "RESEARCH_R1000",
+        "description": "B군: VolRegime + HA entry/exit filter",
+    },
+    "russell3000_lowvol_ha": {
+        "group": "experimental_ha", "version": "v1",
+        "max_positions": 20, "rebal_days": 21, "trail_pct": 0.12,
+        "vol_percentile": 0.20, "universe": "RESEARCH_R3000",
+        "description": "B군: Russell3000LowVol + HA entry/exit filter",
+    },
 }
 
 # ── Missing Data Thresholds (전략별) ────────────────────
@@ -107,6 +175,17 @@ MISSING_THRESHOLDS = {
     "sector_rotation":    {"min_history": 60,  "max_missing": 0.10},
     "vol_regime":         {"min_history": 252, "max_missing": 0.10},
     "russell3000_lowvol": {"min_history": 252, "max_missing": 0.20},
+    # B군 HA (동일 threshold)
+    "momentum_base_ha":      {"min_history": 252, "max_missing": 0.10},
+    "lowvol_momentum_ha":    {"min_history": 252, "max_missing": 0.10},
+    "quality_factor_ha":     {"min_history": 252, "max_missing": 0.15},
+    "hybrid_qscore_ha":      {"min_history": 252, "max_missing": 0.15},
+    "breakout_trend_ha":     {"min_history": 60,  "max_missing": 0.05},
+    "mean_reversion_ha":     {"min_history": 200, "max_missing": 0.10},
+    "liquidity_signal_ha":   {"min_history": 20,  "max_missing": 0.05},
+    "sector_rotation_ha":    {"min_history": 60,  "max_missing": 0.10},
+    "vol_regime_ha":         {"min_history": 252, "max_missing": 0.10},
+    "russell3000_lowvol_ha": {"min_history": 252, "max_missing": 0.20},
 }
 
 # ── Metrics (필수 12개) ─────────────────────────────────

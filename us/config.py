@@ -71,6 +71,15 @@ class USConfig:
     # ── Alpaca ───────────────────────────────────────────────────
     ALPACA_BASE_URL: str = "https://paper-api.alpaca.markets"
     ALPACA_DATA_URL: str = "https://data.alpaca.markets"
+    ALPACA_API_KEY: str = ""
+    ALPACA_SECRET_KEY: str = ""
+
+    def __post_init__(self):
+        import os
+        if not self.ALPACA_API_KEY:
+            self.ALPACA_API_KEY = os.getenv("ALPACA_API_KEY", "")
+        if not self.ALPACA_SECRET_KEY:
+            self.ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 
     # ── Market Timing ────────────────────────────────────────────
     MARKET_TZ: str = "US/Eastern"

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Q-TRON US Lab</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <style>
         :root {
             --bg: #0a0e17; --card: #111827; --border: #1f2937;
@@ -98,13 +99,129 @@
         .status-pending { background: rgba(107,114,128,0.2); color: var(--muted); }
 
         #status-msg { margin-top: 12px; font-size: 12px; color: var(--muted); }
+
+        /* ── Mobile Responsive ────────────────────────── */
+        @media (max-width: 768px) {
+            main { padding: 14px 12px; }
+            .metrics-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+            .metric-label { color: #9ca3af; }
+            .job-row { flex-direction: column; align-items: flex-start; gap: 6px; }
+        }
+        @media (max-width: 480px) {
+            .metrics-grid { grid-template-columns: 1fr; }
+        }
+
+        /* ── Strategy Card Expand/Collapse (Daily Drivers) ──────── */
+        .strat-card {
+            transition: background-color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease;
+            cursor: pointer;
+        }
+        .strat-card:hover { box-shadow: 0 4px 12px rgba(59,130,246,0.15); }
+        .meta-expand-hint {
+            margin-left: 6px;
+            opacity: 0.6;
+            font-size: 11px;
+            transition: opacity 0.2s;
+        }
+        .strat-card:hover .meta-expand-hint { opacity: 1; }
+        .strat-card.strat-expanded {
+            background: rgba(10, 15, 25, 0.92);
+            grid-column: span 3;
+            box-shadow: 0 8px 32px rgba(59,130,246,0.25);
+            z-index: 10;
+            position: relative;
+            border-color: var(--accent);
+        }
+        @media (max-width: 1200px) { .strat-card.strat-expanded { grid-column: span 2; } }
+        @media (max-width: 800px)  { .strat-card.strat-expanded { grid-column: span 1; } }
+        .strat-grid:has(.strat-expanded) .strat-card:not(.strat-expanded) {
+            opacity: 0.45;
+            transform: scale(0.98);
+        }
+
+        .strat-expanded-panel {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255,255,255,0.15);
+            animation: stratExpandFade 0.3s ease;
+        }
+        @keyframes stratExpandFade {
+            from { opacity: 0; transform: translateY(-4px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .strat-expanded-header {
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
+        }
+        .strat-expanded-title { font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: 0.3px; }
+        .strat-expanded-close {
+            background: transparent; border: 1px solid rgba(255,255,255,0.2); color: #ccc;
+            width: 22px; height: 22px; border-radius: 50%; cursor: pointer;
+            font-size: 14px; line-height: 1; padding: 0; transition: all 0.15s;
+        }
+        .strat-expanded-close:hover { background: rgba(239,68,68,0.2); border-color: var(--red); color: var(--red); }
+        .strat-expanded-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+        }
+        .strat-expanded-section {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 6px; padding: 8px 10px;
+        }
+        .strat-expanded-wide  { grid-column: span 2; }
+        .strat-expanded-section-title {
+            font-size: 11px; font-weight: 600; color: #a8b8cc;
+            text-transform: uppercase; letter-spacing: 0.5px;
+            margin-bottom: 6px; border-bottom: 1px dotted rgba(255,255,255,0.1); padding-bottom: 4px;
+        }
+        .strat-expanded-kv {
+            display: flex; justify-content: space-between; font-size: 12px; padding: 2px 0;
+        }
+        .strat-expanded-kv span { color: #a8b8cc; }
+        .strat-expanded-kv b { font-weight: 600; }
+        .strat-expanded-regime {
+            margin-top: 6px; padding: 4px 8px;
+            background: rgba(59,130,246,0.08); border-radius: 4px;
+            font-size: 11px; color: #c8d8ec; text-align: center;
+        }
+        .strat-contrib-row {
+            display: grid; grid-template-columns: 140px 1fr 110px;
+            gap: 8px; align-items: center; padding: 4px 0; font-size: 12px;
+        }
+        .strat-contrib-name { display: flex; flex-direction: column; gap: 1px; }
+        .strat-contrib-sym { font-size: 11px; font-weight: 700; color: var(--cyan); font-family: monospace; }
+        .strat-contrib-bar-wrap {
+            height: 14px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden;
+        }
+        .strat-contrib-bar { height: 100%; transition: width 0.4s ease; border-radius: 3px; }
+        .strat-contrib-val { text-align: right; display: flex; flex-direction: column; gap: 1px; }
+        .strat-contrib-val small { font-size: 10px; color: #8090a8; }
+        .strat-baseline-tag {
+            display: inline-block; margin-left: 4px; font-size: 9px; padding: 1px 4px;
+            border-radius: 3px; font-weight: 600; letter-spacing: 0.3px; vertical-align: middle;
+        }
+        .strat-baseline-new  { background: rgba(245,158,11,0.18); color: #ffd54f; border: 1px solid rgba(245,158,11,0.3); }
+        .strat-baseline-hold { background: rgba(59,130,246,0.15); color: #8fb3d9; border: 1px solid rgba(59,130,246,0.25); }
+        .strat-sector-wrap {
+            display: grid; grid-template-columns: 110px 1fr; gap: 14px; align-items: center;
+        }
+        .strat-sector-donut { flex-shrink: 0; }
+        .strat-sector-legend { display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+        .strat-sector-legend-row {
+            display: grid; grid-template-columns: 12px 1fr auto auto; gap: 6px; align-items: center;
+        }
+        .strat-sector-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+        .strat-sector-name { color: #c8d8ec; }
+        .strat-sector-weight { font-weight: 600; color: #fff; }
+        .strat-sector-count { color: #8090a8; font-size: 10px; }
     </style>
+    <link rel="stylesheet" href="/static/themes.css?v=2">
+    <script src="/static/themes.js?v=2"></script>
 </head>
 <body>
 
-<link rel="stylesheet" href="/static/nav.css">
+<link rel="stylesheet" href="/static/nav.css?v=3">
 <div id="qtron-nav"></div>
-<script src="/static/nav.js"></script>
+<script src="/static/nav.js?v=3"></script>
 <script>window.__qtronNav.renderNav(document.getElementById('qtron-nav'));</script>
 
 <main>
@@ -476,22 +593,53 @@ async function loadForwardState() {
         // Sort by P&L descending
         names.sort((a,b) => (strategies[b].pnl_pct||0) - (strategies[a].pnl_pct||0));
 
-        grid.innerHTML = names.map(name => {
+        // ── 증분 렌더링 (플리커 방지: 기존 카드 body만 교체, expanded-panel 보존) ──
+        const seen = new Set();
+        names.forEach(name => {
+            seen.add(name);
             const s = strategies[name];
             const pnlColor = (s.pnl_pct||0) >= 0 ? 'metric-pos' : 'metric-neg';
             const mddColor = 'metric-neg';
-            return `<div class="strat-card done" data-strategy="${name}">
-                <div class="strat-name">${name}</div>
-                <div class="strat-metrics">
-                    <div class="metric-item"><span class="metric-label">Equity:</span> <span class="metric-value">$${(s.equity||100000).toLocaleString('en-US',{maximumFractionDigits:0})}</span></div>
-                    <div class="metric-item"><span class="metric-label">P&L:</span> <span class="metric-value ${pnlColor}">${fmtPct(s.pnl_pct)}</span></div>
-                    <div class="metric-item"><span class="metric-label">MDD:</span> <span class="metric-value ${mddColor}">${fmtPct(s.mdd)}</span></div>
-                    <div class="metric-item"><span class="metric-label">Positions:</span> <span class="metric-value">${s.positions||0}</span></div>
-                    <div class="metric-item"><span class="metric-label">Trades:</span> <span class="metric-value">${s.trades||0}</span></div>
-                    <div class="metric-item"><span class="metric-label">Days:</span> <span class="metric-value">${s.day_count||0}</span></div>
+            const bodyHtml = `
+                <div class="strat-card-body">
+                    <div class="strat-name">${name}<span class="meta-expand-hint" title="Click to expand daily analysis"></span></div>
+                    <div class="strat-metrics">
+                        <div class="metric-item"><span class="metric-label">Equity:</span> <span class="metric-value">$${(s.equity||100000).toLocaleString('en-US',{maximumFractionDigits:0})}</span></div>
+                        <div class="metric-item"><span class="metric-label">P&L:</span> <span class="metric-value ${pnlColor}">${fmtPct(s.pnl_pct)}</span></div>
+                        <div class="metric-item"><span class="metric-label">MDD:</span> <span class="metric-value ${mddColor}">${fmtPct(s.mdd)}</span></div>
+                        <div class="metric-item"><span class="metric-label">Positions:</span> <span class="metric-value">${s.positions||0}</span></div>
+                        <div class="metric-item"><span class="metric-label">Trades:</span> <span class="metric-value">${s.trades||0}</span></div>
+                        <div class="metric-item"><span class="metric-label">Days:</span> <span class="metric-value">${s.day_count||0}</span></div>
+                    </div>
                 </div>
-            </div>`;
-        }).join('');
+            `;
+            let card = grid.querySelector(`.strat-card[data-strategy="${name}"]`);
+            if (!card) {
+                card = document.createElement('div');
+                card.className = 'strat-card done';
+                card.dataset.strategy = name;
+                card.innerHTML = bodyHtml + '<div class="meta-fit-slot"></div>';
+                grid.appendChild(card);
+            } else {
+                // body만 교체 — meta-fit-slot, expanded-panel DOM 보존
+                let bodyWrap = card.querySelector('.strat-card-body');
+                if (!bodyWrap) {
+                    card.innerHTML = bodyHtml + '<div class="meta-fit-slot"></div>';
+                } else {
+                    const tmp = document.createElement('div');
+                    tmp.innerHTML = bodyHtml;
+                    const newBody = tmp.firstElementChild;
+                    if (newBody && bodyWrap.innerHTML !== newBody.innerHTML) {
+                        bodyWrap.innerHTML = newBody.innerHTML;
+                    }
+                }
+                // 순서 재정렬은 P&L 정렬 변동 시 — 동일 순서면 생략
+            }
+        });
+        // stale 카드 제거
+        grid.querySelectorAll('.strat-card').forEach(c => {
+            if (!seen.has(c.dataset.strategy)) c.remove();
+        });
 
         // Meta Layer (non-blocking)
         try {
@@ -510,31 +658,54 @@ async function loadForwardState() {
                 $('fwd-meta-conf').textContent = `Confidence: ${conf}${warn} (${days}d)`;
                 $('fwd-meta-conf').style.color = confColor;
 
-                // Strategy fit boxes
+                // Strategy fit + drivers (증분 업데이트, slot-based)
                 document.querySelectorAll('#fwd-grid .strat-card').forEach(card => {
                     const key = card.dataset.strategy;
                     const fit = meta.strategy_fit?.[key];
                     if (!fit) return;
-                    card.querySelector('.meta-fit-box')?.remove();
-                    const box = document.createElement('div');
-                    box.className = 'meta-fit-box';
-                    const bgColor = fit.score === 'HIGH' ? 'rgba(0,255,136,0.15)' :
-                                    fit.score === 'LOW' ? 'rgba(255,51,68,0.15)' : 'rgba(255,221,0,0.15)';
-                    const txtColor = fit.score === 'HIGH' ? '#00ff88' :
-                                     fit.score === 'LOW' ? '#ff3344' : '#ffdd00';
+                    const ds = fit.final_score || fit.score;
+                    const bgColor = ds === 'HIGH' ? 'rgba(0,255,136,0.15)' :
+                                    ds === 'LOW' ? 'rgba(255,51,68,0.15)' :
+                                    ds === 'WARN' ? 'rgba(255,165,0,0.15)' : 'rgba(255,221,0,0.15)';
+                    const txtColor = ds === 'HIGH' ? '#00ff88' :
+                                     ds === 'LOW' ? '#ff3344' :
+                                     ds === 'WARN' ? '#ffa500' : '#ffdd00';
                     const reasons = (fit.reasons || []).map(r => {
                         const c = r.sign === '+' ? '#00ff88' : '#ff3344';
                         return `<span style="color:${c};font-size:10px;">${r.sign} ${r.text}</span>`;
                     }).join('<br>');
-                    box.innerHTML = `
+                    const hasDrivers = fit.drivers && fit.drivers.ok;
+                    const hintIcon = hasDrivers ? '<span style="font-size:10px;opacity:0.7;" title="Click card to expand">🔍</span>' : '';
+                    const fitHtml = `
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
-                            <span style="font-size:10px;color:var(--muted);">Fit</span>
-                            <span style="font-size:10px;font-weight:700;padding:1px 8px;border-radius:4px;background:${bgColor};color:${txtColor};">${fit.score}</span>
+                            <span style="font-size:10px;color:var(--muted);">Fit ${hintIcon}</span>
+                            <span style="font-size:10px;font-weight:700;padding:1px 8px;border-radius:4px;background:${bgColor};color:${txtColor};">${ds || '-'}</span>
                         </div>
                         ${reasons || '<span style="font-size:10px;opacity:0.5;">No data</span>'}
                     `;
-                    box.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px solid var(--border);';
-                    card.appendChild(box);
+                    let slot = card.querySelector('.meta-fit-slot');
+                    if (!slot) {
+                        slot = document.createElement('div');
+                        slot.className = 'meta-fit-slot';
+                        card.appendChild(slot);
+                    }
+                    let box = slot.querySelector('.meta-fit-box');
+                    if (!box) {
+                        box = document.createElement('div');
+                        box.className = 'meta-fit-box';
+                        box.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px solid var(--border);';
+                        slot.appendChild(box);
+                    }
+                    if (box.innerHTML !== fitHtml) box.innerHTML = fitHtml;
+
+                    // drivers 캐시 + 확장 바인딩
+                    if (hasDrivers) {
+                        card._driversData = fit.drivers;
+                        bindStratExpand(card);
+                        if (card.classList.contains('strat-expanded')) {
+                            renderStratExpandedPanel(card, fit.drivers);
+                        }
+                    }
                 });
             }
         } catch(e) {}
@@ -556,10 +727,220 @@ async function loadForwardState() {
     } catch(e) { console.error('Forward state error:', e); }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Strategy Card Expand/Collapse + Daily Drivers (US)
+// ─────────────────────────────────────────────────────────────
+function bindStratExpand(card) {
+    if (card._expandBound) return;
+    card._expandBound = true;
+    card.addEventListener('click', (ev) => {
+        const tag = ev.target.tagName;
+        if (tag === 'A' || tag === 'BUTTON' || tag === 'SELECT' || tag === 'INPUT') return;
+        if (ev.target.closest('.strat-expanded-panel')) {
+            if (ev.target.closest('.strat-expanded-close')) toggleStratExpand(card, false);
+            return;
+        }
+        toggleStratExpand(card, !card.classList.contains('strat-expanded'));
+    });
+}
+
+function toggleStratExpand(card, expand) {
+    if (expand) {
+        document.querySelectorAll('.strat-card.strat-expanded').forEach(c => {
+            if (c !== card) {
+                c.classList.remove('strat-expanded');
+                const p = c.querySelector('.strat-expanded-panel');
+                if (p) p.remove();
+            }
+        });
+        card.classList.add('strat-expanded');
+        renderStratExpandedPanel(card, card._driversData);
+    } else {
+        card.classList.remove('strat-expanded');
+        const p = card.querySelector('.strat-expanded-panel');
+        if (p) p.remove();
+    }
+}
+
+function renderStratExpandedPanel(card, drv) {
+    if (!drv || !drv.ok) return;
+    // 데이터 동일 시 재렌더 skip (플리커 방지)
+    const drvHash = JSON.stringify(drv);
+    if (card._lastDrvHash === drvHash && card.querySelector('.strat-expanded-panel')) return;
+    card._lastDrvHash = drvHash;
+
+    let panel = card.querySelector('.strat-expanded-panel');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.className = 'strat-expanded-panel';
+        card.appendChild(panel);
+    }
+
+    const m = drv.market || {};
+    const s = drv.strategy || {};
+    const pctCls = (v) => v > 0 ? 'metric-pos' : v < 0 ? 'metric-neg' : '';
+    const pctStr = (v, unit='%') => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}${unit}` : 'N/A';
+
+    const sparklineHtml = buildStratSparkline(s.equity_series || [], m.series || []);
+    const contribHtml = buildStratContributors(drv.top_contributors || []);
+    const sectorHtml = buildStratSectorDonut(drv.sectors || []);
+
+    panel.innerHTML = `
+        <div class="strat-expanded-header">
+            <span class="strat-expanded-title">🔍 Daily Analysis</span>
+            <button class="strat-expanded-close" title="Close">×</button>
+        </div>
+        <div class="strat-expanded-grid">
+            <div class="strat-expanded-section">
+                <div class="strat-expanded-section-title">Market (SPY)</div>
+                <div class="strat-expanded-kv"><span>Close</span><b>${m.close != null ? '$' + m.close.toLocaleString() : 'N/A'}</b></div>
+                <div class="strat-expanded-kv"><span>Day</span><b class="${pctCls(m.day_pct)}">${pctStr(m.day_pct)}</b></div>
+                <div class="strat-expanded-regime">${m.regime_hint || '-'}</div>
+            </div>
+            <div class="strat-expanded-section">
+                <div class="strat-expanded-section-title">Strategy</div>
+                <div class="strat-expanded-kv"><span>Cumul</span><b class="${pctCls(s.cumul_pct)}">${pctStr(s.cumul_pct)}</b></div>
+                <div class="strat-expanded-kv"><span>Day</span><b class="${pctCls(s.day_pct)}">${pctStr(s.day_pct)}</b></div>
+                <div class="strat-expanded-kv"><span>vs SPY</span><b class="${pctCls(s.delta_vs_benchmark)}">${pctStr(s.delta_vs_benchmark, '%p')}</b></div>
+            </div>
+            <div class="strat-expanded-section strat-expanded-wide">
+                <div class="strat-expanded-section-title">Equity (SPY overlay)</div>
+                ${sparklineHtml}
+            </div>
+            <div class="strat-expanded-section strat-expanded-wide">
+                <div class="strat-expanded-section-title">Top Contributors (Daily)</div>
+                ${contribHtml}
+            </div>
+            <div class="strat-expanded-section strat-expanded-wide">
+                <div class="strat-expanded-section-title">Sector Weight</div>
+                ${sectorHtml}
+            </div>
+        </div>
+    `;
+}
+
+function buildStratSparkline(equitySeries, benchSeries) {
+    if (!equitySeries.length) return '<div style="opacity:0.5">No data</div>';
+    const W = 300, H = 80, PAD = 6;
+    const eqReturns = equitySeries.map(e => e.return_pct);
+    const benchReturns = [];
+    if (benchSeries.length > 1) {
+        const base = benchSeries[0].close;
+        benchSeries.forEach(k => { benchReturns.push((k.close / base - 1) * 100); });
+    }
+    const all = eqReturns.concat(benchReturns);
+    const minV = Math.min(...all), maxV = Math.max(...all);
+    const range = maxV - minV || 1;
+
+    function toPath(values, totalW) {
+        if (!values.length) return '';
+        const step = totalW / Math.max(1, values.length - 1);
+        return values.map((v, i) => {
+            const x = PAD + i * (step - (2 * PAD / Math.max(1, values.length - 1)));
+            const y = H - PAD - ((v - minV) / range) * (H - 2 * PAD);
+            return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+        }).join(' ');
+    }
+    const eqPath = toPath(eqReturns, W);
+    const benchPath = toPath(benchReturns, W);
+    const zeroY = H - PAD - ((0 - minV) / range) * (H - 2 * PAD);
+
+    return `
+        <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" style="display:block;">
+            <line x1="${PAD}" y1="${zeroY}" x2="${W - PAD}" y2="${zeroY}"
+                  stroke="rgba(255,255,255,0.15)" stroke-dasharray="2,2"/>
+            ${benchPath ? `<path d="${benchPath}" fill="none" stroke="#888" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.7"/>` : ''}
+            <path d="${eqPath}" fill="none" stroke="#3b82f6" stroke-width="2"/>
+            <text x="${W - PAD}" y="12" text-anchor="end" fill="#3b82f6" font-size="10">Strat ${eqReturns[eqReturns.length-1]?.toFixed(1)}%</text>
+            ${benchPath ? `<text x="${W - PAD}" y="24" text-anchor="end" fill="#888" font-size="10">SPY ${benchReturns[benchReturns.length-1]?.toFixed(1)}%</text>` : ''}
+        </svg>
+    `;
+}
+
+function buildStratContributors(contributors) {
+    if (!contributors.length) return '<div style="opacity:0.5">No holdings</div>';
+    const maxAbs = Math.max(...contributors.map(c => Math.abs(c.daily_amount || 0))) || 1;
+    return contributors.map(c => {
+        const isPos = (c.daily_amount || 0) >= 0;
+        const pctOfMax = Math.abs(c.daily_amount || 0) / maxAbs * 100;
+        const color = isPos ? '#10b981' : '#ef4444';
+        const dailyPctStr = c.daily_pct != null ? `${c.daily_pct >= 0 ? '+' : ''}${c.daily_pct.toFixed(2)}%` : 'N/A';
+        const amtStr = c.daily_amount != null ? `${c.daily_amount >= 0 ? '+' : ''}$${Math.round(c.daily_amount).toLocaleString('en-US')}` : '-';
+        const tag = c.is_new_today
+            ? '<span class="strat-baseline-tag strat-baseline-new" title="Entered today — baseline: entry">NEW</span>'
+            : '<span class="strat-baseline-tag strat-baseline-hold" title="Held — baseline: prev close">HOLD</span>';
+        return `
+            <div class="strat-contrib-row">
+                <div class="strat-contrib-name">
+                    <span class="strat-contrib-sym">${c.symbol}</span>
+                    <span style="font-size:10px;color:#8090a8;">${c.name !== c.symbol ? c.name : ''} ${tag}</span>
+                </div>
+                <div class="strat-contrib-bar-wrap">
+                    <div class="strat-contrib-bar" style="width:${pctOfMax.toFixed(1)}%;background:${color};"></div>
+                </div>
+                <div class="strat-contrib-val">
+                    <b style="color:${color}">${dailyPctStr}</b>
+                    <small>${amtStr}</small>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function buildStratSectorDonut(sectors) {
+    if (!sectors.length) return '<div style="opacity:0.5">No data</div>';
+    const R = 40, C = 50, STROKE = 14;
+    const CIRC = 2 * Math.PI * R;
+    const colors = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16'];
+    let offset = 0;
+    const arcs = sectors.map((s, i) => {
+        const frac = Math.max(0, s.weight) / 100;
+        const dash = frac * CIRC;
+        const el = `<circle cx="${C}" cy="${C}" r="${R}" fill="none"
+                    stroke="${colors[i % colors.length]}" stroke-width="${STROKE}"
+                    stroke-dasharray="${dash.toFixed(1)} ${CIRC.toFixed(1)}"
+                    stroke-dashoffset="${(-offset).toFixed(1)}"
+                    transform="rotate(-90 ${C} ${C})"/>`;
+        offset += dash;
+        return el;
+    }).join('');
+    const legend = sectors.slice(0, 8).map((s, i) => `
+        <div class="strat-sector-legend-row">
+            <span class="strat-sector-swatch" style="background:${colors[i % colors.length]}"></span>
+            <span class="strat-sector-name">${s.sector}</span>
+            <span class="strat-sector-weight">${s.weight.toFixed(1)}%</span>
+            <span class="strat-sector-count">(${s.count})</span>
+        </div>
+    `).join('');
+    return `
+        <div class="strat-sector-wrap">
+            <svg viewBox="0 0 100 100" width="100" height="100" class="strat-sector-donut">${arcs}</svg>
+            <div class="strat-sector-legend">${legend}</div>
+        </div>
+    `;
+}
+
 // Init
 loadStrategies();
 loadJobs();
 </script>
+
+<!-- ── Theme Switcher ─────────────────────────────────── -->
+<div class="qtron-theme-footer">
+    <span class="ftr-title">🎨 Theme</span>
+    <div class="qtron-theme-tabs">
+        <button class="qtron-theme-tab" data-theme-set="light">Light</button>
+        <button class="qtron-theme-tab" data-theme-set="dark">Dark</button>
+        <button class="qtron-theme-tab" data-theme-set="pastel">Pastel</button>
+        <button class="qtron-theme-tab" data-theme-set="pro">Pro</button>
+    </div>
+    <span class="qtron-device-info" id="qtron-device-info"></span>
+    <span class="qtron-saved-indicator" id="qtron-saved-indicator">✓ 저장됨</span>
+    <div class="qtron-save-toggle">
+        <input type="checkbox" id="qtron-save-default" checked>
+        <label for="qtron-save-default">디바이스별 저장</label>
+    </div>
+</div>
 
 </body>
 </html>

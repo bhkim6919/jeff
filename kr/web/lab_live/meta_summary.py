@@ -88,12 +88,85 @@ def build_daily_summary(trade_date: str) -> Optional[dict]:
         return None
 
     sd = meta_db.get_strategy_daily(trade_date)
+    sd_map = {row["strategy"]: row for row in sd}
 
     strategy_fit = {}
-    for row in sd:
-        strategy_fit[row["strategy"]] = _score_fit(row["strategy"], mc)
+    for sname, sd_row in sd_map.items():
+        strategy_fit[sname] = _score_fit_combined(sname, mc, sd_row)
+        fit = strategy_fit[sname]
+        logger.debug(
+            f"[META_RETURN_DEBUG] {trade_date} {sname}: "
+            f"dr={sd_row.get('daily_return')} cr={sd_row.get('cumul_return')} "
+            f"pc={sd_row.get('position_count')} ge={sd_row.get('gross_exposure')} "
+            f"dq={fit['data_quality']['status']} mf={fit['score']} "
+            f"final={fit['final_score']} final_v={fit['final_score_value']} "
+            f"rankable={fit['rankable']}"
+        )
 
     data_days = _count_data_days()
+
+    # ── Recommendation log 저장 ──
+    top_strategy = None
+    top3 = []
+    dq_overall = "?"
+    try:
+        import json as _json
+        # 가중치: final_score_value 기반 (rankable만, softmax-like 정규화)
+        rankable = {s: f for s, f in strategy_fit.items() if f.get("rankable", True)}
+        weights = {}
+        if rankable:
+            vals = {s: max(f.get("final_score_value", 0), 0) for s, f in rankable.items()}
+            total = sum(vals.values()) or 1
+            weights = {s: round(v / total, 4) for s, v in vals.items()}
+
+        sorted_by_score = sorted(
+            rankable.items(),
+            key=lambda x: x[1].get("final_score_value", -999),
+            reverse=True,
+        )
+        top_strategy = sorted_by_score[0][0] if sorted_by_score else None
+        top3 = [s for s, _ in sorted_by_score[:3]]
+
+        # market_fit / perf_health summary (JSON)
+        mf_summary = {s: f.get("market_fit", {}).get("score", "?") for s, f in strategy_fit.items()}
+        ph_summary = {s: f.get("perf_health", {}).get("penalty", 0) for s, f in strategy_fit.items()}
+
+        # data_quality 종합: 하나라도 BAD면 PARTIAL, 모두 OK면 OK
+        dq_statuses = [f.get("data_quality", {}).get("status", "?") for f in strategy_fit.values()]
+        if "BAD" in dq_statuses:
+            dq_overall = "BAD"
+        elif "UNKNOWN" in dq_statuses:
+            dq_overall = "PARTIAL"
+        else:
+            dq_overall = "OK"
+
+        _sv = mc.get("data_snapshot_id", "")
+        meta_db.save_recommendation_log({
+            "trade_date": trade_date,
+            "snapshot_version": _sv,
+            "recommended_weights_json": _json.dumps(weights),
+            "top_strategy": top_strategy,
+            "top3_strategies_json": _json.dumps(top3),
+            "confidence_score": round(data_days / 120, 2) if data_days < 120 else 1.0,
+            "regime_label": mc.get("regime_label"),
+            "market_fit_summary": _json.dumps(mf_summary),
+            "perf_health_summary": _json.dumps(ph_summary),
+            "data_quality_status": dq_overall,
+            "is_valid": 1 if dq_overall == "OK" else 0,
+            "selected_source": mc.get("data_snapshot_id", ""),
+        })
+        logger.info(f"[META_RECOMMEND] {trade_date}: top={top_strategy}, dq={dq_overall}")
+    except Exception as e:
+        logger.warning(f"[META_RECOMMEND] save failed (non-fatal): {e}")
+
+    # recommendation summary (UI 표시용)
+    _rec = {
+        "top_strategy": top_strategy,
+        "top3": top3,
+        "confidence_score": round(data_days / 120, 2) if data_days < 120 else 1.0,
+        "data_quality": dq_overall,
+        "execution_status": "추천만 제공 (자동 전환 없음)",
+    }
 
     return {
         "trade_date": trade_date,
@@ -109,6 +182,7 @@ def build_daily_summary(trade_date: str) -> Optional[dict]:
         "strategy_fit": strategy_fit,
         "confidence": _confidence_level(data_days),
         "data_days": data_days,
+        "recommendation": _rec,
     }
 
 
@@ -193,6 +267,133 @@ def _score_fit(strategy: str, mc: dict) -> dict:
     }
 
 
+# ── Data Quality Check ──────────────────────────────────────
+# 기준값: collector와 동일 (_OUTLIER_THRESHOLD=0.5, mismatch=pos_value<1e-8)
+# gross_exposure==0 은 일반적으로 pos_value==0 동치이나,
+# 초기 운영 구간에서 DQ_EQUIV 로그로 검증 후 확정 예정.
+_OUTLIER_THRESHOLD = 0.5
+
+def _check_data_quality(sd_row: Optional[dict]) -> dict:
+    """strategy_daily 행의 데이터 품질 판정."""
+    if not sd_row:
+        return {"status": "UNKNOWN", "flags": ["NO_DATA"]}
+
+    flags = []
+    dr = sd_row.get("daily_return")
+    pc = sd_row.get("position_count", 0)
+    ge = sd_row.get("gross_exposure")
+
+    if dr is None:
+        flags.append("RETURN_NULL")
+    elif abs(dr) > _OUTLIER_THRESHOLD:
+        flags.append("OUTLIER")
+
+    # mismatch: position 있는데 exposure 0 → snapshot 불일치
+    if pc > 0 and ge is not None and abs(ge) < 1e-8:
+        flags.append("SNAPSHOT_MISMATCH")
+
+    if "OUTLIER" in flags or "SNAPSHOT_MISMATCH" in flags:
+        status = "BAD"
+    elif "RETURN_NULL" in flags or "NO_DATA" in flags:
+        status = "UNKNOWN"
+    else:
+        status = "OK"
+
+    return {"status": status, "flags": flags}
+
+
+# ── Performance Health ──────────────────────────────────────
+
+def _perf_health(sd_row: Optional[dict], dq: dict) -> dict:
+    """실제 성과 기반 페널티. data_quality != OK이면 페널티 금지."""
+    if not sd_row or dq["status"] != "OK":
+        return {"penalty": 0, "reasons": []}
+
+    penalty = 0
+    reasons = []
+    dr = sd_row.get("daily_return")
+    cr = sd_row.get("cumul_return")
+
+    # daily_return 기반 페널티 (시간축 혼합 방지: 당일 데이터 우선)
+    if dr is not None:
+        if dr <= -0.02:
+            penalty = -2
+            reasons.append({"sign": "-", "text": f"당일손실 {dr:.1%}"})
+        elif dr < 0:
+            penalty = -1
+            reasons.append({"sign": "-", "text": f"당일손실 {dr:.1%}"})
+
+    # cumul_return은 보조 reason만 (penalty 없음)
+    if cr is not None and cr <= -0.05:
+        reasons.append({"sign": "-", "text": f"누적손실 {cr:.1%}"})
+
+    return {"penalty": penalty, "reasons": reasons}
+
+
+# ── Combined Fitness ────────────────────────────────────────
+
+def _score_fit_combined(strategy: str, mc: dict, sd_row: Optional[dict]) -> dict:
+    """market_fit + perf_health + data_quality → final_score."""
+    mf = _score_fit(strategy, mc)
+    dq = _check_data_quality(sd_row)
+    ph = _perf_health(sd_row, dq)
+
+    final_value = mf["score_value"] + ph["penalty"]
+
+    # reasons 병합 (우선순위: dq경고 → 괴리 → 성과 → 시장)
+    reasons = []
+
+    # 1. data_quality flags
+    if dq["status"] == "BAD":
+        for f in dq["flags"]:
+            reasons.append({"sign": "-", "text": f"데이터경고: {f}"})
+    elif dq["status"] == "UNKNOWN":
+        reasons.append({"sign": "-", "text": "데이터 부족 (판단 제한)"})
+
+    # 2. divergence warning (dq OK일 때만)
+    if dq["status"] == "OK" and sd_row:
+        cr = sd_row.get("cumul_return")
+        dr = sd_row.get("daily_return")
+        if mf["score"] == "HIGH" and ((dr is not None and dr < 0) or (cr is not None and cr < 0)):
+            reasons.append({"sign": "-", "text": "⚠ 시장적합 vs 실적 괴리"})
+        elif mf["score"] == "LOW" and cr is not None and cr > 0.02:
+            reasons.append({"sign": "+", "text": "✓ 시장불리 but 성과 양호"})
+
+    # 3. performance reasons
+    reasons.extend(ph["reasons"])
+
+    # 4. market reasons
+    reasons.extend(mf["reasons"])
+
+    # final_score 결정
+    if dq["status"] == "BAD":
+        final_score = "WARN"
+        final_value = -999
+        rankable = False
+    elif dq["status"] == "UNKNOWN" and mf["score"] == "HIGH":
+        # UNKNOWN 과대낙관 방지: HIGH → MID 강제 하향
+        final_score = "MID"
+        rankable = True
+    else:
+        final_score = "HIGH" if final_value >= 2 else "LOW" if final_value < 0 else "MID"
+        rankable = True
+
+    return {
+        # 기존 키 (market_fit 의미 보존 — 하위호환)
+        "score": mf["score"],
+        "score_value": mf["score_value"],
+        # 최종 판정
+        "final_score": final_score,
+        "final_score_value": final_value if rankable else -999,
+        "rankable": rankable,
+        "reasons": reasons,
+        # 상세 레이어
+        "market_fit": {"score": mf["score"], "score_value": mf["score_value"]},
+        "perf_health": ph,
+        "data_quality": dq,
+    }
+
+
 # ── Confidence ───────────────────────────────────────────────
 
 def _confidence_level(data_days: int) -> str:
@@ -206,9 +407,13 @@ def _confidence_level(data_days: int) -> str:
 
 def _count_data_days() -> int:
     """market_context 테이블의 총 row 수."""
-    conn = meta_db._conn()
     try:
-        row = conn.execute("SELECT COUNT(*) FROM market_context").fetchone()
-        return row[0] if row else 0
-    finally:
-        conn.close()
+        from shared.db.pg_base import connection
+        with connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM meta_market_context")
+            row = cur.fetchone()
+            cur.close()
+            return row[0] if row else 0
+    except Exception:
+        return 0

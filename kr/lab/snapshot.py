@@ -30,6 +30,10 @@ class DailySnapshot:
     index_close: float
     index_series: pd.Series
     fundamental: Optional[pd.DataFrame]
+    # OHLC matrices for HA filter (None = 하위호환, A군 전략은 사용 안 함)
+    open_matrix: Optional[pd.DataFrame] = None
+    high_matrix: Optional[pd.DataFrame] = None
+    low_matrix: Optional[pd.DataFrame] = None
 
     def __post_init__(self):
         # Level 1: snapshot assert — close_matrix rows == day_idx + 1
@@ -73,6 +77,9 @@ def build_snapshot(
         volume=vol.iloc[day_idx],
         close_matrix=close.iloc[:day_idx + 1],
         volume_matrix=vol.iloc[:day_idx + 1],
+        open_matrix=opn.iloc[:day_idx + 1],
+        high_matrix=high.iloc[:day_idx + 1],
+        low_matrix=low.iloc[:day_idx + 1],
         universe=universe,
         sector_map=sector_map,
         index_close=float(idx_close_series.iloc[day_idx])

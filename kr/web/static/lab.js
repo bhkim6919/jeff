@@ -110,23 +110,34 @@
 
     // ── Init ─────────────────────────────────────────────────
     async function init() {
-        startClock();
-        await loadParams();
-        buildParamUI();
-        await loadRanking();
+        console.log('[LAB] init() start');
+        try {
+            startClock();
+            console.log('[LAB] clock ok');
+            await loadParams();
+            console.log('[LAB] loadParams ok, currentParams=', currentParams);
+            buildParamUI();
+            console.log('[LAB] buildParamUI ok');
+            await loadRanking();
+            console.log('[LAB] loadRanking ok');
 
-        $btnSimulate.addEventListener('click', runSimulation);
-        $btnRealtime.addEventListener('click', startRealtime);
-        $btnRtStop.addEventListener('click', stopRealtime);
-        $btnReset.addEventListener('click', resetParams);
-        $btnRefresh.addEventListener('click', loadRanking);
+            $btnSimulate.addEventListener('click', runSimulation);
+            $btnRealtime.addEventListener('click', startRealtime);
+            $btnRtStop.addEventListener('click', stopRealtime);
+            $btnReset.addEventListener('click', resetParams);
+            $btnRefresh.addEventListener('click', loadRanking);
 
-        // Check if a realtime sim is already running (page reload)
-        checkRealtimeState();
+            checkRealtimeState();
+            console.log('[LAB] init() DONE');
+        } catch (e) {
+            console.error('[LAB] init() FAILED:', e);
+        }
     }
 
     // ── Clock ────────────────────────────────────────────────
     function startClock() {
+        // #clock element은 nav 통합 후 제거됨 — null이면 skip
+        if (!$clock) return;
         function tick() {
             const now = new Date();
             $clock.textContent = now.toLocaleTimeString('ko-KR', { hour12: false });
@@ -137,13 +148,17 @@
 
     // ── Load Params ──────────────────────────────────────────
     async function loadParams() {
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 5000);
         try {
-            const resp = await fetch('/api/lab/params');
+            const resp = await fetch('/api/lab/params', { signal: ctrl.signal });
+            clearTimeout(tid);
             const data = await resp.json();
             currentParams = { ...data.defaults };
             paramRanges = data.ranges;
         } catch (e) {
-            console.error('Failed to load params:', e);
+            clearTimeout(tid);
+            console.error('[LAB] loadParams failed (using fallback):', e);
             // Hardcoded fallback
             currentParams = {
                 ranking_source: '등락률', top_n: 20, entry_threshold: 3.0,
@@ -152,6 +167,7 @@
                 exit_target_c: 1.5, trail_max_c: 6.0,
                 max_positions: 5, position_size_pct: 20.0, price_min: 5000,
             };
+            paramRanges = paramRanges || {};
         }
     }
 
@@ -234,20 +250,35 @@
     // ── Load Ranking ─────────────────────────────────────────
     async function loadRanking() {
         $rankingTitle.textContent = '순위 종목 (로딩 중...)';
-        $rankingList.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-dim)"><span class="loading-spinner"></span>데이터 조회 중...</div>';
+        $rankingList.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-dim)"><span class="loading-spinner"></span>데이터 조회 중... (최대 10초)</div>';
+
+        // 10초 타임아웃 — Kiwoom REST 응답 없으면 자동 실패
+        const ctrl = new AbortController();
+        const timeoutId = setTimeout(() => ctrl.abort(), 10000);
 
         try {
             const source = currentParams.ranking_source || '등락률';
             const topN = currentParams.top_n || 20;
-            const resp = await fetch(`/api/lab/ranking?source=${encodeURIComponent(source)}&top_n=${topN}`);
+            const resp = await fetch(
+                `/api/lab/ranking?source=${encodeURIComponent(source)}&top_n=${topN}`,
+                { signal: ctrl.signal }
+            );
+            clearTimeout(timeoutId);
             const data = await resp.json();
             currentRanking = data.ranking || [];
             const fallback = data.fallback ? ' (데모)' : '';
             $rankingTitle.textContent = `${source} 상위 ${currentRanking.length}종목${fallback}`;
             renderRanking();
         } catch (e) {
+            clearTimeout(timeoutId);
+            const msg = e.name === 'AbortError'
+                ? '타임아웃 (10초 초과) — Kiwoom REST API 응답 없음'
+                : `데이터 조회 실패: ${e.message || e}`;
             $rankingTitle.textContent = '순위 종목 (오류)';
-            $rankingList.innerHTML = '<div style="padding:32px;text-align:center;color:var(--red)">데이터 조회 실패</div>';
+            $rankingList.innerHTML =
+                `<div style="padding:32px;text-align:center;color:var(--red)">${msg}<br>` +
+                `<button class="btn-sm" style="margin-top:12px" onclick="location.reload()">재시도</button></div>`;
+            console.error('[LAB] Ranking load failed:', e);
         }
     }
 

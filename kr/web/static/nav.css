@@ -191,8 +191,34 @@
 .qnav-badge-closed { background: #1f2937; color: #9ca3af; }
 .qnav-badge-open { background: #064e3b; color: #34d399; }
 .qnav-dot { width: 8px; height: 8px; border-radius: 50%; background: #6b7280; display: inline-block; }
+.qnav-batch-badge {
+    display: inline-flex; align-items: center;
+    background: #052e16; color: #4ade80;
+    border: 1px solid #16a34a;
+    border-radius: 4px;
+    font-size: 10px; font-weight: 700;
+    padding: 2px 7px; letter-spacing: 0.04em;
+    margin-left: 6px;
+}
 .qnav-dot.ok { background: #10b981; }
 .qnav-dot.err { background: #ef4444; }
+
+/* AUTO GATE badge (P2 advisory observability) */
+.qnav-gate-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    border-radius: 4px;
+    font-size: 10px; font-weight: 700;
+    padding: 2px 7px; letter-spacing: 0.04em;
+    margin-left: 6px; cursor: help;
+    white-space: nowrap; max-width: 320px;
+    overflow: hidden; text-overflow: ellipsis;
+    border: 1px solid transparent;
+}
+.qnav-gate-badge.gate-advisory { background: #1f2937; color: #9ca3af; border-color: #374151; }
+.qnav-gate-badge.gate-enforcing { background: #0b2545; color: #60a5fa; border-color: #1f6feb; }
+.qnav-gate-badge.gate-blocked  { background: #3b1e1e; color: #f87171; border-color: #dc2626; }
+.qnav-gate-badge.gate-unknown  { background: #161b22; color: #6b7280; border-color: #374151; }
+.qnav-gate-badge.gate-stale    { border-style: dashed; opacity: 0.7; }
 .qnav-mode-toggle { display: flex; background: #161b22; border-radius: 6px; overflow: hidden; }
 .qnav-mode { padding: 2px 8px; font-size: 10px; border: none; background: transparent; color: #8b949e; cursor: pointer; }
 .qnav-mode.active { background: #1f6feb; color: #fff; }
@@ -206,3 +232,25 @@
 /* KR convention: 상승=빨강, 하락=파랑 */
 .qnav-index .chg.kr-up { color: #ef4444; }
 .qnav-index .chg.kr-dn { color: #3b82f6; }
+
+/* ── Mobile ────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .qnav { flex-wrap: wrap; padding: 6px 12px; gap: 4px; }
+    .qnav-left { gap: 8px; }
+    .qnav-menu { order: 3; width: 100%; justify-content: center; }
+    .qnav-right { gap: 8px; }
+    .qnav-logo { font-size: 13px; }
+    .qnav-market { padding: 3px 10px; font-size: 11px; }
+    .qnav-item { padding: 4px 10px; font-size: 11px; }
+    .qnav-clock { font-size: 11px; }
+    .qnav-index { font-size: 11px; }
+    .qnav-badge { font-size: 9px; padding: 2px 6px; }
+}
+
+@media (max-width: 480px) {
+    .qnav { padding: 4px 8px; }
+    .qnav-logo { font-size: 12px; }
+    .qnav-badges { gap: 4px; margin-left: 4px; }
+    .qnav-right { gap: 6px; }
+    .qnav-tg-btn { padding: 3px 8px; font-size: 14px; }
+}

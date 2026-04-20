@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Q-TRON US 1.0</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <style>
         :root {
             --bg: #0a0e17; --card: #111827; --border: #1f2937;
@@ -48,6 +49,11 @@
         .meta-value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
         .meta-value.green { color: var(--green); }
         .meta-value.red { color: var(--red); }
+        .meta-sub { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 2px; }
+        .meta-sub.gain { color: #ef4444 !important; }
+        .meta-sub.loss { color: #3b82f6 !important; }
+        .gain { color: #ef4444 !important; }   /* 수익=빨강 (KR convention) */
+        .loss { color: #3b82f6 !important; }   /* 손실=파랑 */
 
         .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
         .card {
@@ -191,13 +197,42 @@
         .sr-tip-chg.positive { color: var(--green); }
         .sr-tip-chg.negative { color: var(--red); }
         .sr-tip-chg.neutral { color: var(--muted); }
+
+        /* ── Mobile Responsive ────────────────────────── */
+        @media (max-width: 768px) {
+            main { padding: 14px 12px; }
+            .hero { padding: 16px; margin-bottom: 16px; }
+            .hero-meta { flex-wrap: wrap; gap: 16px; }
+            .meta-value { font-size: 15px; }
+            .meta-label { color: #9ca3af; }
+            .cards { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+            .card { padding: 12px; }
+            .card-value { font-size: 20px; }
+            .card-label { color: #9ca3af; }
+            .status-bar { padding: 8px 12px; gap: 8px; }
+            .status-health { min-width: auto; }
+            .status-led { width: 32px; height: 32px; }
+            table { font-size: 12px; }
+            th, td { padding: 6px 8px; }
+            .section-title { font-size: 12px; }
+        }
+
+        @media (max-width: 480px) {
+            .hero-meta { flex-direction: column; gap: 8px; }
+            .cards { grid-template-columns: 1fr 1fr; gap: 8px; }
+            .card-value { font-size: 18px; }
+            .hero-title { font-size: 16px; }
+            .meta-label { font-size: 10px; }
+        }
     </style>
+    <link rel="stylesheet" href="/static/themes.css?v=2">
+    <script src="/static/themes.js?v=2"></script>
 </head>
 <body>
 
-<link rel="stylesheet" href="/static/nav.css">
+<link rel="stylesheet" href="/static/nav.css?v=3">
 <div id="qtron-nav" style="position:sticky;top:0;z-index:1000;"></div>
-<script src="/static/nav.js"></script>
+<script src="/static/nav.js?v=3"></script>
 <script>window.__qtronNav.renderNav(document.getElementById('qtron-nav'));</script>
 
 <!-- Badges moved to nav bar -->
@@ -218,8 +253,14 @@
                     <span id="hero-cash" class="meta-value">--</span>
                 </div>
                 <div class="meta-item">
-                    <span class="meta-label">P&L</span>
+                    <span class="meta-label">P&L (Total)</span>
                     <span id="hero-pnl" class="meta-value">--</span>
+                    <span id="hero-pnl-today" class="meta-sub">전일 --</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">P&L % (Total)</span>
+                    <span id="hero-pnl-pct" class="meta-value">--</span>
+                    <span id="hero-pnl-pct-today" class="meta-sub">전일 --</span>
                 </div>
                 <div class="meta-item">
                     <span class="meta-label">Positions</span>
@@ -229,6 +270,7 @@
             <div style="display:flex;gap:8px;align-items:center;">
                 <span id="st-buy-badge" class="sbadge sbadge-normal">BUY: --</span>
                 <span id="st-regime-badge" class="sbadge sbadge-regime-3">REGIME: --</span>
+                <a href="/debug" style="padding:4px 12px; font-size:11px; font-weight:600; background:rgba(59,130,246,0.1); color:var(--accent); border:1px solid var(--accent); border-radius:3px; text-decoration:none;">🔧 DEBUG</a>
             </div>
         </div>
     </div>
@@ -388,6 +430,8 @@
         </div>
         <div id="test-result"></div>
     </div>
+
+    <!-- Debug 섹션들은 별도 /debug 페이지로 분리됨 (2026-04-18) -->
 </main>
 
 <script>
@@ -400,7 +444,7 @@ function fmt(n, dec=2) {
     return '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits: dec, maximumFractionDigits: dec});
 }
 
-function pctClass(v) { return v >= 0 ? 'green' : 'red'; }
+function pctClass(v) { return v >= 0 ? 'gain' : 'loss'; }
 
 async function apiFetch(path) {
     try {
@@ -430,9 +474,27 @@ async function refresh() {
     const p = await apiFetch('/api/portfolio');
     $('hero-equity').textContent = fmt(p.equity);
     $('hero-cash').textContent = fmt(p.cash);
+    // Total P&L (since inception, base $100k)
     const pnl = (p.equity || 0) - 100000;
     $('hero-pnl').textContent = fmt(pnl);
     $('hero-pnl').className = 'meta-value ' + pctClass(pnl);
+    const pnlPct = pnl / 100000 * 100;
+    $('hero-pnl-pct').textContent = (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%';
+    $('hero-pnl-pct').className = 'meta-value ' + pctClass(pnlPct);
+    // Today's P&L (vs last_equity from Alpaca)
+    const lastEq = p.last_equity || 0;
+    if (lastEq > 0) {
+        const pnlToday = (p.equity || 0) - lastEq;
+        const pnlTodayPct = (pnlToday / lastEq) * 100;
+        const sign = pnlToday >= 0 ? '+' : '';
+        $('hero-pnl-today').textContent = '전일 ' + sign + fmt(pnlToday);
+        $('hero-pnl-today').className = 'meta-sub ' + pctClass(pnlToday);
+        $('hero-pnl-pct-today').textContent = '전일 ' + sign + pnlTodayPct.toFixed(2) + '%';
+        $('hero-pnl-pct-today').className = 'meta-sub ' + pctClass(pnlTodayPct);
+    } else {
+        $('hero-pnl-today').textContent = '전일 --';
+        $('hero-pnl-pct-today').textContent = '전일 --';
+    }
     $('hero-positions').textContent = p.n_holdings || 0;
     $('card-bp').textContent = fmt(p.buying_power);
     $('card-market').textContent = h.is_market_open ? 'Open' : 'Closed';
@@ -673,20 +735,101 @@ async function _rebalPreview() {
         const d = await resp.json();
         if (!d.ok) { panel.innerHTML = `<span style="color:var(--red)">${d.error}</span>`; return; }
 
-        let html = `<div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Target: ${d.target_date} | Equity: $${d.equity.toLocaleString()} | Cash: $${d.cash.toLocaleString()}</div>`;
+        const fmtUsd = (v) => '$' + Number(v || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        const pnlCls = (v) => v >= 0 ? 'gain' : 'loss';
+        const pnlSign = (v) => v >= 0 ? '+' : '';
 
-        if (d.sells.length > 0) {
-            html += `<div style="font-size:12px;font-weight:700;color:var(--red);margin-bottom:4px;">SELL (${d.sells.length})</div>`;
-            d.sells.forEach(s => { html += `<div style="font-size:11px;padding:2px 0;">${s.symbol} x${s.qty}</div>`; });
+        let html = `<div style="font-size:11px;color:var(--muted);margin-bottom:10px;">
+            Target: ${d.target_date} (${d.target_count} symbols) | Equity: ${fmtUsd(d.equity)} | Cash: ${fmtUsd(d.cash)} | Buy scale: ${(d.buy_scale*100).toFixed(0)}%
+        </div>`;
+
+        // ── 3-Column: 청산 / 신규매수 / 유지 ──
+        html += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">`;
+
+        // 청산 (Exits)
+        const exits = d.exits || [];
+        html += `<div style="background:#1a1f28;border:1px solid #30363d;border-radius:8px;padding:10px;">
+            <div style="font-size:12px;font-weight:700;color:#ef5350;margin-bottom:6px;">▼ 청산 (${exits.length})</div>`;
+        if (exits.length === 0) {
+            html += `<div style="font-size:11px;color:var(--muted);">없음</div>`;
+        } else {
+            exits.forEach(s => {
+                html += `<div style="font-size:11px;padding:3px 0;border-bottom:1px solid #21262d;">
+                    <div style="display:flex;justify-content:space-between;">
+                        <strong>${s.symbol}</strong>
+                        <span class="${pnlCls(s.pnl_pct)}">${pnlSign(s.pnl_pct)}${s.pnl_pct}%</span>
+                    </div>
+                    <div style="color:var(--muted);font-size:10px;">x${s.qty} · ${fmtUsd(s.market_value)}</div>
+                </div>`;
+            });
         }
-        if (d.buys.length > 0) {
-            html += `<div style="font-size:12px;font-weight:700;color:var(--green);margin-top:8px;margin-bottom:4px;">BUY (${d.buys.length}) ${d.buy_allowed ? '' : '⛔ ' + d.buy_reason}</div>`;
-            d.buys.forEach(b => { html += `<div style="font-size:11px;padding:2px 0;">${b.symbol} x${b.qty} ($${b.amount.toLocaleString()})</div>`; });
+        html += `</div>`;
+
+        // 신규 매수 (New entries)
+        const news = d.new_entries || [];
+        html += `<div style="background:#1a1f28;border:1px solid #30363d;border-radius:8px;padding:10px;">
+            <div style="font-size:12px;font-weight:700;color:#4caf50;margin-bottom:6px;">▲ 신규 (${news.length})${d.buy_allowed ? '' : ' ⛔'}</div>`;
+        if (news.length === 0) {
+            html += `<div style="font-size:11px;color:var(--muted);">없음</div>`;
+        } else {
+            news.forEach(s => {
+                // Find matching buy entry for amount/qty
+                const buy = (d.buys || []).find(b => b.symbol === s.symbol);
+                const chg = (typeof s.change_pct === 'number') ? s.change_pct : null;
+                const chgHtml = (chg !== null)
+                    ? `<span class="${pnlCls(chg)}" style="font-size:11px;">${pnlSign(chg)}${chg}%</span>`
+                    : `<span style="color:var(--muted);font-size:11px;">--</span>`;
+                html += `<div style="font-size:11px;padding:3px 0;border-bottom:1px solid #21262d;">
+                    <div style="display:flex;justify-content:space-between;">
+                        <strong>${s.symbol}</strong>
+                        ${chgHtml}
+                    </div>
+                    <div style="display:flex;justify-content:space-between;color:var(--muted);font-size:10px;">
+                        <span>${buy ? `x${buy.qty} · ${fmtUsd(buy.amount)}` : 'planned'}</span>
+                        <span>${fmtUsd(s.price)}</span>
+                    </div>
+                </div>`;
+            });
+            if (!d.buy_allowed) {
+                html += `<div style="font-size:10px;color:var(--red);margin-top:4px;">⛔ ${d.buy_reason}</div>`;
+            }
         }
+        html += `</div>`;
+
+        // 유지 (Keeps)
+        const keeps = d.keeps || [];
+        html += `<div style="background:#1a1f28;border:1px solid #30363d;border-radius:8px;padding:10px;">
+            <div style="font-size:12px;font-weight:700;color:#a0aec0;margin-bottom:6px;">▶ 유지 (${keeps.length})</div>`;
+        if (keeps.length === 0) {
+            html += `<div style="font-size:11px;color:var(--muted);">없음</div>`;
+        } else {
+            // Sort by P&L desc to show winners first
+            const sortedKeeps = [...keeps].sort((a, b) => (b.pnl_pct || 0) - (a.pnl_pct || 0));
+            sortedKeeps.forEach(s => {
+                html += `<div style="font-size:11px;padding:3px 0;border-bottom:1px solid #21262d;">
+                    <div style="display:flex;justify-content:space-between;">
+                        <strong>${s.symbol}</strong>
+                        <span class="${pnlCls(s.pnl_pct)}">${pnlSign(s.pnl_pct)}${s.pnl_pct}%</span>
+                    </div>
+                    <div style="color:var(--muted);font-size:10px;">x${s.qty} · ${fmtUsd(s.market_value)}</div>
+                </div>`;
+            });
+        }
+        html += `</div>`;
+        html += `</div>`; // end grid
+
+        // ── Order detail (sells/buys from compute_orders, may include top-up) ──
         if (d.sells.length === 0 && d.buys.length === 0) {
-            html += '<div style="color:var(--green);font-size:12px;">Portfolio matches target — no rebalance needed</div>';
+            html += '<div style="color:var(--green);font-size:12px;text-align:center;padding:8px;">Portfolio matches target — no rebalance orders needed</div>';
+        } else {
+            html += `<details style="margin-top:8px;"><summary style="font-size:11px;color:var(--muted);cursor:pointer;">주문 상세 (compute_orders) ▾</summary>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;">`;
+            html += `<div><div style="font-size:11px;color:var(--red);font-weight:700;">SELL (${d.sells.length})</div>`;
+            d.sells.forEach(s => { html += `<div style="font-size:10px;color:var(--muted);">${s.symbol} x${s.qty}</div>`; });
+            html += `</div><div><div style="font-size:11px;color:var(--green);font-weight:700;">BUY (${d.buys.length})</div>`;
+            d.buys.forEach(b => { html += `<div style="font-size:10px;color:var(--muted);">${b.symbol} x${b.qty} (${fmtUsd(b.amount)})</div>`; });
+            html += `</div></div></details>`;
         }
-        html += `<div style="font-size:11px;color:var(--muted);margin-top:6px;">Keep: ${d.keep} | Buy scale: ${(d.buy_scale*100).toFixed(0)}%</div>`;
 
         panel.innerHTML = html;
         // Show execute buttons
@@ -700,6 +843,14 @@ async function _rebalPreview() {
 
 async function _rebalExecute(mode) {
     if (!confirm(`Execute rebalance (${mode})? This will send real orders.`)) return;
+    // P1-4: global in-flight lock — prevents double-click duplicate executes
+    window._qtronExecuting = window._qtronExecuting || false;
+    if (window._qtronExecuting) {
+        const panel = $('rebal-preview');
+        panel.innerHTML = '<span style="color:var(--yellow)">Another action is in progress — please wait</span>';
+        return;
+    }
+    window._qtronExecuting = true;
     const panel = $('rebal-preview');
     panel.innerHTML = '<span style="color:var(--yellow)">Executing...</span>';
     try {
@@ -723,6 +874,7 @@ async function _rebalExecute(mode) {
         $('btn-rebal-buy').style.display = 'none';
         $('btn-rebal-all').style.display = 'none';
     } catch(e) { panel.innerHTML = `<span style="color:var(--red)">Error: ${e}</span>`; }
+    finally { window._qtronExecuting = false; }
 }
 
 // ── Rebalance Status ──
@@ -858,6 +1010,8 @@ setInterval(refreshStatus, 10000);    // Status bar: 10초
 setInterval(refreshRebalStatus, 30000); // Rebal status: 30초
 setInterval(refreshRegime, 60000);    // Regime: 1분
 setInterval(refreshFxTax, 300000);    // FX/Tax: 5분
+
+// Debug 관련 JS 는 /debug 페이지로 분리됨 (2026-04-18)
 </script>
 
 <!-- Footer: Version + Copyright + History -->
@@ -879,6 +1033,23 @@ setInterval(refreshFxTax, 300000);    // FX/Tax: 5분
         </div>
     </div>
 </footer>
+
+<!-- ── Theme Switcher ─────────────────────────────────── -->
+<div class="qtron-theme-footer">
+    <span class="ftr-title">🎨 Theme</span>
+    <div class="qtron-theme-tabs">
+        <button class="qtron-theme-tab" data-theme-set="light">Light</button>
+        <button class="qtron-theme-tab" data-theme-set="dark">Dark</button>
+        <button class="qtron-theme-tab" data-theme-set="pastel">Pastel</button>
+        <button class="qtron-theme-tab" data-theme-set="pro">Pro</button>
+    </div>
+    <span class="qtron-device-info" id="qtron-device-info"></span>
+    <span class="qtron-saved-indicator" id="qtron-saved-indicator">✓ 저장됨</span>
+    <div class="qtron-save-toggle">
+        <input type="checkbox" id="qtron-save-default" checked>
+        <label for="qtron-save-default">디바이스별 저장</label>
+    </div>
+</div>
 
 </body>
 </html>

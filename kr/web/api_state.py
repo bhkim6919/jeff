@@ -522,8 +522,10 @@ class ApiStateTracker:
         if rate > FAILURE_RATE_WARN:
             return HealthStatus.YELLOW, f"Failure rate {rate:.1%}"
 
-        # Sync mismatches
-        mismatches = [s.field_name for s in self._sync.values() if not s.match]
+        # Sync mismatches (현금/평가금액/총자산은 Kiwoom TR 읽기 구조상 mismatch 정상)
+        _TR_FIELDS = {"현금", "평가금액", "총자산"}
+        mismatches = [s.field_name for s in self._sync.values()
+                      if not s.match and s.field_name not in _TR_FIELDS]
         if mismatches:
             return HealthStatus.YELLOW, f"Sync mismatch: {', '.join(mismatches)}"
 

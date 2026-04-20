@@ -55,6 +55,8 @@ def check_concentration_alerts(snapshot: DailySnapshot) -> list[dict]:
         sector_totals[s] = sector_totals.get(s, 0) + p["value"]
 
     for sector, value in sector_totals.items():
+        if sector == "UNKNOWN":
+            continue  # UNKNOWN = sector data not populated, not a real concentration risk
         pct = value / total_invested
         if pct > 0.40:
             alerts.append({

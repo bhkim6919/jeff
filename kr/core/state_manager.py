@@ -235,6 +235,28 @@ class StateManager:
             return self._atomic_write(self._runtime_file,
                                       {"timestamp": datetime.now().isoformat(), **rt})
 
+    # ── Batch Completion (Gate freshness signal) ─────────────────────
+
+    def save_batch_completion(self, business_date: str = "",
+                              snapshot_version: str = "") -> bool:
+        """Batch 완료 timestamp 기록 — gate의 BATCH_MISSING 해소.
+
+        auto_trading_gate.py 가 runtime["last_batch_completed_at"] 을 읽어
+        freshness (BATCH_STALE/BATCH_MISSING) 을 판단하므로, batch.py 가
+        완료 직후 반드시 호출해야 함. read→merge→atomic_write 패턴으로
+        기존 runtime 필드(pending_buys, last_rebalance_date 등)는 보존.
+        """
+        from datetime import timezone as _tz
+        with self._timed_lock():
+            rt = self._atomic_read(self._runtime_file) or {}
+            rt["last_batch_completed_at"] = datetime.now(_tz.utc).isoformat(timespec="seconds")
+            if business_date:
+                rt["last_batch_business_date"] = business_date
+            if snapshot_version:
+                rt["last_batch_snapshot_version"] = snapshot_version
+            return self._atomic_write(self._runtime_file,
+                                      {"timestamp": datetime.now().isoformat(), **rt})
+
     # ── Pending External Orders ──────────────────────────────────────
 
     def save_pending_external(self, orders: list) -> bool:

@@ -268,6 +268,18 @@ def run_batch(config, fast: bool = False):
         except Exception as e:
             logger.warning(f"  Advisor failed: {e} (non-critical)")
 
+        # Gate freshness signal: runtime에 batch 완료 timestamp 기록 (BATCH_MISSING 해소)
+        try:
+            from core.state_manager import StateManager
+            sm = StateManager(config.STATE_DIR, trading_mode=getattr(config, "TRADING_MODE", "live"))
+            sm.save_batch_completion(
+                business_date=target.get("date", ""),
+                snapshot_version=target.get("snapshot_version", ""),
+            )
+            logger.info(f"[BATCH_RUNTIME_UPDATED] business_date={target.get('date','')} mode=fast")
+        except Exception as _e:
+            logger.warning(f"[BATCH_RUNTIME_SAVE_FAIL] {_e} (non-critical, gate may show BATCH_MISSING)")
+
         logger.info("Batch complete (fast).")
         _notify_batch_result(target, logger, mode="fast")
         return target
@@ -341,25 +353,164 @@ def run_batch(config, fast: bool = False):
     # by kr/tray_server.py post-EOD to keep a single-producer contract.
     # Do not run it here — the tray_server is the sole producer.
 
+    # Gate freshness signal: runtime에 batch 완료 timestamp 기록 (BATCH_MISSING 해소)
+    try:
+        from core.state_manager import StateManager
+        sm = StateManager(config.STATE_DIR, trading_mode=getattr(config, "TRADING_MODE", "live"))
+        sm.save_batch_completion(
+            business_date=target.get("date", ""),
+            snapshot_version=target.get("snapshot_version", ""),
+        )
+        logger.info(f"[BATCH_RUNTIME_UPDATED] business_date={target.get('date','')} mode=full")
+    except Exception as _e:
+        logger.warning(f"[BATCH_RUNTIME_SAVE_FAIL] {_e} (non-critical, gate may show BATCH_MISSING)")
+
     logger.info("Batch complete.")
     _notify_batch_result(target, logger, mode="full")
     return target
 
 
-def _update_kospi_index(config, logger):
-    """KOSPI index 파일 + DB 업데이트 (yfinance fallback).
+def _fetch_kospi_pykrx(from_date: str, to_date: str):
+    """
+    pykrx 로 KOSPI 지수(1001) fetch.
 
-    pykrx get_index_ohlcv_by_date가 빈 결과를 반환하는 경우 yfinance(^KS11) fallback.
-    KOSPI.csv와 kospi_index DB 테이블 모두 업데이트.
+    Returns:
+        (DataFrame|None, error_str|None)
+        - DataFrame: 표준 스키마 (date/open/high/low/close/volume)
+        - error_str: 예외 발생 시 메시지, 정상이면 None
+    """
+    import pandas as pd
+    try:
+        from pykrx import stock as _pykrx_stock
+        _from = from_date.replace("-", "")
+        _to = to_date.replace("-", "")
+        raw = _pykrx_stock.get_index_ohlcv_by_date(_from, _to, "1001")
+        if raw is None or raw.empty:
+            return (None, None)  # empty, not error
+        raw = raw.reset_index()
+        _col_map = {"날짜": "date", "시가": "open", "고가": "high",
+                    "저가": "low", "종가": "close", "거래량": "volume"}
+        raw = raw.rename(columns={k: v for k, v in _col_map.items() if k in raw.columns})
+        if "date" not in raw.columns and raw.columns[0].lower() in ("date", "index"):
+            raw = raw.rename(columns={raw.columns[0]: "date"})
+        raw["date"] = pd.to_datetime(raw["date"])
+        for c in ["open", "high", "low", "close", "volume"]:
+            if c not in raw.columns:
+                raw[c] = 0
+        return (raw[["date", "open", "high", "low", "close", "volume"]].copy(), None)
+    except Exception as e:
+        return (None, str(e))
+
+
+def _fetch_kospi_yfinance(from_date: str, to_date: str, max_attempts: int = 3):
+    """
+    yfinance 로 ^KS11 fetch (재시도 포함).
+
+    Returns:
+        (DataFrame|None, error_str|None, attempts)
+    """
+    import pandas as pd
+    import time as _t
+    last_err = None
+    for attempt in range(max_attempts):
+        try:
+            import yfinance as yf
+            raw = yf.download("^KS11", start=from_date, end=to_date,
+                              auto_adjust=True, progress=False)
+            if raw.empty:
+                return (None, None, attempt + 1)
+            if isinstance(raw.columns, pd.MultiIndex):
+                raw.columns = raw.columns.get_level_values(0)
+            raw = raw.reset_index()
+            raw = raw.rename(columns={"Date": "date", "Open": "open", "High": "high",
+                                      "Low": "low", "Close": "close", "Volume": "volume"})
+            raw["date"] = pd.to_datetime(raw["date"])
+            return (raw[["date", "open", "high", "low", "close", "volume"]].copy(),
+                    None, attempt + 1)
+        except Exception as e:
+            last_err = str(e)
+            if attempt < max_attempts - 1:
+                _t.sleep(5)
+    return (None, last_err, max_attempts)
+
+
+def _fetch_kospi_db(last_known_date):
+    """
+    DB 에서 이미 저장된 KOSPI 확인 (다른 프로세스가 업데이트했을 수 있음).
+
+    Returns:
+        (DataFrame|None, error_str|None)
+    """
+    try:
+        from data.db_provider import DbProvider
+        db = DbProvider()
+        db_idx = db.get_kospi_index()
+        if len(db_idx) == 0:
+            return (None, None)
+        if last_known_date is None:
+            return (db_idx[["date", "open", "high", "low", "close", "volume"]].copy(), None)
+        fresh = db_idx[db_idx["date"] > last_known_date].copy()
+        if fresh.empty:
+            return (None, None)
+        return (fresh[["date", "open", "high", "low", "close", "volume"]], None)
+    except Exception as e:
+        return (None, str(e))
+
+
+def _classify_kospi_supply(df, expected_today: str, error: str = None) -> str:
+    """
+    소스 결과를 SupplyStatus 로 분류.
+
+    Returns:
+        "SUCCESS_TODAY" | "SUCCESS_STALE" | "EMPTY_NOT_READY" | "ERROR" | "TIMEOUT"
+    """
+    if error:
+        return "TIMEOUT" if "timeout" in error.lower() else "ERROR"
+    if df is None or len(df) == 0:
+        return "EMPTY_NOT_READY"
+    try:
+        import pandas as pd
+        last = str(pd.to_datetime(df["date"].max()).date())
+        return "SUCCESS_TODAY" if last >= expected_today else "SUCCESS_STALE"
+    except Exception:
+        return "ERROR"
+
+
+# SupplyStatus 우선순위 (높을수록 선호)
+_SUPPLY_STATUS_RANK = {
+    "SUCCESS_TODAY":    5,
+    "SUCCESS_STALE":    3,
+    "EMPTY_NOT_READY":  2,
+    "TIMEOUT":          1,
+    "ERROR":            0,
+}
+
+
+def _update_kospi_index(config, logger):
+    """KOSPI index 파일 + DB 업데이트 (SupplyStatus 기반 best-available selection).
+
+    Step 2 재작성 (2026-04-17):
+    - 각 소스(pykrx/yfinance/db)를 **독립적으로 시도**하고 결과를 SupplyStatus 로 분류
+    - "누가 1순위"가 아니라 "현재 시점에 누가 SUCCESS_TODAY 인가" 기준 선택
+    - pykrx 는 당일 KOSPI 지수를 자주 empty 로 주므로 primary 취급 금지 (2026-04-17 확인)
+    - yfinance 가 오늘 기준 primary — 종목 OHLCV 와 KOSPI 지수는 다른 소스 특성
+    - 결과는 DataEvent + market_context.supply_status 로 propagate
+
+    Flow:
+        1. 각 소스 시도 → (df, status)
+        2. best-available 선택 (SUCCESS_TODAY > SUCCESS_STALE > ...)
+        3. 선택된 df 병합 (SUCCESS_TODAY 와 SUCCESS_STALE 은 union 이 나을 수도 — 아래 로직)
+        4. CSV/DB 업데이트
+        5. emit_event 로 각 소스 + pipeline 결과 기록
     """
     import pandas as pd
     from datetime import datetime, timedelta
 
+    # ── 1. 기준 날짜 결정 ──
     index_file = config.INDEX_FILE
     try:
         existing = pd.read_csv(index_file, parse_dates=["index"])
-        date_col = "index"
-        existing = existing.rename(columns={date_col: "date"})
+        existing = existing.rename(columns={"index": "date"})
         existing["date"] = pd.to_datetime(existing["date"])
         last_date = existing["date"].max()
     except Exception:
@@ -376,35 +527,114 @@ def _update_kospi_index(config, logger):
         logger.info(f"  KOSPI index up-to-date ({today_str})")
         return
 
-    # Fetch missing days via yfinance
     from_date = (last_date + timedelta(days=1)).strftime("%Y-%m-%d") if last_date else "2019-01-01"
     to_date = (today + timedelta(days=1)).strftime("%Y-%m-%d")
-    new_df = None
-    try:
-        import yfinance as yf
-        raw = yf.download("^KS11", start=from_date, end=to_date,
-                          auto_adjust=True, progress=False)
-        if not raw.empty:
-            # Flatten MultiIndex columns if present
-            if isinstance(raw.columns, pd.MultiIndex):
-                raw.columns = raw.columns.get_level_values(0)
-            raw = raw.reset_index()
-            raw = raw.rename(columns={"Date": "date", "Open": "open", "High": "high",
-                                      "Low": "low", "Close": "close", "Volume": "volume"})
-            raw["date"] = pd.to_datetime(raw["date"])
-            new_df = raw[["date", "open", "high", "low", "close", "volume"]]
-            logger.info(f"  KOSPI index: +{len(new_df)} rows via yfinance")
-    except Exception as e:
-        logger.warning(f"  KOSPI index yfinance failed: {e}")
-        _alert_data("yfinance", str(e), {"from_date": from_date})
 
-    if new_df is None or new_df.empty:
-        logger.warning("  KOSPI index: no new data fetched")
-        _alert_data("KOSPI_index", "no new data from yfinance",
-                    {"last_date": str(last_date), "today": today_str})
+    # ── 2. 모든 소스 독립 시도 + SupplyStatus 분류 ──
+    # (소스 호출 비용 낮은 순서: pykrx → DB → yfinance. 단 선호도는 status 로 결정)
+    sources: dict = {}   # {source_name: {"df": ..., "status": ..., "error": ...}}
+
+    # pykrx
+    pykrx_df, pykrx_err = _fetch_kospi_pykrx(from_date, to_date)
+    pykrx_status = _classify_kospi_supply(pykrx_df, today_str, pykrx_err)
+    sources["pykrx"] = {"df": pykrx_df, "status": pykrx_status, "error": pykrx_err}
+    logger.info(f"  [KOSPI.pykrx] status={pykrx_status}, rows={0 if pykrx_df is None else len(pykrx_df)}")
+    try:
+        from web.data_events import emit_event, Level
+        level = Level.INFO if pykrx_status == "SUCCESS_TODAY" else (
+            Level.WARN if pykrx_status in ("ERROR", "EMPTY_NOT_READY", "TIMEOUT") else Level.INFO)
+        emit_event(
+            source="KOSPI.pykrx",
+            level=level,
+            code=pykrx_status.lower(),
+            message=f"pykrx status={pykrx_status}" + (f" err={pykrx_err}" if pykrx_err else ""),
+            details={"status": pykrx_status, "rows": 0 if pykrx_df is None else len(pykrx_df),
+                     "error": pykrx_err},
+            telegram=False,
+        )
+    except Exception:
+        pass
+
+    # DB (기존 저장분 — 다른 프로세스 업데이트 가능성 + 백업)
+    db_df, db_err = _fetch_kospi_db(last_date)
+    db_status = _classify_kospi_supply(db_df, today_str, db_err)
+    sources["db"] = {"df": db_df, "status": db_status, "error": db_err}
+    logger.info(f"  [KOSPI.db] status={db_status}, rows={0 if db_df is None else len(db_df)}")
+
+    # yfinance — pykrx 가 이미 SUCCESS_TODAY 면 skip 가능 (네트워크 절약)
+    # 단 오늘 (2026-04-17) 경험상 pykrx 는 지수 1001 을 자주 empty 로 주므로 기본적으로 yfinance 도 시도
+    yf_skip = (pykrx_status == "SUCCESS_TODAY" and db_status != "ERROR")
+    if yf_skip:
+        logger.info("  [KOSPI.yfinance] skip (pykrx SUCCESS_TODAY)")
+        yf_df, yf_err, yf_attempts = None, None, 0
+        yf_status = "EMPTY_NOT_READY"  # 시도 안 했으므로
+    else:
+        yf_df, yf_err, yf_attempts = _fetch_kospi_yfinance(from_date, to_date)
+        yf_status = _classify_kospi_supply(yf_df, today_str, yf_err)
+        logger.info(
+            f"  [KOSPI.yfinance] status={yf_status}, "
+            f"rows={0 if yf_df is None else len(yf_df)}, attempts={yf_attempts}"
+        )
+        try:
+            from web.data_events import emit_event, Level
+            level = Level.INFO if yf_status == "SUCCESS_TODAY" else (
+                Level.WARN if yf_status in ("ERROR", "EMPTY_NOT_READY", "TIMEOUT") else Level.INFO)
+            emit_event(
+                source="KOSPI.yfinance",
+                level=level,
+                code=yf_status.lower(),
+                message=f"yfinance status={yf_status}" + (f" err={yf_err}" if yf_err else ""),
+                details={"status": yf_status, "rows": 0 if yf_df is None else len(yf_df),
+                         "attempts": yf_attempts, "error": yf_err},
+                telegram=False,
+            )
+        except Exception:
+            pass
+    sources["yfinance"] = {"df": yf_df, "status": yf_status, "error": yf_err}
+
+    # ── 3. Best-available selection ──
+    # 우선순위: SUCCESS_TODAY > SUCCESS_STALE > EMPTY_NOT_READY > TIMEOUT > ERROR
+    # 여러 소스가 SUCCESS_TODAY 면 모두 union (서로 다른 날짜 데이터 보완)
+    ranked = sorted(
+        sources.items(),
+        key=lambda kv: _SUPPLY_STATUS_RANK.get(kv[1]["status"], 0),
+        reverse=True,
+    )
+    best_name, best_info = ranked[0]
+    best_status = best_info["status"]
+    logger.info(f"  [KOSPI.pipeline] best={best_name} status={best_status}")
+
+    if best_status in ("ERROR", "TIMEOUT") or best_info["df"] is None:
+        # 모든 소스 실패 — CRITICAL
+        errs = {n: s.get("error") for n, s in sources.items()}
+        logger.warning(f"  KOSPI index: all sources failed. errors={errs}")
+        _alert_data("KOSPI_index", "all sources failed",
+                    {"last_date": str(last_date), "today": today_str, "errors": errs})
+        try:
+            from web.data_events import emit_event, Level
+            emit_event(
+                source="KOSPI.pipeline",
+                level=Level.CRITICAL,
+                code="all_sources_failed",
+                message=f"KOSPI index 확보 실패. last={last_date}, today={today_str}",
+                details={"last_date": str(last_date), "today": today_str,
+                         "sources": {n: s["status"] for n, s in sources.items()}},
+                telegram=True,  # CRITICAL 은 Telegram + DEBUG 힌트 자동 삽입
+            )
+        except Exception:
+            pass
         return
 
-    # Update KOSPI.csv
+    # 성공 — union (best 기준 + SUCCESS_TODAY/STALE 인 다른 소스 보충)
+    new_df = best_info["df"].copy()
+    for other_name, other_info in ranked[1:]:
+        if other_info["status"] in ("SUCCESS_TODAY", "SUCCESS_STALE") and other_info["df"] is not None:
+            missing = other_info["df"][~other_info["df"]["date"].isin(new_df["date"])]
+            if not missing.empty:
+                new_df = pd.concat([new_df, missing]).sort_values("date").reset_index(drop=True)
+                logger.info(f"  [KOSPI.pipeline] supplement +{len(missing)} rows from {other_name}")
+
+    # ── 4. CSV 업데이트 ──
     try:
         existing_df = pd.read_csv(index_file)
         date_col = "index" if "index" in existing_df.columns else "date"
@@ -418,7 +648,7 @@ def _update_kospi_index(config, logger):
     except Exception as e:
         logger.warning(f"  KOSPI.csv update failed: {e}")
 
-    # Update DB kospi_index table
+    # ── 5. DB 업데이트 ──
     try:
         from data.db_provider import DbProvider
         db = DbProvider()
@@ -427,6 +657,22 @@ def _update_kospi_index(config, logger):
     except Exception as e:
         logger.warning(f"  kospi_index DB upsert failed: {e} (non-critical)")
         _alert_data("kospi_index_db", str(e))
+
+    # ── 6. 파이프라인 성공 이벤트 (Recovery signal — 이전 WARN state reset) ──
+    try:
+        from web.data_events import emit_event, Level
+        emit_event(
+            source="KOSPI.pipeline",
+            level=Level.INFO,
+            code="all_sources_failed",   # 같은 code 로 recovery → NORMAL 복귀
+            message=f"KOSPI pipeline OK ({best_name}/{best_status}, {len(new_df)} new rows)",
+            details={"best_source": best_name, "best_status": best_status,
+                     "new_rows": len(new_df),
+                     "sources": {n: s["status"] for n, s in sources.items()}},
+            telegram=False,
+        )
+    except Exception:
+        pass
 
 
 def _run_lab_live_daily(config, logger):

@@ -381,6 +381,21 @@ def create_preview(state_mgr, config, provider) -> Dict:
             cash_buffer=config.CASH_BUFFER_RATIO,
         )
 
+        # KR-P0-003: skip reconcile_pending symbols (QTY_SPIKE isolated)
+        _pending_codes = {
+            c for c, p in portfolio.positions.items()
+            if getattr(p, "reconcile_pending", False)
+        }
+        if _pending_codes:
+            sell_orders = [o for o in sell_orders if o.ticker not in _pending_codes]
+            buy_orders = [o for o in buy_orders if o.ticker not in _pending_codes]
+            try:
+                import logging as _lg
+                _lg.getLogger("gen4.rebalance_api").critical(
+                    f"[REBAL_SKIP_RECONCILE_PENDING] isolated={sorted(_pending_codes)}")
+            except Exception:
+                pass
+
         # Build preview data
         sells = []
         for o in sell_orders:

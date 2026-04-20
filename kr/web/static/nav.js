@@ -72,6 +72,8 @@
                                 onclick="window.__qtronNav.switchMarket('US')">US</button>
                     </div>
                     <div class="qnav-badges" id="qnav-badges"></div>
+                    <span id="nav-batch-badge" class="qnav-batch-badge" style="display:none"></span>
+                    <span id="nav-auto-gate-badge" class="qnav-gate-badge gate-unknown" style="display:none" title="AUTO GATE">AUTO GATE: …</span>
                 </div>
                 <nav class="qnav-menu">
                     <button class="qnav-item ${page === 'dashboard' ? 'active' : ''}"
@@ -112,6 +114,12 @@
             </div>
         `;
 
+        // Batch badge
+        _startBatchBadge(market);
+
+        // Auto Gate badge (P2 advisory observability)
+        _startAutoGateBadge(market);
+
         // Clock
         function tick() {
             const now = new Date();
@@ -127,6 +135,137 @@
         }
         tick();
         setInterval(tick, 1000);
+    }
+
+    // ── Batch Badge ─────────────────────────────────────────────
+
+    let _batchPollTimer = null;
+
+    function _startBatchBadge(market) {
+        _fetchBatchBadge(market);
+        if (_batchPollTimer) clearInterval(_batchPollTimer);
+        _batchPollTimer = setInterval(() => _fetchBatchBadge(market), 5 * 60 * 1000);
+    }
+
+    async function _fetchBatchBadge(market) {
+        const el = document.getElementById('nav-batch-badge');
+        if (!el) return;
+        try {
+            if (market === 'US') {
+                const r = await fetch('/api/rebalance/status');
+                const d = await r.json();
+                const done = d.last_batch_business_date &&
+                             d.last_batch_business_date === d.business_date;
+                _setBatchBadge(el, done, 'US');
+            } else {
+                const r = await fetch('/api/batch/status');
+                const d = await r.json();
+                _setBatchBadge(el, !!d.kr_done, 'KR');
+            }
+        } catch (_) {}
+    }
+
+    // ── AUTO GATE Badge ─────────────────────────────────────────
+
+    let _autoGatePollTimer = null;
+
+    function _startAutoGateBadge(market) {
+        _fetchAutoGateBadge(market);
+        if (_autoGatePollTimer) clearInterval(_autoGatePollTimer);
+        // poll every 30s — advisory mode, low frequency OK
+        _autoGatePollTimer = setInterval(() => _fetchAutoGateBadge(market), 30 * 1000);
+    }
+
+    async function _fetchAutoGateBadge(market) {
+        const el = document.getElementById('nav-auto-gate-badge');
+        if (!el) return;
+        try {
+            let auto = null, health = null;
+            if (market === 'US') {
+                const r = await fetch('/api/status/summary');
+                const d = await r.json();
+                auto = d.auto_trading || null;
+                health = (auto && auto.strategy_health_detail) || null;
+            } else {
+                const r = await fetch('/api/state');
+                const d = await r.json();
+                auto = d.auto_trading || null;
+                health = d.strategy_health || null;
+            }
+            _setAutoGateBadge(el, auto, health, market);
+        } catch (e) {
+            el.textContent = 'AUTO GATE: NO DATA';
+            el.className = 'qnav-gate-badge gate-unknown';
+            el.title = 'API fetch failed: ' + (e && e.message || e);
+            el.style.display = 'inline-flex';
+        }
+    }
+
+    function _setAutoGateBadge(el, auto, health, market) {
+        if (!auto) {
+            el.textContent = 'AUTO GATE: UNKNOWN';
+            el.className = 'qnav-gate-badge gate-unknown';
+            el.title = 'auto_trading field missing from API response';
+            el.style.display = 'inline-flex';
+            return;
+        }
+        const mode = (auto.mode || 'advisory').toLowerCase();
+        const enabled = auto.enabled === true;
+        const top = auto.highest_priority_blocker || '';
+        const blockers = Array.isArray(auto.blockers) ? auto.blockers : [];
+        const computed = auto.computed_at || '';
+        const healthStatus = (health && health.status) || auto.strategy_health || 'UNKNOWN';
+        const warmup = !!(health && health.warmup_active);
+
+        // Stale check: computed_at > 5 min old
+        let stale = false;
+        if (computed) {
+            const t = Date.parse(computed);
+            if (!isNaN(t) && (Date.now() - t) > 5 * 60 * 1000) stale = true;
+        } else {
+            stale = true;
+        }
+
+        // Color rule
+        let label, cls;
+        if (mode === 'enforcing' && !enabled) {
+            label = 'AUTO GATE: BLOCKED';
+            cls = 'gate-blocked';
+        } else if (mode === 'enforcing' && enabled) {
+            label = 'AUTO GATE: ENFORCING';
+            cls = 'gate-enforcing';
+        } else {
+            // advisory (default)
+            label = enabled ? 'AUTO GATE: ADVISORY (OK)' : 'AUTO GATE: ADVISORY';
+            cls = 'gate-advisory';
+        }
+        if (stale) label += ' · STALE';
+
+        el.textContent = top ? `${label} · ${top}` : label;
+        el.className = 'qnav-gate-badge ' + cls + (stale ? ' gate-stale' : '');
+        const tip = [
+            `Market: ${market}`,
+            `Mode: ${auto.mode || 'advisory'}`,
+            `Enabled: ${enabled}`,
+            `Top blocker: ${top || '(none)'}`,
+            `Blockers: ${blockers.length ? blockers.join(', ') : '(none)'}`,
+            `Health: ${healthStatus}${warmup ? ' (warm-up)' : ''}`,
+            `Risk: ${auto.risk_level || 'NORMAL'}`,
+            `Buy scale: ${auto.buy_scale != null ? auto.buy_scale : '-'}`,
+            `Last eval: ${computed || '(unknown)'}${stale ? ' [STALE]' : ''}`,
+        ].join('\n');
+        el.title = tip;
+        el.style.display = 'inline-flex';
+    }
+
+    function _setBatchBadge(el, done, market) {
+        if (done) {
+            el.textContent = `BATCH ✓`;
+            el.title = `${market} 오늘 배치 완료`;
+            el.style.display = 'inline-flex';
+        } else {
+            el.style.display = 'none';
+        }
     }
 
     // ── Telegram Modal Functions ──
@@ -254,5 +393,7 @@
 
     // Expose API
     window.__qtronNav = { switchMarket, navigateTo, getCurrentMarket, renderNav,
-                          openTelegram, closeTelegram, sendTelegram, _fileChanged, _clearFile };
+                          openTelegram, closeTelegram, sendTelegram, _fileChanged, _clearFile,
+                          refreshBatchBadge: () => _fetchBatchBadge(getCurrentMarket()),
+                          refreshAutoGateBadge: () => _fetchAutoGateBadge(getCurrentMarket()) };
 })();

@@ -326,6 +326,9 @@ def save_state_v2(
     trades: List[dict],
     equity_rows: List[dict],
     config,
+    snapshot_version: str = "",
+    run_meta: Optional[dict] = None,
+    trade_date: str = "",
 ) -> int:
     """
     Committed version write protocol.
@@ -375,9 +378,13 @@ def save_state_v2(
                 "schema_version": SCHEMA_VERSION,
                 "committed_version_seq": next_ver,
                 "strategies": sorted(strategy_names),
-                "last_run_date": now.strftime("%Y-%m-%d"),
+                "last_run_date": trade_date or now.strftime("%Y-%m-%d"),
                 "last_run_ts": now.isoformat(),
+                "snapshot_version": snapshot_version,
             }
+            # run_meta: source, data dates for reproducibility
+            if run_meta:
+                head_payload["run_meta"] = run_meta
             atomic_write_json(config.head_file, head_payload)
 
             logger.info(f"[STATE_V2] Committed version {next_ver}: "
@@ -421,7 +428,7 @@ def load_state_v2(config) -> Optional[dict]:
         else:
             # Validate versions
             if _validate_all_versions(strat_data, trades_data, equity_data, committed_ver):
-                return _assemble_result(strat_data, trades_data, equity_data, committed_ver)
+                return _assemble_result(strat_data, trades_data, equity_data, committed_ver, head)
 
         # PRIMARY FAILED → try .bak rollback (all-or-nothing)
         logger.warning("[STATE_V2] Primary version mismatch -> attempting .bak rollback")
@@ -434,7 +441,7 @@ def load_state_v2(config) -> Optional[dict]:
             bak_ver = _find_consistent_version(bak_strat, bak_trades, bak_equity)
             if bak_ver is not None:
                 logger.warning(f"[STATE_V2] Rolled back to .bak version {bak_ver}")
-                return _assemble_result(bak_strat, bak_trades, bak_equity, bak_ver)
+                return _assemble_result(bak_strat, bak_trades, bak_equity, bak_ver, head)
 
         # BAK FAILED → try archive fallback (last resort)
         logger.warning("[STATE_V2] .bak recovery failed -> attempting archive fallback")
@@ -459,6 +466,7 @@ def _assemble_result(
     trades_data: Optional[dict],
     equity_data: Optional[dict],
     version_seq: int,
+    head: Optional[dict] = None,
 ) -> dict:
     """Assemble load result in engine-compatible format."""
     lanes = {}
@@ -475,7 +483,8 @@ def _assemble_result(
         "trades": trades_data.get("trades", []) if trades_data else [],
         "equity_rows": equity_data.get("rows", []) if equity_data else [],
         "version_seq": version_seq,
-        "last_run_date": None,  # engine reads from head if needed
+        "last_run_date": head.get("last_run_date", "") if head else "",
+        "snapshot_version": head.get("snapshot_version", "") if head else "",
     }
 
 
@@ -533,7 +542,7 @@ def _recover_from_archive(config) -> Optional[dict]:
 
     if _validate_all_versions(strat_data, trades, equity, ver):
         logger.warning(f"[STATE_V2] Recovered from archive {archive_dir.name} (version {ver})")
-        result = _assemble_result(strat_data, trades, equity, ver)
+        result = _assemble_result(strat_data, trades, equity, ver)  # no head for archive
         result["recovered_from"] = f"archive/{archive_dir.name}"
         return result
 

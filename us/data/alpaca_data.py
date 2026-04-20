@@ -20,6 +20,11 @@ class USDataCollector:
 
     def __init__(self, db):
         self._db = db
+        # US-P0-003: expose last-run stats for downstream quality gate
+        self.last_total: int = 0
+        self.last_count: int = 0
+        self.last_errors: int = 0
+        self.last_failed_ratio: float = 0.0
 
     def collect_ohlcv(self, symbols: List[str], period: str = "2y") -> int:
         """Download OHLCV via yfinance → upsert to DB."""
@@ -34,6 +39,7 @@ class USDataCollector:
             progress=False,
         )
 
+        self.last_total = len(symbols)
         count = 0
         errors = 0
         for sym in symbols:
@@ -82,7 +88,12 @@ class USDataCollector:
                 if errors <= 5:
                     logger.warning(f"[DATA] {sym}: {e}")
 
-        logger.info(f"[DATA] Complete: {count} stocks, {errors} errors")
+        self.last_count = count
+        self.last_errors = errors
+        self.last_failed_ratio = (errors / max(len(symbols), 1))
+        logger.info(
+            f"[DATA] Complete: {count}/{len(symbols)} stocks, "
+            f"{errors} errors (failed_ratio={self.last_failed_ratio:.2%})")
         return count
 
     def collect_index(self, symbols: List[str] = None, period: str = "7y") -> int:

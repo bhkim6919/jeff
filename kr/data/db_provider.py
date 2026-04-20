@@ -145,11 +145,16 @@ class DbProvider:
 
         return result
 
-    def get_prev_closes(self, codes: List[str], max_stale_bdays: int = 3) -> Dict:
+    def get_prev_closes(self, codes: List[str], max_stale_bdays: int = 3,
+                        ref_date: str = None) -> Dict:
         """
         보유종목의 전일 종가를 batch 조회.
 
-        핵심: date < today → 오늘 데이터 절대 제외, 가장 최근 = 전일 종가.
+        핵심: date < ref_date → ref_date 이전의 가장 최근 = 전일 종가.
+        ref_date=None이면 date.today() 사용 (기본: 실거래 대시보드용).
+        Lab 시뮬레이션에선 last_run_date 전달 — cur_price가 last_run_date 종가이므로
+        그 하루 전 거래일의 종가를 가져와야 정상적인 day_change 산출됨.
+
         stale: 거래일 기준 max_stale_bdays 이상 오래되면 stale=True.
         공휴일 보정: +1 여유일 적용 (보수적).
 
@@ -159,10 +164,15 @@ class DbProvider:
             return {}
         conn = self._conn()
         try:
-            today_str = date.today().isoformat()
+            if ref_date:
+                ref_str = ref_date if isinstance(ref_date, str) else ref_date.isoformat()
+                ref_dt = date.fromisoformat(ref_str) if isinstance(ref_date, str) else ref_date
+            else:
+                ref_dt = date.today()
+                ref_str = ref_dt.isoformat()
             placeholders = ",".join(["%s"] * len(codes))
 
-            # P0: date < today → 오늘 데이터 완전 제외
+            # P0: date < ref_date → ref 당일 데이터 제외, 직전 거래일 종가 조회
             query = f"""
                 WITH ranked AS (
                     SELECT code, date, close,
@@ -173,12 +183,12 @@ class DbProvider:
                 )
                 SELECT code, date, close FROM ranked WHERE rn = 1
             """
-            params = codes + [today_str]
+            params = codes + [ref_str]
             cur = conn.cursor()
             cur.execute(query, params)
             rows = cur.fetchall()
 
-            today = date.today()
+            today = ref_dt
             result = {}
             for code, dt, close in rows:
                 if isinstance(dt, str):

@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-telegram_bot.py — 텔레그램 알림 발송
-======================================
+telegram_bot.py — 텔레그램 알림 발송 (KR market)
+=================================================
 .env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 실패 시 로그만. blocking 금지.
+All messages prefixed with [KR] for market context separation.
 """
 from __future__ import annotations
 
@@ -60,7 +61,7 @@ def send(text: str, severity: str = "INFO") -> bool:
 
         import requests
         emoji = SEVERITY_EMOJI.get(severity, "")
-        full_text = f"{emoji} {text}" if emoji else text
+        full_text = f"{emoji} [KR] {text}" if emoji else f"[KR] {text}"
 
         url = f"https://api.telegram.org/bot{_BOT_TOKEN}/sendMessage"
         resp = requests.post(url, json={
@@ -190,6 +191,39 @@ def notify_crosscheck_critical(diffs: list) -> bool:
         f"<b>COM↔REST 불일치</b>\n{diff_text}",
         "CRITICAL"
     )
+
+
+def notify_gate_observation() -> bool:
+    """AUTO GATE latest-JSON summary (READ-ONLY consumer).
+
+    Reads the latest logs/gate_observer/YYYYMMDD.json written by the single
+    producer (kr/tray_server.py post-EOD). Never triggers gate_observer.run_today.
+    Safe to call from tray menu, /command handler, or manual ops query.
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+    _root = _Path(__file__).resolve().parent.parent.parent
+    if str(_root) not in _sys.path:
+        _sys.path.insert(0, str(_root))
+    try:
+        from tools.gate_observer import load_latest, status_header
+    except Exception as e:
+        logger.warning(f"gate_observer import failed: {e}")
+        return False
+    data = load_latest()
+    if not data:
+        return send("AUTO GATE: NO REPORT (producer deferred or not run)",
+                    severity="INFO")
+    lines = [status_header(data)]
+    for mkt in ("KR", "US"):
+        t = data.get(mkt, {}).get("totals", {})
+        lines.append(
+            f"  [{mkt}] ALLOW {t.get('BUY_GATE_ALLOWED',0)} "
+            f"ADVS {t.get('BUY_ADVISORY',0)} "
+            f"BLOCK {t.get('BUY_BLOCKED_BY_AUTO_GATE',0)} "
+            f"ERR {t.get('BUY_GATE_EVAL_ERROR',0)}"
+        )
+    return send("\n".join(lines), severity="INFO")
 
 
 # ── Bot Command Handler (polling) ────────────────────────────

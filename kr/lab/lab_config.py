@@ -23,6 +23,11 @@ STRATEGY_GROUPS: Dict[str, List[str]] = {
     "event":  ["breakout_trend", "mean_reversion", "liquidity_signal"],
     "macro":  ["sector_rotation"],
     "regime": ["vol_regime"],  # isolated — 다른 전략과 절대 혼합 금지
+    # B군 (HA 필터 적용 독립 전략군)
+    "rebal_ha":  ["momentum_base_ha", "lowvol_momentum_ha", "quality_factor_ha", "hybrid_qscore_ha"],
+    "event_ha":  ["breakout_trend_ha", "mean_reversion_ha", "liquidity_signal_ha"],
+    "macro_ha":  ["sector_rotation_ha"],
+    "regime_ha": ["vol_regime_ha"],
 }
 
 DISABLE_CROSS_GROUP_COMPARISON = True
@@ -33,6 +38,10 @@ EXPECTED_EXPOSURE: Dict[str, tuple] = {
     "event":  (0.20, 0.80),
     "regime": (0.10, 0.95),
     "macro":  (0.60, 0.95),
+    "rebal_ha":  (0.70, 0.95),
+    "event_ha":  (0.20, 0.80),
+    "regime_ha": (0.10, 0.95),
+    "macro_ha":  (0.60, 0.95),
 }
 
 
@@ -58,6 +67,16 @@ STRATEGY_CONFIGS: Dict[str, StrategyConfig] = {
     "liquidity_signal": StrategyConfig(max_positions=10, rebal_days=None, min_expected_hold=2, group="event"),
     "sector_rotation":  StrategyConfig(max_positions=20, rebal_days=21, min_expected_hold=10, group="macro"),
     "vol_regime":       StrategyConfig(max_positions=20, rebal_days=21, min_expected_hold=10, group="regime"),
+    # ── B군 HA 전략 (독립 전략군, A군 파라미터 동일) ──────────────
+    "momentum_base_ha":    StrategyConfig(max_positions=20, rebal_days=21, min_expected_hold=10, group="rebal_ha"),
+    "lowvol_momentum_ha":  StrategyConfig(max_positions=20, rebal_days=21, min_expected_hold=10, group="rebal_ha"),
+    "quality_factor_ha":   StrategyConfig(max_positions=20, rebal_days=21, min_expected_hold=10, group="rebal_ha"),
+    "hybrid_qscore_ha":    StrategyConfig(max_positions=20, rebal_days=21, min_expected_hold=10, group="rebal_ha"),
+    "breakout_trend_ha":   StrategyConfig(max_positions=15, rebal_days=None, min_expected_hold=3, group="event_ha"),
+    "mean_reversion_ha":   StrategyConfig(max_positions=5,  rebal_days=None, min_expected_hold=1, group="event_ha"),
+    "liquidity_signal_ha": StrategyConfig(max_positions=10, rebal_days=None, min_expected_hold=2, group="event_ha"),
+    "sector_rotation_ha":  StrategyConfig(max_positions=20, rebal_days=21, min_expected_hold=10, group="macro_ha"),
+    "vol_regime_ha":       StrategyConfig(max_positions=20, rebal_days=21, min_expected_hold=10, group="regime_ha"),
 }
 
 

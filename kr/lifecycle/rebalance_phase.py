@@ -134,7 +134,38 @@ def run_rebalance(ctx: LiveContext) -> None:
             ctx.monitor_only = True
         else:
             data_date = target.get("date", "?")
-            logger.info(f"Target loaded: {len(target['target_tickers'])} stocks (data: {data_date})")
+            # KR-P0-004: log snapshot_version for traceability and re-run detection
+            _sv = target.get("snapshot_version", "")
+            _src = target.get("selected_source", "?")
+            _dl = target.get("data_last_date", "?")
+            _uc = target.get("universe_count", "?")
+            if _sv:
+                logger.info(
+                    f"Target loaded: {len(target['target_tickers'])} stocks "
+                    f"(data: {data_date}, sv={_sv})")
+                logger.info(
+                    f"[REBAL_SNAPSHOT_VERSION] source={_src} data_last={_dl} "
+                    f"universe={_uc} — skip if matches last_rebal_snapshot_version")
+                # Persist to runtime for post-mortem and idempotency
+                try:
+                    _rt = state_mgr.load_runtime()
+                    _last_sv = _rt.get("last_rebal_snapshot_version", "")
+                    if _last_sv == _sv and _rt.get("last_rebal_date", "") == today_str:
+                        logger.critical(
+                            f"[REBAL_DUPLICATE_SNAPSHOT] skip: sv={_sv} "
+                            f"already applied today ({today_str})")
+                        ctx.monitor_only = True
+                        target = None  # force skip below
+                except Exception as _e:
+                    logger.warning(f"[REBAL_SV_CHECK_FAIL] {_e} — proceeding without gate")
+            else:
+                logger.warning(
+                    f"Target loaded: {len(target['target_tickers'])} stocks "
+                    f"(data: {data_date}) — NO snapshot_version (pre-P0-004 batch?)")
+        # Re-check after possible force-skip above
+        if target is None:
+            pass
+        else:
 
             # Enrich name cache with target tickers
             try:
@@ -253,6 +284,46 @@ def run_rebalance(ctx: LiveContext) -> None:
                     logger.warning(f"[BUY_REDUCED] {perm_reason} — "
                                    f"buy_scale={buy_scale:.0%}")
 
+                # ── P2.4: Auto Trading Gate (BUY-only enforcement) ──────────
+                # SELL/RECON/EOD/trail는 영향 없음. BUY skip 만 토글.
+                try:
+                    from risk.execution_guard_hook import guard_buy_execution
+                    from risk.strategy_health import compute_strategy_health
+                    _rt_for_gate = state_mgr.load_runtime() or {}
+                    _equity_dd = float(_rt_for_gate.get("equity_dd_pct", 0.0) or 0.0)
+                    _health = compute_strategy_health(equity_dd_pct=_equity_dd)
+                    _decision = guard_buy_execution(
+                        guard=guard, runtime=_rt_for_gate,
+                        portfolio=portfolio, strategy_health=_health,
+                    )
+                    _req_id = f"rebal-{today_str}"
+                    if _decision.block_buy:
+                        logger.critical(
+                            f"[BUY_BLOCKED_BY_AUTO_GATE] market=KR "
+                            f"req={_req_id} mode={_decision.mode} "
+                            f"top={_decision.highest_blocker} "
+                            f"reason={_decision.reason}"
+                        )
+                        skip_buys = True
+                        buy_scale = 0.0
+                    elif not _decision.enabled:
+                        # advisory: enforce OFF, BUY 통과하지만 "차단되었을 것" 기록
+                        logger.info(
+                            f"[BUY_ADVISORY] market=KR req={_req_id} "
+                            f"mode={_decision.mode} "
+                            f"top={_decision.highest_blocker} "
+                            f"reason={_decision.reason}"
+                        )
+                    else:
+                        logger.info(
+                            f"[BUY_GATE_ALLOWED] market=KR req={_req_id} "
+                            f"mode={_decision.mode} "
+                            f"buy_scale={_decision.buy_scale:.2f}"
+                        )
+                except Exception as _ge:
+                    # fail-safe: gate 평가 자체 실패 시 advisory 로그만, BUY 진행
+                    logger.error(f"[BUY_GATE_EVAL_ERROR] {type(_ge).__name__}: {_ge}")
+
                 # Wait for market open (09:00)
                 if need_rebalance and not is_market_hours():
                     logger.info("[MARKET_WAIT] Market not open yet — waiting for 09:00...")
@@ -333,6 +404,15 @@ def run_rebalance(ctx: LiveContext) -> None:
                             if portfolio_saved:
                                 state_mgr.save_pending_buys(pending_buys_list, sell_status)
                                 state_mgr.set_last_rebalance_date(today_str)
+                                # KR-P0-004: persist snapshot_version for duplicate-gate
+                                try:
+                                    __rt = state_mgr.load_runtime()
+                                    __rt["last_rebal_snapshot_version"] = target.get(
+                                        "snapshot_version", "")
+                                    __rt["last_rebal_date"] = today_str
+                                    state_mgr.save_runtime(__rt)
+                                except Exception as __e:
+                                    logger.warning(f"[REBAL_SV_PERSIST_FAIL] {__e}")
                                 logger.info(
                                     "[REBALANCE_COMMIT_OK] Portfolio saved, "
                                     "rebalance date marked: %s, "

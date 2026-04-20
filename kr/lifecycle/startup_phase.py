@@ -321,9 +321,32 @@ def run_startup(config) -> LiveContext:
     time.sleep(3.0)
     logger.info("[RECON_WAIT] Done — proceeding with reconciliation")
 
-    # Broker reconciliation
-    recon = _reconcile_with_broker(portfolio, provider, logger, trade_logger,
-                                    buy_cost=config.BUY_COST, guard=guard)
+    # Broker reconciliation (P1-1: PARTIAL auto-retry 3x 30s before monitor-only)
+    _RECON_MAX_RETRY = 3
+    _RECON_RETRY_SLEEP = 30.0
+    _recon_attempt = 0
+    recon = None
+    while _recon_attempt <= _RECON_MAX_RETRY:
+        recon = _reconcile_with_broker(portfolio, provider, logger, trade_logger,
+                                        buy_cost=config.BUY_COST, guard=guard)
+        # Only retry on holdings_unreliable (PARTIAL snapshot). Other errors
+        # (e.g. cash_spike, broker_fail) should fall through to existing handlers.
+        _is_partial = bool(recon and not recon.get("ok", True)
+                            and recon.get("error") == "holdings_unreliable")
+        if not _is_partial:
+            break
+        if _recon_attempt >= _RECON_MAX_RETRY:
+            logger.critical(
+                f"[RECON_PARTIAL_RETRY] exhausted={_recon_attempt}/{_RECON_MAX_RETRY} "
+                f"— falling through to monitor-only")
+            break
+        _recon_attempt += 1
+        logger.warning(
+            f"[RECON_PARTIAL_RETRY] attempt={_recon_attempt}/{_RECON_MAX_RETRY} "
+            f"sleep={_RECON_RETRY_SLEEP:.0f}s — PARTIAL snapshot, retrying")
+        time.sleep(_RECON_RETRY_SLEEP)
+    if _recon_attempt > 0 and recon and recon.get("ok", True):
+        logger.info(f"[RECON_PARTIAL_RETRY] recovered after attempt={_recon_attempt}")
     reconcile_corrections = recon.get("corrections", 0) if recon else 0
     if recon and reconcile_corrections > 0:
         if trading_mode != "shadow_test":
@@ -333,18 +356,51 @@ def run_startup(config) -> LiveContext:
         else:
             logger.info(f"[SHADOW_TEST] RECON found {reconcile_corrections} corrections (not saved)")
     if recon and not recon.get("ok", True):
-        if trading_mode == "shadow_test":
-            logger.warning("[SHADOW_TEST_EXIT] Broker sync failed — logged only, no abort needed")
-            logger.info("[SHADOW_TEST_RESULT] RECON=FAIL, corrections=%d, error=%s",
-                        reconcile_corrections, recon.get("error", "unknown"))
-            raise SystemExit("Shadow test RECON fail")
-        logger.critical("Broker sync FAILED — aborting LIVE to prevent stale-state trading")
-        save_forensic_snapshot(
-            config.STATE_DIR,
-            portfolio_data=portfolio.to_dict(),
-            error_msg=f"Broker sync failed: {recon.get('error', 'unknown')}",
-            extra={"recon": recon})
-        raise SystemExit("Broker sync failed")
+        _err = recon.get("error", "unknown")
+        # PARTIAL holdings → do NOT abort; force session monitor-only.
+        # (KR-P0-002: was ok=True+safe_mode which often proceeded silently.)
+        if _err == "holdings_unreliable":
+            if trading_mode == "shadow_test":
+                logger.warning("[SHADOW_TEST_EXIT] PARTIAL snapshot — logged only")
+                raise SystemExit("Shadow test PARTIAL")
+            logger.critical(
+                "[RECON_HOLDINGS_UNRELIABLE] PARTIAL snapshot detected — "
+                "session forced to MONITOR-ONLY. No rebal/buy/sell until next session.")
+            try:
+                rt = state_mgr.load_runtime()
+                rt["recon_unreliable"] = True
+                rt["monitor_only_reason"] = "holdings_unreliable"
+                state_mgr.save_runtime(rt)
+            except Exception as _e:
+                logger.warning(f"[RECON_PARTIAL_SAVE_FAIL] {_e}")
+            # guard.force_safe_mode on L2 so downstream gates see SAFE_MODE
+            try:
+                guard.force_safe_mode("RECON_PARTIAL: holdings_unreliable", level=2)
+            except Exception:
+                pass
+            if _KAKAO_OK:
+                try:
+                    _kakao_safe_mode(2, "PARTIAL snapshot — monitor-only")
+                except Exception:
+                    pass
+            # Allow startup to continue but sentinel flag propagates to phases.
+            # session_monitor_only is set below at line ~441 via safe_mode path.
+            recon = dict(recon)
+            recon["safe_mode"] = True
+            recon["safe_mode_reason"] = "holdings_unreliable — monitor-only session"
+        else:
+            if trading_mode == "shadow_test":
+                logger.warning("[SHADOW_TEST_EXIT] Broker sync failed — logged only, no abort needed")
+                logger.info("[SHADOW_TEST_RESULT] RECON=FAIL, corrections=%d, error=%s",
+                            reconcile_corrections, _err)
+                raise SystemExit("Shadow test RECON fail")
+            logger.critical("Broker sync FAILED — aborting LIVE to prevent stale-state trading")
+            save_forensic_snapshot(
+                config.STATE_DIR,
+                portfolio_data=portfolio.to_dict(),
+                error_msg=f"Broker sync failed: {_err}",
+                extra={"recon": recon})
+            raise SystemExit("Broker sync failed")
 
     # shadow_test: exit after RECON
     if trading_mode == "shadow_test":
