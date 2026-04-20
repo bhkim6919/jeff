@@ -178,9 +178,16 @@ def run_backup():
         results["cleanup"] = f"ERROR: {e}"
 
     # ── Summary ──
+    # "SKIPPED ..." 는 의도적 skip (예: sqlite PG 마이그레이션 후)이므로 FAIL 아님.
+    # FAIL 판정은 실제 실패("ERROR", "FAIL", 빈값)만 대상으로 한다.
     elapsed = (datetime.now() - ts_start).total_seconds()
-    all_ok = all("OK" in v for v in results.values())
-    failed = [k for k, v in results.items() if "OK" not in v]
+
+    def _is_success(v: str) -> bool:
+        v = str(v or "")
+        return ("OK" in v) or v.startswith("SKIPPED")
+
+    all_ok = all(_is_success(v) for v in results.values())
+    failed = [k for k, v in results.items() if not _is_success(v)]
 
     if all_ok:
         summary = f"[BACKUP_OK] {today} completed in {elapsed:.0f}s"
