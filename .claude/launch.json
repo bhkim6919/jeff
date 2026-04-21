@@ -10,7 +10,7 @@
     },
     {
       "name": "surge-rest",
-      "runtimeExecutable": "C:/Q-TRON-32_ARCHIVE/.venv/Scripts/python.exe",
+      "runtimeExecutable": "C:/Q-TRON-32_ARCHIVE/.venv64/Scripts/python.exe",
       "runtimeArgs": ["-m", "uvicorn", "web.app:app", "--host", "0.0.0.0", "--port", "8080"],
       "port": 8080,
       "cwd": "kr"

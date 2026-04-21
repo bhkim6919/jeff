@@ -8,6 +8,7 @@ __pycache__/
 # Virtual environment
 .venv/
 .venv64/
+.venv39_deprecated/
 
 # IDE
 .idea/

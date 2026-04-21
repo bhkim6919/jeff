@@ -251,7 +251,7 @@ def bootstrap_env(*, data_dir: Path | None = None, strict: bool = True) -> dict:
 ### 2.8 Phase 1 Done 기준
 
 - [ ] 10개 파일 생성 (5 pipeline/ + 1 schema + 4 tests)
-- [ ] `cd kr && ../.venv/Scripts/python.exe -m pytest tests/pipeline/ -v` 전부 PASS
+- [ ] `cd kr && ../.venv64/Scripts/python.exe -m pytest tests/pipeline/ -v` 전부 PASS
 - [ ] 기존 tray/engine 코드 **무변경** (회귀 zero)
 - [ ] Commit: `feat(pipeline): Phase 1 — state/backoff/mode/bootstrap foundation`
 

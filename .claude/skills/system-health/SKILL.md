@@ -77,8 +77,8 @@ Comprehensive health check across the Q-TRON KR and US trading systems. Validate
 - **US Lab**: `C:/Q-TRON-32_ARCHIVE/us/lab/`
 
 ### Python Environments
-- **KR Python**: `C:/Q-TRON-32_ARCHIVE/.venv/Scripts/python.exe` (3.9, 32-bit)
-- **US Python**: `C:/Q-TRON-32_ARCHIVE/us/.venv/Scripts/python.exe` (3.12, 64-bit)
+- **KR Python**: `C:/Q-TRON-32_ARCHIVE/.venv64/Scripts/python.exe` (3.12.9, 64-bit)
+- **US Python**: `C:/Q-TRON-32_ARCHIVE/us/.venv/Scripts/python.exe` (3.12.9, 64-bit)
 
 ---
 
@@ -281,7 +281,7 @@ tasklist | findstr python
 netstat -an | findstr "8080\|8081"
 
 # KR Python environment check
-C:/Q-TRON-32_ARCHIVE/.venv/Scripts/python.exe --version
+C:/Q-TRON-32_ARCHIVE/.venv64/Scripts/python.exe --version
 
 # US Python environment check
 C:/Q-TRON-32_ARCHIVE/us/.venv/Scripts/python.exe --version

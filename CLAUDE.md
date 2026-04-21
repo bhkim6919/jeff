@@ -160,12 +160,13 @@ Q-TRON/
 
 ### Current Runtime
 ```
-KR: C:\Q-TRON-32_ARCHIVE\.venv\Scripts\python.exe (3.12 64-bit — REST 전환 완료)
-US: C:\Q-TRON-32_ARCHIVE\us\.venv\Scripts\python.exe (3.12 64-bit)
+KR: C:\Q-TRON-32_ARCHIVE\.venv64\Scripts\python.exe (Python 3.12.9 64-bit — REST 전환 완료)
+US: C:\Q-TRON-32_ARCHIVE\us\.venv\Scripts\python.exe (Python 3.12.9 64-bit)
 ```
 
 ### Runtime Notes
 - KR/US 모두 Python 3.12 64-bit 통일 (2026-04-16 전환)
+- KR 구 `.venv` (Python 3.9 32-bit) 는 `.venv39_deprecated/` 로 rename 완료 (2026-04-21), 활성 경로 미사용
 - 32-bit Python은 사용하지 않음 (시스템 설치 잔존, venv 미사용)
 - PostgreSQL 접근: psycopg2-binary (shared/db/pg_base.py 경유)
 
@@ -173,8 +174,8 @@ US: C:\Q-TRON-32_ARCHIVE\us\.venv\Scripts\python.exe (3.12 64-bit)
 
 ```bash
 # KR (3.12 64-bit)
-cd kr && ../.venv/Scripts/python.exe main.py --batch
-cd kr && ../.venv/Scripts/python.exe main.py --live
+cd kr && ../.venv64/Scripts/python.exe main.py --batch
+cd kr && ../.venv64/Scripts/python.exe main.py --live
 
 # US
 cd us && .venv/Scripts/python.exe main.py --batch
