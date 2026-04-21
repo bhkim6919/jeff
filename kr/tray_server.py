@@ -73,6 +73,20 @@ US_PORT = 8081
 US_BASE_DIR = Path(__file__).resolve().parent.parent / "us"
 US_PYTHON = US_BASE_DIR / ".venv" / "Scripts" / "python.exe"
 
+# ── KR Live (Gen4 trading engine) auto-attach config ─────────
+# Tray spawns kr/main.py --live as a subprocess, restarted automatically
+# whenever the KR market is open. Engine has its own 16:00 KST gate
+# (startup_phase.py:59) — tray respects that and waits until next session
+# instead of restart-looping. Goal: operator can reboot PC anytime; tray
+# keeps the live engine attached without manual `python main.py --live`.
+KR_LIVE_BASE_DIR = Path(__file__).resolve().parent  # kr/
+KR_LIVE_PYTHON = Path(__file__).resolve().parent.parent / ".venv64" / "Scripts" / "python.exe"
+KR_LIVE_START_HOUR = 8        # 08:30 KST — earliest tray will spawn live engine
+KR_LIVE_START_MINUTE = 30
+KR_LIVE_END_HOUR = 16          # 16:00 KST — engine's own startup gate; do not spawn after
+KR_LIVE_RETRY_COOLDOWN_SEC = 300  # 5 min cooldown after a crash before next attempt
+KR_LIVE_MAX_ATTEMPTS_PER_DAY = 3
+
 # Menu item IDs
 ID_STATUS = 1001
 ID_DASHBOARD = 1002
@@ -98,6 +112,12 @@ ID_GATE_OBSERVER = 1028
 ID_US_RESTART = 1028
 ID_RESTART_ALL = 1029
 ID_US_LOG_DIR = 1030
+# KR Live menu IDs
+ID_KR_LIVE_START = 1040
+ID_KR_LIVE_STOP = 1041
+ID_KR_LIVE_RESTART = 1042
+ID_KR_LIVE_AUTO_TOGGLE = 1043
+ID_KR_LIVE_LOG = 1044
 
 
 class Win32TrayServer:
@@ -146,6 +166,17 @@ class Win32TrayServer:
         # US live state
         self._us_live_process: Optional[subprocess.Popen] = None
         self._us_live_running = False
+        # KR live engine state (kr/main.py --live, auto-attach by tray)
+        self._kr_live_process: Optional[subprocess.Popen] = None
+        self._kr_live_running = False
+        self._kr_live_auto = True   # default ON; menu can toggle
+        self._kr_live_ended_today = False  # set on clean EOD / after-hours exit
+        self._kr_live_last_attempt_at: Optional[datetime] = None
+        self._kr_live_attempt_count_today = 0
+        self._kr_live_attempt_count_date: Optional[date] = None
+        self._kr_live_last_exit_reason: str = ""  # diagnostic
+        self._kr_live_log_fh = None       # file handle (closed on stop)
+        self._kr_live_log_path: Optional[Path] = None
         # Restart guards
         self._kr_restarting = False
         self._us_restarting = False
@@ -454,6 +485,12 @@ class Win32TrayServer:
             ID_US_AUTO_TOGGLE: self._action_us_auto_toggle,
             ID_US_RESTART: self._action_us_restart,
             ID_US_LOG_DIR: self._action_us_log_dir,
+            # KR Live (Gen4 trading engine, auto-attach via tray)
+            ID_KR_LIVE_START: self._action_kr_live_start,
+            ID_KR_LIVE_STOP: self._action_kr_live_stop,
+            ID_KR_LIVE_RESTART: self._action_kr_live_restart,
+            ID_KR_LIVE_AUTO_TOGGLE: self._action_kr_live_auto_toggle,
+            ID_KR_LIVE_LOG: self._action_kr_live_log,
             # Global
             ID_UNIFIED: self._action_unified,
             ID_RESTART_ALL: self._action_restart_all,
@@ -520,6 +557,33 @@ class Win32TrayServer:
             " (done today)" if self._self_test_today_done else ""
         )
         win32gui.AppendMenu(kr_sub, st_flags, ID_SELF_TEST_NOW, st_label)
+        win32gui.AppendMenu(kr_sub, MF_SEP, 0, "")
+        # ── KR Live (Gen4 trading engine) controls ──
+        _kr_live_alive = self._is_kr_live_alive()
+        _kr_live_window = self._is_kr_trading_window()
+        _kr_live_label = "KR Live: " + (
+            "RUNNING" if _kr_live_alive else
+            f"OFFLINE ({self._kr_live_last_exit_reason})" if self._kr_live_last_exit_reason else
+            "OFFLINE (waiting for window)" if not _kr_live_window else
+            "OFFLINE"
+        )
+        win32gui.AppendMenu(kr_sub, MF | MF_GRAY, 0, _kr_live_label)
+        _kr_live_start_label = "Start KR Live" + ("" if _kr_live_window else " (after-hours)")
+        win32gui.AppendMenu(
+            kr_sub, MF | (MF_GRAY if _kr_live_alive else 0),
+            ID_KR_LIVE_START, _kr_live_start_label,
+        )
+        win32gui.AppendMenu(
+            kr_sub, MF | (0 if _kr_live_alive else MF_GRAY),
+            ID_KR_LIVE_STOP, "Stop KR Live",
+        )
+        win32gui.AppendMenu(
+            kr_sub, MF | (0 if _kr_live_alive else MF_GRAY),
+            ID_KR_LIVE_RESTART, "Restart KR Live",
+        )
+        _kr_live_auto_label = f"KR Live Auto [{'ON' if self._kr_live_auto else 'OFF'}]"
+        win32gui.AppendMenu(kr_sub, MF, ID_KR_LIVE_AUTO_TOGGLE, _kr_live_auto_label)
+        win32gui.AppendMenu(kr_sub, MF, ID_KR_LIVE_LOG, "Open KR Live Log")
         win32gui.AppendMenu(kr_sub, MF_SEP, 0, "")
         kr_restart_flags = MF | (MF_GRAY if self._kr_restarting else 0)
         win32gui.AppendMenu(kr_sub, kr_restart_flags, ID_RESTART, "Restart Server")
@@ -874,7 +938,10 @@ class Win32TrayServer:
         self._logger.info("[TRAY] Shutdown All requested")
         self._send_shutdown_alert("Shutdown All requested (manual)")
         self._running = False
-        # Stop US live first
+        # Stop KR live engine first (stops trail-stop monitoring + EOD)
+        if self._is_kr_live_alive():
+            self._action_kr_live_stop()
+        # Stop US live
         if self._is_us_live_alive():
             self._action_us_live_stop()
         # Stop US server
@@ -1880,6 +1947,263 @@ class Win32TrayServer:
         self._logger.info("[US_LIVE] Stopped")
         self._show_balloon("Q-TRON US", "US Live stopped.")
 
+    # ── KR Live (Gen4 trading engine) auto-attach ────────────────
+    # Pattern: tray spawns kr/main.py --live as subprocess, monitors its
+    # lifecycle, classifies exit reason, retries only on real crashes.
+    # The engine has its own 16:00 KST startup gate — tray respects it.
+
+    def _is_kr_live_alive(self) -> bool:
+        """Check whether the KR live engine subprocess is still running."""
+        if self._kr_live_process is None:
+            return False
+        return self._kr_live_process.poll() is None
+
+    def _is_kr_trading_window(self) -> bool:
+        """True iff now is inside the daily window where tray may spawn KR live.
+
+        Window: weekday 08:30 ≤ now < 16:00 KST. Holidays are not separately
+        checked here — the engine's own is_trading_day() exits cleanly with
+        "Non-trading day" if today is closed, and the tray's exit classifier
+        marks the day as ended (no further attempts).
+        """
+        now = datetime.now()
+        if now.weekday() >= 5:  # Sat/Sun
+            return False
+        if now.hour < KR_LIVE_START_HOUR:
+            return False
+        if now.hour == KR_LIVE_START_HOUR and now.minute < KR_LIVE_START_MINUTE:
+            return False
+        if now.hour >= KR_LIVE_END_HOUR:
+            return False
+        return True
+
+    def _classify_kr_live_exit(self) -> str:
+        """Tail the KR live log to figure out *why* the subprocess exited.
+
+        Drives retry policy: clean exits (after-hours / non-trading / EOD)
+        block further attempts today; crashes are retryable up to N times
+        with cooldown. Without this classifier, tray would restart-loop
+        through the engine's own 16:00 gate forever.
+        """
+        if not self._kr_live_log_path or not self._kr_live_log_path.exists():
+            return "UNKNOWN"
+        try:
+            with open(self._kr_live_log_path, "r", encoding="utf-8", errors="replace") as f:
+                tail = f.readlines()[-80:]
+            joined = "".join(tail)
+        except Exception:
+            return "UNKNOWN"
+        if "After 16:00" in joined or "After market hours" in joined:
+            return "AFTER_HOURS"
+        if "Non-trading day" in joined:
+            return "NON_TRADING_DAY"
+        # startup_phase.py:397 uses "Broker sync FAILED" (uppercase) —
+        # do case-insensitive match so a future caps tweak doesn't break us.
+        if "broker sync failed" in joined.lower():
+            return "BROKER_FAIL"
+        if "[LIVE_END] system exit" in joined:
+            return "EOD_COMPLETE"
+        if "Shadow test complete" in joined:
+            return "SHADOW_COMPLETE"  # shouldn't happen here, defensive
+        return "UNKNOWN"
+
+    def _action_kr_live_start(self):
+        """Spawn kr/main.py --live as background subprocess.
+
+        Stdout+stderr captured to a date-stamped log so the exit classifier
+        can read the SystemExit reason after the process ends. Without
+        this redirect (subprocess.DEVNULL), the tray cannot tell an
+        after-hours exit apart from a real crash and would retry-loop.
+        """
+        if self._kr_live_running and self._is_kr_live_alive():
+            self._show_balloon("Q-TRON KR", "KR Live already running.")
+            return
+        if not KR_LIVE_PYTHON.exists():
+            self._show_balloon("Q-TRON KR", f"Python not found:\n{KR_LIVE_PYTHON}")
+            self._logger.error(f"[KR_LIVE] Python missing: {KR_LIVE_PYTHON}")
+            return
+
+        # Daily attempt counter reset
+        today = date.today()
+        if self._kr_live_attempt_count_date != today:
+            self._kr_live_attempt_count_date = today
+            self._kr_live_attempt_count_today = 0
+            self._kr_live_ended_today = False
+
+        self._kr_live_attempt_count_today += 1
+        self._kr_live_last_attempt_at = datetime.now()
+
+        # Per-day log file; subprocess writes via fh, classifier reads via path
+        try:
+            log_dir = LOG_DIR
+            log_dir.mkdir(parents=True, exist_ok=True)
+            self._kr_live_log_path = log_dir / f"kr_live_tray_{today.strftime('%Y%m%d')}.log"
+            self._kr_live_log_fh = open(
+                self._kr_live_log_path, "a", encoding="utf-8", buffering=1
+            )
+            self._kr_live_log_fh.write(
+                f"\n===== {datetime.now().isoformat(timespec='seconds')} "
+                f"KR live spawn (attempt {self._kr_live_attempt_count_today}"
+                f"/{KR_LIVE_MAX_ATTEMPTS_PER_DAY}) =====\n"
+            )
+        except Exception as _log_err:
+            self._logger.error(f"[KR_LIVE] log open failed: {_log_err}")
+            self._kr_live_log_fh = None
+
+        # Clean env: avoid leaking VIRTUAL_ENV from KR REST process into the
+        # engine subprocess (engine uses its own .venv64 interpreter).
+        clean_env = dict(os.environ)
+        for var in ("PYTHONPATH", "VIRTUAL_ENV", "PYTHONHOME"):
+            clean_env.pop(var, None)
+
+        try:
+            self._kr_live_process = subprocess.Popen(
+                [str(KR_LIVE_PYTHON), "-X", "utf8", "main.py", "--live"],
+                cwd=str(KR_LIVE_BASE_DIR),
+                stdout=(self._kr_live_log_fh or subprocess.DEVNULL),
+                stderr=subprocess.STDOUT,
+                env=clean_env,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            )
+            self._kr_live_running = True
+            self._logger.info(
+                f"[KR_LIVE] Spawned (PID {self._kr_live_process.pid}, "
+                f"attempt {self._kr_live_attempt_count_today})"
+            )
+            self._show_balloon("Q-TRON KR", "KR Live started")
+        except Exception as e:
+            self._logger.error(f"[KR_LIVE] Spawn failed: {e}")
+            self._show_balloon("Q-TRON KR", f"KR Live spawn failed: {e}")
+            self._kr_live_running = False
+            self._kr_live_process = None
+            if self._kr_live_log_fh:
+                try:
+                    self._kr_live_log_fh.close()
+                except Exception:
+                    pass
+                self._kr_live_log_fh = None
+
+    def _action_kr_live_stop(self):
+        """Stop KR live subprocess gracefully (CTRL_BREAK → terminate)."""
+        if not self._is_kr_live_alive():
+            self._show_balloon("Q-TRON KR", "KR Live not running.")
+            self._kr_live_running = False
+            self._kr_live_process = None
+            return
+        try:
+            import signal as _sig
+            try:
+                os.kill(self._kr_live_process.pid, _sig.CTRL_BREAK_EVENT)
+                self._kr_live_process.wait(timeout=10)
+            except Exception:
+                self._kr_live_process.terminate()
+                self._kr_live_process.wait(timeout=5)
+        except Exception:
+            try:
+                self._kr_live_process.kill()
+            except Exception:
+                pass
+        self._kr_live_running = False
+        self._kr_live_process = None
+        if self._kr_live_log_fh:
+            try:
+                self._kr_live_log_fh.close()
+            except Exception:
+                pass
+            self._kr_live_log_fh = None
+        self._logger.info("[KR_LIVE] Stopped")
+        self._show_balloon("Q-TRON KR", "KR Live stopped")
+
+    def _action_kr_live_restart(self):
+        """Stop + start cycle. Resets the daily attempt counter so an
+        operator-initiated restart isn't penalized by prior crash budget."""
+        self._action_kr_live_stop()
+        time.sleep(1.0)
+        # Reset daily budget so manual restart isn't blocked by earlier crashes
+        self._kr_live_attempt_count_today = 0
+        self._kr_live_ended_today = False
+        self._action_kr_live_start()
+
+    def _action_kr_live_auto_toggle(self):
+        """Toggle whether the background scheduler will spawn KR live.
+
+        When OFF, the menu still lets operator start manually; tray just
+        won't intervene. Useful when Jeff wants to inspect engine state
+        without the scheduler restarting it.
+        """
+        self._kr_live_auto = not self._kr_live_auto
+        state_str = "ON" if self._kr_live_auto else "OFF"
+        self._logger.info(f"[KR_LIVE_AUTO] toggled → {state_str}")
+        self._show_balloon("Q-TRON KR", f"KR Live auto-attach: {state_str}")
+
+    def _action_kr_live_log(self):
+        """Open today's KR live tray log in the system's default editor."""
+        if self._kr_live_log_path and self._kr_live_log_path.exists():
+            try:
+                os.startfile(str(self._kr_live_log_path))
+            except Exception as _e:
+                self._show_balloon("Q-TRON KR", f"Log open failed: {_e}")
+        else:
+            self._show_balloon("Q-TRON KR", "No KR live log yet.")
+
+    def _check_kr_live_lifecycle(self):
+        """Tick-loop helper called every 30s by _background_scheduler.
+
+        Two responsibilities:
+          (a) Detect that a previously spawned subprocess has exited and
+              classify the reason — so the daily-attempt counter and the
+              ``ended_today`` flag stay correct. Without this the tray
+              would re-spawn through the engine's own gates.
+          (b) When KR live is not running and the trading window is open,
+              spawn it (subject to attempt budget + crash cooldown).
+        """
+        # (a) Detect exit
+        if (self._kr_live_process is not None
+                and self._kr_live_process.poll() is not None
+                and self._kr_live_running):
+            rc = self._kr_live_process.poll()
+            reason = self._classify_kr_live_exit()
+            self._kr_live_last_exit_reason = reason
+            self._kr_live_running = False
+            if self._kr_live_log_fh:
+                try:
+                    self._kr_live_log_fh.close()
+                except Exception:
+                    pass
+                self._kr_live_log_fh = None
+            self._logger.info(
+                f"[KR_LIVE] subprocess exited rc={rc} reason={reason}"
+            )
+            # Clean exits → no further attempts today
+            if reason in ("AFTER_HOURS", "NON_TRADING_DAY", "EOD_COMPLETE"):
+                self._kr_live_ended_today = True
+                self._logger.info(
+                    f"[KR_LIVE] {reason} — no further attempts until next session"
+                )
+
+        # (b) Decide whether to spawn now
+        if not self._kr_live_auto:
+            return
+        if self._is_kr_live_alive():
+            return
+        if not self._is_kr_trading_window():
+            return
+        if self._kr_live_ended_today:
+            return
+        if self._kr_live_attempt_count_today >= KR_LIVE_MAX_ATTEMPTS_PER_DAY:
+            return
+        # Crash cooldown: wait at least RETRY_COOLDOWN seconds since last attempt
+        if self._kr_live_last_attempt_at is not None:
+            since = (datetime.now() - self._kr_live_last_attempt_at).total_seconds()
+            if since < KR_LIVE_RETRY_COOLDOWN_SEC:
+                return
+        self._logger.info(
+            f"[KR_LIVE_AUTO] window open + not running → spawn "
+            f"(attempt {self._kr_live_attempt_count_today + 1}"
+            f"/{KR_LIVE_MAX_ATTEMPTS_PER_DAY})"
+        )
+        self._action_kr_live_start()
+
     def _action_unified(self):
         """Open Unified Dashboard in browser."""
         webbrowser.open(f"http://localhost:{PORT}/unified")
@@ -2096,6 +2420,22 @@ class Win32TrayServer:
                         self._self_test_today_done = False
                     # REJECTED 로그 throttle 캐시 리셋
                     self._us_catchup_reject_log.clear()
+                    # KR live daily counters reset (also handled in _action
+                    # _kr_live_start when date rolls, but mirror here so the
+                    # 00:00 tick is the explicit reset event in logs).
+                    if self._kr_live_attempt_count_date != date.today():
+                        self._kr_live_attempt_count_date = date.today()
+                        self._kr_live_attempt_count_today = 0
+                        self._kr_live_ended_today = False
+                        self._logger.info("[KR_LIVE_AUTO] daily counters reset")
+
+                # KR Live auto-attach: spawn engine when market window opens,
+                # detect clean exits (after-hours / EOD) so we don't restart-loop
+                # through the engine's own startup gate.
+                try:
+                    self._check_kr_live_lifecycle()
+                except Exception as _kr_live_err:
+                    self._logger.error(f"[KR_LIVE_AUTO] tick error: {_kr_live_err}")
 
                 # US Auto-batch: ET 18:00~18:30 (close + 2h)
                 if (self._us_batch_auto and not self._us_batch_running
