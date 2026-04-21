@@ -464,6 +464,54 @@ def _detect_engine_status() -> dict:
     }
 
 
+def _apply_engine_offline_override(snap: dict) -> dict:
+    """Apply ENGINE_OFFLINE safety gate to a state snapshot in-place.
+
+    Shared between /api/state (get_state_snapshot) and /sse/state
+    (_sse_generator) so both paths produce the same safety-gated view.
+    First version only patched the one-shot endpoint, which meant the
+    dashboard (which uses SSE) still showed YELLOW + "Sync mismatch"
+    while /api/state correctly showed RED + ENGINE_OFFLINE — exactly
+    the misleading UI we were trying to eliminate.
+
+    When the engine is OFFLINE:
+      - health.status = RED, health.reason = "ENGINE_OFFLINE: ..."
+      - auto_trading.enabled = False, blocker ← "ENGINE_OFFLINE" (top)
+      - recon.status = UNAVAILABLE, engine_offline = True
+      - sync rows annotated com_disabled=True, com_reason=ENGINE_OFFLINE
+
+    Returns the same dict it was given (convenience for chaining).
+    """
+    engine = _detect_engine_status()
+    snap["engine_status"] = engine
+    if engine["status"] != "OFFLINE":
+        return snap
+
+    snap["health"] = {
+        "status": "RED",
+        "reason": f"ENGINE_OFFLINE: {engine['reason']}",
+    }
+    _auto_dict = snap.get("auto_trading") or {}
+    _blockers = list(_auto_dict.get("blockers") or [])
+    if "ENGINE_OFFLINE" not in _blockers:
+        _blockers.insert(0, "ENGINE_OFFLINE")
+    _auto_dict["enabled"] = False
+    _auto_dict["blockers"] = _blockers
+    _auto_dict["reason_summary"] = "engine_offline"
+    _auto_dict["highest_priority_blocker"] = "ENGINE_OFFLINE"
+    snap["auto_trading"] = _auto_dict
+    _recon = snap.get("recon") or {}
+    _recon["status"] = "UNAVAILABLE"
+    _recon["engine_offline"] = True
+    _recon["engine_reason"] = engine["reason"]
+    snap["recon"] = _recon
+    for _row in (snap.get("sync") or []):
+        if isinstance(_row, dict):
+            _row["com_disabled"] = True
+            _row["com_reason"] = "ENGINE_OFFLINE"
+    return snap
+
+
 def _compute_recon_status() -> dict:
     """Read RECON status from runtime state.
 
@@ -1445,38 +1493,8 @@ def create_app() -> FastAPI:
             snap["auto_trading"] = {"enabled": False, "blockers": [f"EVAL_ERROR:{type(_e).__name__}"],
                                     "reason_summary": "eval_error"}
 
-        # ── ENGINE_OFFLINE safety gate (prevents operator misjudgment) ──
-        # When the live engine stops writing runtime_state, REST polling still
-        # keeps broker values fresh → dashboard looks healthy. Force-override
-        # health/auto_trading/recon so no human mistakes "REST alive" for
-        # "engine alive". See _detect_engine_status() for the detection logic.
-        _engine = _detect_engine_status()
-        snap["engine_status"] = _engine
-        if _engine["status"] == "OFFLINE":
-            snap["health"] = {
-                "status": "RED",
-                "reason": f"ENGINE_OFFLINE: {_engine['reason']}",
-            }
-            _auto_dict = snap.get("auto_trading") or {}
-            _blockers = list(_auto_dict.get("blockers") or [])
-            if "ENGINE_OFFLINE" not in _blockers:
-                _blockers.insert(0, "ENGINE_OFFLINE")
-            _auto_dict["enabled"] = False
-            _auto_dict["blockers"] = _blockers
-            _auto_dict["reason_summary"] = "engine_offline"
-            _auto_dict["highest_priority_blocker"] = "ENGINE_OFFLINE"
-            snap["auto_trading"] = _auto_dict
-            _recon = snap.get("recon") or {}
-            _recon["status"] = "UNAVAILABLE"
-            _recon["engine_offline"] = True
-            _recon["engine_reason"] = _engine["reason"]
-            snap["recon"] = _recon
-            # Annotate sync rows so the dual-read panel shows COM_DISABLED
-            # instead of implying a REST↔COM consistency problem.
-            for _row in (snap.get("sync") or []):
-                if isinstance(_row, dict):
-                    _row["com_disabled"] = True
-                    _row["com_reason"] = "ENGINE_OFFLINE"
+        # ENGINE_OFFLINE safety gate — shared with /sse/state via helper.
+        _apply_engine_offline_override(snap)
         return snap
 
     @application.get("/api/health")
@@ -3689,6 +3707,12 @@ async def _sse_generator(
             except Exception as _e:
                 data["auto_trading"] = {"enabled": False, "blockers": [f"EVAL_ERROR:{type(_e).__name__}"],
                                         "reason_summary": "eval_error"}
+            # ENGINE_OFFLINE safety gate — identical to /api/state path so
+            # SSE-consuming dashboards see the same RED banner / disabled
+            # auto-trading / UNAVAILABLE recon whenever the live engine is
+            # missing. Without this, the browser (SSE) would still show
+            # YELLOW "Sync mismatch" while /api/state correctly showed RED.
+            _apply_engine_offline_override(data)
             # snapshot_id / payload_id — 모든 필드 확정 후 증가
             _payload_seq["n"] += 1
             data["snapshot_id"] = _payload_seq["n"]
