@@ -353,6 +353,39 @@ class DbProviderUS:
         conn.close()
         logger.info("[DB_US] ohlcv_us_research table ensured")
 
+    def get_ohlcv_research_last_date(self, universe_tag: Optional[str] = None) -> Optional[date]:
+        """Return max(date) in ohlcv_us_research, optionally filtered by universe_tag.
+
+        Used by batch to decide between initial backfill (period=2y) and
+        daily incremental (period=5d).
+        """
+        try:
+            conn = self._conn()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT 1 FROM information_schema.tables WHERE table_name='ohlcv_us_research'"
+            )
+            if cur.fetchone() is None:
+                cur.close()
+                conn.close()
+                return None
+            if universe_tag:
+                cur.execute(
+                    "SELECT MAX(date) FROM ohlcv_us_research WHERE universe_tag=%s",
+                    (universe_tag,),
+                )
+            else:
+                cur.execute("SELECT MAX(date) FROM ohlcv_us_research")
+            row = cur.fetchone()
+            cur.close()
+            conn.close()
+            if row and row[0] is not None:
+                return row[0] if isinstance(row[0], date) else date.fromisoformat(str(row[0]))
+            return None
+        except Exception as e:
+            logger.warning(f"[RESEARCH_LAST_DATE_FAIL] {e}")
+            return None
+
     def upsert_ohlcv_research(self, symbol: str, df: pd.DataFrame,
                                universe_tag: str = "R1000") -> int:
         """OHLCV upsert to research table."""

@@ -265,6 +265,92 @@ def run_batch():
     # Telegram
     notify_batch_complete(len(universe), len(top))
 
+    # Step 7: Research universe OHLCV ingestion (Lab/Forward EOD 의존)
+    # Invariant: Strategy uses Universe U → Data(U) must exist.
+    # 운영(ohlcv_us)과 분리된 ohlcv_us_research 테이블에 R1000 + R3000 small-cap ingestion.
+    # 실패해도 operating batch는 중단하지 않음 (research는 lab-only) — 대신 loud log + Telegram.
+    import os as _os
+    _skip_research = _os.environ.get("US_BATCH_SKIP_RESEARCH", "").lower() in ("1", "true", "yes")
+    if _skip_research:
+        print("\n[7] Research ingestion SKIPPED (US_BATCH_SKIP_RESEARCH=1)")
+    else:
+        print("\n[7] Research universe OHLCV ingestion (R1000 + R3000)...")
+        try:
+            from data.universe_builder import load_universe_snapshot
+
+            r1000 = load_universe_snapshot("RESEARCH_R1000")
+            r3000 = load_universe_snapshot("RESEARCH_R3000")
+            if not r1000:
+                raise RuntimeError("RESEARCH_R1000 snapshot empty or missing")
+
+            r3000_only = sorted(set(r3000) - set(r1000)) if r3000 else []
+            print(f"  Universes: R1000={len(r1000)}, R3000={len(r3000)}, "
+                  f"R3000-only={len(r3000_only)}")
+
+            # Period 결정: tag별로 stale + coverage 평가 (R1000/R3000 독립).
+            # last_date만 보면 일부만 fresh인 상황을 못 잡음 → coverage<80% 면 강제 2y.
+            from datetime import date as _date
+
+            def _research_symbol_count(tag: str) -> int:
+                try:
+                    conn = db._conn()
+                    cur = conn.cursor()
+                    cur.execute(
+                        "SELECT COUNT(DISTINCT symbol) FROM ohlcv_us_research WHERE universe_tag=%s",
+                        (tag,),
+                    )
+                    n = cur.fetchone()[0] or 0
+                    cur.close()
+                    conn.close()
+                    return int(n)
+                except Exception:
+                    return 0
+
+            def _decide_period(tag: str, expected: int) -> tuple:
+                got = _research_symbol_count(tag)
+                coverage = got / max(expected, 1)
+                last = db.get_ohlcv_research_last_date(tag)
+                # Coverage 부족 (신규 universe 또는 부분 ingest 상태) → 강제 backfill
+                if expected > 0 and coverage < 0.80:
+                    return "2y", f"low coverage ({tag}, {got}/{expected}={coverage:.0%}) → backfill"
+                if last is None:
+                    return "2y", f"initial backfill ({tag})"
+                days = (_date.today() - last).days
+                if days > 30:
+                    return "2y", f"full backfill ({tag}, {days}d stale)"
+                if days > 5:
+                    return "1mo", f"mid incremental ({tag}, {days}d stale, cov={coverage:.0%})"
+                return "5d", f"daily incremental ({tag}, last={last}, cov={coverage:.0%})"
+
+            period_r1000, msg_r1000 = _decide_period("R1000", len(r1000))
+            period_r3000, msg_r3000 = _decide_period("R3000", len(r3000_only))
+            print(f"  [RESEARCH_BATCH] R1000: {msg_r1000} → period={period_r1000}")
+            print(f"  [RESEARCH_BATCH] R3000: {msg_r3000} → period={period_r3000}")
+
+            n_r1000 = collector.collect_ohlcv_research(
+                r1000, period=period_r1000, universe_tag="R1000"
+            )
+            n_r3000 = collector.collect_ohlcv_research(
+                r3000_only, period=period_r3000, universe_tag="R3000"
+            )
+            total_n = n_r1000 + n_r3000
+            print(f"  [RESEARCH_BATCH] done: R1000={n_r1000}, R3000={n_r3000}, "
+                  f"total={total_n}/{len(r1000) + len(r3000_only)}")
+            logger.info(
+                f"[BATCH_R3000] r1000={n_r1000}/{len(r1000)} (period={period_r1000}) "
+                f"r3000={n_r3000}/{len(r3000_only)} (period={period_r3000})"
+            )
+        except Exception as e:
+            msg = f"[BATCH_RESEARCH_FAIL] {e}"
+            print(f"  ✗ {msg}")
+            logger.error(msg, exc_info=True)
+            try:
+                from notify.telegram_bot import send as _tg_send
+                _tg_send(f"US batch research ingestion failed: {e}",
+                         severity="WARNING")
+            except Exception:
+                pass
+
     # ── snapshot_version 저장 (서버 API 경유 — 프로세스 간 충돌 방지) ──
     # US-P0-001/002: pre-market 배치는 last_batch_business_date를 오늘이 아닌
     # 직전 종가일(get_last_closed_trading_day)로 기록 → post-close 배치가

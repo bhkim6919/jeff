@@ -16,5 +16,11 @@
     "count": 503,
     "universe_hash": "6830fc343437a61c",
     "fetched_at": "2026-04-12T13:50:04.828110"
+  },
+  "RESEARCH_R3000": {
+    "file": "RESEARCH_R3000_snapshot_20260421.csv",
+    "count": 2997,
+    "universe_hash": "0aa31565da2a7a01",
+    "fetched_at": "2026-04-21T09:48:51.788181"
   }
 }
