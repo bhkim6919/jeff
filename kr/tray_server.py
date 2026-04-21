@@ -2381,16 +2381,23 @@ class Win32TrayServer:
 
         # Background scheduler: tooltip update + auto-batch
         def _background_scheduler():
-            # Pipeline Orchestrator shadow hook (Phase 3, 2026-04-21).
-            # No-op when QTRON_PIPELINE env var is unset. When set to "1"
-            # the orchestrator ticks alongside legacy auto-triggers below
-            # and writes pipeline_state_YYYYMMDD.json + PG mirror for
-            # observability. Legacy scheduling is unchanged. See
-            # kr/docs/PIPELINE_ORCHESTRATOR_PLAN.md §3.
+            # Pipeline Orchestrator hook (Phase 3+4, 2026-04-21).
+            # Env `QTRON_PIPELINE`:
+            #   unset/0  → disabled (no-op)
+            #   1        → shadow: orchestrator writes state alongside
+            #              legacy auto-triggers below
+            #   2+       → primary: orchestrator owns scheduling; legacy
+            #              batch/backup/KR-EOD/US-EOD blocks SKIP to
+            #              prevent double-firing.
+            # See kr/docs/PIPELINE_ORCHESTRATOR_PLAN.md §3.
             try:
-                from pipeline.tray_integration import tick_if_enabled as _pipeline_tick
+                from pipeline.tray_integration import (
+                    is_primary as _pipeline_is_primary,
+                    tick_if_enabled as _pipeline_tick,
+                )
             except Exception as _pipe_imp_err:
                 _pipeline_tick = None
+                _pipeline_is_primary = lambda: False  # noqa: E731
                 self._logger.warning(
                     f"[PIPELINE_TRAY_IMPORT_FAIL] {_pipe_imp_err}"
                 )
@@ -2398,9 +2405,18 @@ class Win32TrayServer:
             while self._running:
                 time.sleep(30)
 
-                # Pipeline Orchestrator tick (shadow mode). Never raises.
+                # Pipeline Orchestrator tick. Never raises. Writes state
+                # regardless of mode; only scheduling ownership differs.
                 if _pipeline_tick is not None:
                     _pipeline_tick()
+
+                # Snapshot primary-mode flag once per tick so legacy
+                # trigger blocks below can uniformly skip under PRIMARY.
+                _orch_primary = False
+                try:
+                    _orch_primary = _pipeline_is_primary()
+                except Exception:
+                    _orch_primary = False
 
                 # Tooltip
                 batch_flag = " | Batch ON" if self._batch_auto else ""
@@ -2408,8 +2424,12 @@ class Win32TrayServer:
                     f"{APP_NAME} :{PORT} | Up {self._uptime_str()}{batch_flag}"
                 )
 
-                # Auto-batch: check every 30s if it's time
-                if self._batch_auto and not self._batch_running and not self._batch_today_done:
+                # Auto-batch: check every 30s if it's time.
+                # Orchestrator PRIMARY mode owns batch scheduling — skip
+                # legacy trigger to avoid double-firing.
+                if _orch_primary:
+                    pass
+                elif self._batch_auto and not self._batch_running and not self._batch_today_done:
                     now = datetime.now()
                     if now.weekday() < 5:  # Mon-Fri only
                         if now.hour == BATCH_HOUR and now.minute >= BATCH_MINUTE:
@@ -2424,8 +2444,11 @@ class Win32TrayServer:
                                 self._logger.info("[BATCH_AUTO] Scheduled batch triggered")
                                 threading.Thread(target=self._run_batch, daemon=True).start()
 
-                # Auto-backup: 17:00 daily
-                if not self._backup_running and not self._backup_today_done:
+                # Auto-backup: 17:00 daily.
+                # Orchestrator PRIMARY mode owns backup scheduling.
+                if _orch_primary:
+                    pass
+                elif not self._backup_running and not self._backup_today_done:
                     now = datetime.now()
                     if now.hour == 17 and now.minute >= 0:
                         self._logger.info("[BACKUP_AUTO] Daily backup triggered")
@@ -2518,6 +2541,10 @@ class Win32TrayServer:
                         pass  # US server not ready yet
 
                 # ── Lab Live EOD Auto (KR, v4.1) ──
+                # Orchestrator PRIMARY mode owns lab_eod_kr scheduling —
+                # kr_can_try is forced False below to suppress legacy
+                # trigger. Fail-count / retry state tracking still runs
+                # so a cutover rollback leaves no stale counters.
                 try:
                     kst_now = self._now_kst()
                     kst_today = kst_now.date()
@@ -2532,7 +2559,8 @@ class Win32TrayServer:
                         and kst_now >= self._kr_lab_eod_retry_until
                     )
                     kr_can_try = (
-                        not kr_done
+                        not _orch_primary
+                        and not kr_done
                         and self._kr_lab_eod_fail_count < LAB_EOD_MAX_FAILS
                         and kst_now.weekday() < 5
                         and (kr_is_initial or kr_is_retry)
@@ -2568,7 +2596,8 @@ class Win32TrayServer:
                             and et_now >= self._us_lab_eod_retry_until
                         )
                         us_can_try = (
-                            not us_done
+                            not _orch_primary
+                            and not us_done
                             and self._us_lab_eod_fail_count < LAB_EOD_MAX_FAILS
                             and et_now.weekday() < 5
                             and (us_is_initial or us_is_retry)

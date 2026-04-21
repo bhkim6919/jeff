@@ -3214,6 +3214,15 @@ def create_app() -> FastAPI:
     except ImportError as e:
         logging.getLogger("web").warning(f"Regime module not loaded: {e}")
 
+    # ── Pipeline Orchestrator Router (Phase 4) ──────────
+    # Endpoints are always mounted so dashboards can query state even
+    # when QTRON_PIPELINE is unset (status returns enabled=false).
+    try:
+        from pipeline.api import router as pipeline_router
+        application.include_router(pipeline_router)
+    except ImportError as e:
+        logging.getLogger("web").warning(f"Pipeline module not loaded: {e}")
+
     # ── Unified Dashboard (Observer-Only) ────────────────
 
     def _fetch_us(path: str, timeout: float = 3.0):

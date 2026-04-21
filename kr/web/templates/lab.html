@@ -369,6 +369,118 @@
 
     <main id="main">
 
+        <!-- Pipeline Orchestrator Banner (Phase 4) -->
+        <div id="pipeline-banner" class="pipeline-banner" style="display:none">
+            <span class="pipeline-banner-label">Pipeline</span>
+            <span id="pipeline-banner-mode" class="pipeline-banner-mode"></span>
+            <span id="pipeline-banner-trade-date" class="pipeline-banner-td"></span>
+            <span id="pipeline-banner-steps" class="pipeline-banner-steps"></span>
+            <span id="pipeline-banner-error" class="pipeline-banner-err"></span>
+        </div>
+        <style>
+            .pipeline-banner {
+                display: flex; align-items: center; gap: 10px;
+                padding: 8px 14px; margin: 8px 0 12px 0;
+                border: 1px solid #3a4558; border-radius: 6px;
+                background: #1a1f2e; font-size: 13px; color: #e6e6e6;
+                flex-wrap: wrap;
+            }
+            .pipeline-banner-label { font-weight: 700; color: #7fbfff; }
+            .pipeline-banner-mode {
+                padding: 2px 8px; border-radius: 3px; font-size: 11px;
+                font-weight: 700; letter-spacing: 0.3px;
+            }
+            .pipeline-banner-mode.mode-disabled { background: #3a3a3a; color: #aaa; }
+            .pipeline-banner-mode.mode-shadow   { background: #4a5568; color: #fff; }
+            .pipeline-banner-mode.mode-primary  { background: #2b6cb0; color: #fff; }
+            .pipeline-banner-td { color: #aaa; font-size: 12px; }
+            .pipeline-banner-steps { display: flex; gap: 6px; flex-wrap: wrap; }
+            .pipeline-step-pill {
+                padding: 2px 8px; border-radius: 10px; font-size: 11px;
+                font-weight: 600; border: 1px solid transparent;
+            }
+            .pipeline-step-pill.s-NOT_STARTED { background: #2a2a2a; color: #888; border-color: #444; }
+            .pipeline-step-pill.s-PENDING     { background: #4a3e00; color: #ffd86b; border-color: #8a7200; }
+            .pipeline-step-pill.s-DONE        { background: #1e3a1e; color: #8fff8f; border-color: #2e6e2e; }
+            .pipeline-step-pill.s-FAILED      { background: #4a1e1e; color: #ff8f8f; border-color: #7e2e2e; }
+            .pipeline-step-pill.s-SKIPPED     { background: #2a2a3a; color: #b0b0ff; border-color: #4a4a6a; }
+            .pipeline-banner-err { color: #ff8f8f; font-size: 12px; }
+        </style>
+        <script>
+        (function () {
+            // Poll /api/pipeline/status every 15s and render the banner.
+            // Silent no-op on any fetch error — observability UI must
+            // never break the rest of the lab page.
+            const STEP_ORDER = [
+                "bootstrap_env", "batch", "lab_eod_kr",
+                "lab_eod_us", "gate_observer", "backup",
+            ];
+            const STEP_LABEL = {
+                bootstrap_env: "env",
+                batch: "batch",
+                lab_eod_kr: "KR EOD",
+                lab_eod_us: "US EOD",
+                gate_observer: "gate",
+                backup: "backup",
+            };
+
+            function renderBanner(data) {
+                const banner = document.getElementById('pipeline-banner');
+                if (!banner) return;
+                const enabled = !!data.enabled;
+                const primary = !!data.primary;
+
+                banner.style.display = 'flex';
+
+                const modeEl = document.getElementById('pipeline-banner-mode');
+                modeEl.className = 'pipeline-banner-mode ' + (
+                    !enabled ? 'mode-disabled' :
+                    primary ? 'mode-primary' : 'mode-shadow'
+                );
+                modeEl.textContent = (
+                    !enabled ? 'DISABLED' :
+                    primary ? 'PRIMARY' : 'SHADOW'
+                );
+
+                const tdEl = document.getElementById('pipeline-banner-trade-date');
+                tdEl.textContent = data.trade_date
+                    ? (data.trade_date + ' · ' + (data.mode || '?'))
+                    : '';
+
+                const stepsEl = document.getElementById('pipeline-banner-steps');
+                stepsEl.innerHTML = '';
+                const stepsMap = (data.state && data.state.steps) || {};
+                STEP_ORDER.forEach(function (name) {
+                    const st = stepsMap[name];
+                    const status = (st && st.status) || 'NOT_STARTED';
+                    const pill = document.createElement('span');
+                    pill.className = 'pipeline-step-pill s-' + status;
+                    pill.textContent = (STEP_LABEL[name] || name);
+                    pill.title = name + ': ' + status + (
+                        st && st.fail_count ? ' (fail=' + st.fail_count + ')' : ''
+                    );
+                    stepsEl.appendChild(pill);
+                });
+
+                const errEl = document.getElementById('pipeline-banner-error');
+                const lastTick = data.last_tick || {};
+                const errs = lastTick.errors || [];
+                errEl.textContent = errs.length
+                    ? ('⚠ ' + errs.length + ' tick err')
+                    : '';
+            }
+
+            async function poll() {
+                try {
+                    const r = await fetch('/api/pipeline/status', { cache: 'no-store' });
+                    if (r.ok) renderBanner(await r.json());
+                } catch (_) { /* silent */ }
+            }
+            poll();
+            setInterval(poll, 15000);
+        })();
+        </script>
+
         <!-- Tab Navigation -->
         <div class="lab-tabs">
             <button class="lab-tab active" data-tab="sim-tab">Surge Sim</button>
