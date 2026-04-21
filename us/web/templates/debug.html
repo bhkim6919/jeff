@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Q-TRON US DEBUG</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<style>
+  :root {
+    --bg: #0a0e17; --card: #111827; --border: #1f2937;
+    --text: #e5e7eb; --muted: #6b7280; --accent: #3b82f6;
+    --green: #10b981; --red: #ef4444; --yellow: #f59e0b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; background: var(--card); border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo { font-size: 18px; font-weight: 700; }
+  .logo-us { color: var(--accent); }
+  .back-link { color: var(--muted); font-size: 13px; text-decoration: none; }
+  .back-link:hover { color: var(--text); }
+  main { max-width: 1400px; margin: 0 auto; padding: 16px; }
+
+  .toc {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; margin-bottom: 16px;
+    display: flex; flex-wrap: wrap; gap: 6px;
+    position: sticky; top: 56px; z-index: 90;
+  }
+  .toc-chip {
+    padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px;
+    background: transparent; color: var(--text); cursor: pointer;
+    font-size: 11px; font-weight: 600; text-decoration: none;
+    font-variant-numeric: tabular-nums;
+  }
+  .toc-chip:hover { border-color: var(--accent); color: var(--accent); }
+
+  .panel {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px; margin-bottom: 14px;
+    scroll-margin-top: 120px;
+  }
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px; gap: 10px;
+  }
+  .panel-id { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 0.5px; }
+  .panel-title { font-size: 14px; font-weight: 600; }
+  .panel-title-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .panel-actions { display: flex; gap: 6px; }
+  .btn {
+    padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px;
+    background: transparent; color: var(--text); cursor: pointer; font-size: 11px;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .status-dot.ok { background: var(--green); }
+  .status-dot.warn { background: var(--yellow); }
+  .status-dot.err { background: var(--red); }
+  .status-dot.muted { background: var(--muted); }
+
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 12px; }
+  .kv .k { color: var(--muted); }
+  .kv .v { font-variant-numeric: tabular-nums; word-break: break-all; }
+  .v.good { color: var(--green); }
+  .v.bad { color: var(--red); }
+  .v.warn { color: var(--yellow); }
+
+  pre {
+    background: #0a0e17; border: 1px solid var(--border); border-radius: 4px;
+    padding: 8px 10px; font-size: 11px; overflow-x: auto; max-height: 320px;
+    font-family: Consolas, 'Courier New', monospace; line-height: 1.4;
+  }
+  .pre-scroll { max-height: 480px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th { text-align: left; padding: 5px 8px; color: var(--muted); border-bottom: 1px solid var(--border); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td { padding: 5px 8px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+  tr:hover td { background: rgba(59,130,246,0.04); }
+  .tight td, .tight th { padding: 3px 6px; }
+
+  .loading { color: var(--muted); font-style: italic; }
+  .error { color: var(--red); }
+  .warn { color: var(--yellow); }
+  .good { color: var(--green); }
+  .badge {
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.3px;
+  }
+  .badge.ok { background: rgba(16,185,129,0.2); color: var(--green); }
+  .badge.warn { background: rgba(245,158,11,0.2); color: var(--yellow); }
+  .badge.err { background: rgba(239,68,68,0.2); color: var(--red); }
+  .badge.muted { background: rgba(107,114,128,0.2); color: var(--muted); }
+
+  .refresh-all {
+    background: var(--accent); color: white; border: none;
+    padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: 600;
+  }
+  .refresh-all:hover { opacity: 0.9; }
+  .last-refresh { font-size: 11px; color: var(--muted); margin-left: 8px; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Q-TRON <span class="logo-us">US</span> · DEBUG</div>
+  <div>
+    <button class="refresh-all" onclick="refreshAll()">Refresh All</button>
+    <span class="last-refresh" id="last-refresh">—</span>
+    <a href="/" class="back-link" style="margin-left: 16px;">← Dashboard</a>
+  </div>
+</header>
+
+<main>
+  <nav class="toc">
+    <a href="#p-sys" class="toc-chip">D-SYS</a>
+    <a href="#p-db" class="toc-chip">D-DB</a>
+    <a href="#p-mctx" class="toc-chip">D-MCTX</a>
+    <a href="#p-fresh" class="toc-chip">D-FRESH</a>
+    <a href="#p-evt" class="toc-chip">D-EVT</a>
+    <a href="#p-ws" class="toc-chip">D-WS</a>
+    <a href="#p-trace" class="toc-chip">D-TRACE</a>
+    <a href="#p-hist" class="toc-chip">D-HIST</a>
+    <a href="#p-diff" class="toc-chip">D-DIFF</a>
+    <a href="#p-test" class="toc-chip">D-TEST</a>
+    <a href="#p-log" class="toc-chip">D-LOG</a>
+    <a href="#p-raw" class="toc-chip">D-RAW</a>
+  </nav>
+
+  <!-- D-SYS -->
+  <section id="p-sys" class="panel">
+    <div class="panel-head">
+      <div class="panel-title-row">
+        <span class="panel-id">D-SYS</span>
+        <span class="panel-title">Alpaca System · Account · Circuit Breaker · Latency</span>
+      </div>
+      <div class="panel-actions"><button class="btn" onclick="loadSys()">↻</button></div>
+    </div>
+    <div id="sys-body" class="loading">loading...</div>
+  </section>
+
+  <!-- D-DB -->
+  <section id="p-db" class="panel">
+    <div class="panel-head">
+      <div class="panel-title-row">
+        <span class="panel-id">D-DB</span>
+        <span class="panel-title">PostgreSQL Health</span>
+      </div>
+      <div class="panel-actions"><button class="btn" onclick="loadDb()">↻</button></div>
+    </div>
+    <div id="db-body" class="loading">loading...</div>
+  </section>
+
+  <div class="grid2">
+    <!-- D-MCTX -->
+    <section id="p-mctx" class="panel">
+      <div class="panel-head">
+        <div class="panel-title-row">
+          <span class="panel-id">D-MCTX</span>
+          <span class="panel-title">Market Context (broker sync, clock, run_mode)</span>
+        </div>
+        <div class="panel-actions"><button class="btn" onclick="loadMctx()">↻</button></div>
+      </div>
+      <div id="mctx-body" class="loading">loading...</div>
+    </section>
+
+    <!-- D-FRESH -->
+    <section id="p-fresh" class="panel">
+      <div class="panel-head">
+        <div class="panel-title-row">
+          <span class="panel-id">D-FRESH</span>
+          <span class="panel-title">Rebalance State (phase / mode / due / block_reasons)</span>
+        </div>
+        <div class="panel-actions"><button class="btn" onclick="loadFresh()">↻</button></div>
+      </div>
+      <div id="fresh-body" class="loading">loading...</div>
+    </section>
+  </div>
+
+  <!-- D-EVT -->
+  <section id="p-evt" class="panel">
+    <div class="panel-head">
+      <div class="panel-title-row">
+        <span class="panel-id">D-EVT</span>
+        <span class="panel-title">Data Events (recent 50)</span>
+      </div>
+      <div class="panel-actions">
+        <label style="font-size: 11px; color: var(--muted);">min:
+          <select id="evt-min" onchange="loadEvt()" style="background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 2px 4px;">
+            <option value="">ALL</option>
+            <option value="INFO">INFO+</option>
+            <option value="WARN">WARN+</option>
+            <option value="ERROR">ERROR+</option>
+            <option value="CRITICAL">CRITICAL</option>
+          </select>
+        </label>
+        <button class="btn" onclick="loadEvt()">↻</button>
+      </div>
+    </div>
+    <div id="evt-body" class="loading">loading...</div>
+  </section>
+
+  <div class="grid2">
+    <!-- D-WS -->
+    <section id="p-ws" class="panel">
+      <div class="panel-head">
+        <div class="panel-title-row">
+          <span class="panel-id">D-WS</span>
+          <span class="panel-title">WebSocket / Data Stream</span>
+        </div>
+        <div class="panel-actions"><button class="btn" onclick="loadWs()">↻</button></div>
+      </div>
+      <div id="ws-body" class="loading">loading...</div>
+    </section>
+
+    <!-- D-HIST -->
+    <section id="p-hist" class="panel">
+      <div class="panel-head">
+        <div class="panel-title-row">
+          <span class="panel-id">D-HIST</span>
+          <span class="panel-title">Latency Histogram</span>
+        </div>
+        <div class="panel-actions"><button class="btn" onclick="loadHist()">↻</button></div>
+      </div>
+      <div id="hist-body" class="loading">loading...</div>
+    </section>
+  </div>
+
+  <!-- D-TRACE -->
+  <section id="p-trace" class="panel">
+    <div class="panel-head">
+      <div class="panel-title-row">
+        <span class="panel-id">D-TRACE</span>
+        <span class="panel-title">Alpaca Request Traces (last 50)</span>
+      </div>
+      <div class="panel-actions"><button class="btn" onclick="loadTrace()">↻</button></div>
+    </div>
+    <div id="trace-body" class="loading">loading...</div>
+  </section>
+
+  <div class="grid2">
+    <!-- D-DIFF -->
+    <section id="p-diff" class="panel">
+      <div class="panel-head">
+        <div class="panel-title-row">
+          <span class="panel-id">D-DIFF</span>
+          <span class="panel-title">Portfolio State Diff (vs previous call)</span>
+        </div>
+        <div class="panel-actions"><button class="btn" onclick="loadDiff()">↻</button></div>
+      </div>
+      <div id="diff-body" class="loading">loading...</div>
+    </section>
+
+    <!-- D-TEST -->
+    <section id="p-test" class="panel">
+      <div class="panel-head">
+        <div class="panel-title-row">
+          <span class="panel-id">D-TEST</span>
+          <span class="panel-title">Health Probe (read-only)</span>
+        </div>
+        <div class="panel-actions"><button class="btn" onclick="loadTest()">↻</button></div>
+      </div>
+      <div id="test-body" class="loading">loading...</div>
+    </section>
+  </div>
+
+  <!-- D-LOG -->
+  <section id="p-log" class="panel">
+    <div class="panel-head">
+      <div class="panel-title-row">
+        <span class="panel-id">D-LOG</span>
+        <span class="panel-title">Log Tail (us_app_YYYYMMDD.log)</span>
+      </div>
+      <div class="panel-actions">
+        <label style="font-size: 11px; color: var(--muted);">lines:
+          <select id="log-lines" onchange="loadLog()" style="background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 2px 4px;">
+            <option>50</option>
+            <option>100</option>
+            <option>200</option>
+            <option>500</option>
+          </select>
+        </label>
+        <button class="btn" onclick="loadLog()">↻</button>
+      </div>
+    </div>
+    <div id="log-body" class="loading">loading...</div>
+  </section>
+
+  <!-- D-RAW -->
+  <section id="p-raw" class="panel">
+    <div class="panel-head">
+      <div class="panel-title-row">
+        <span class="panel-id">D-RAW</span>
+        <span class="panel-title">Raw State Snapshot</span>
+      </div>
+      <div class="panel-actions">
+        <button class="btn" onclick="copyRaw()">Copy</button>
+        <button class="btn" onclick="loadRaw()">↻</button>
+      </div>
+    </div>
+    <div id="raw-body" class="loading">loading...</div>
+  </section>
+</main>
+
+<script>
+// ---------- helpers ----------
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = v => (v === null || v === undefined) ? '—' : (typeof v === 'number' ? v.toLocaleString() : String(v));
+const kvRow = (k, v, cls='') => `<div class="k">${esc(k)}</div><div class="v ${cls}">${esc(fmt(v))}</div>`;
+const kvBlock = rows => `<div class="kv">${rows.join('')}</div>`;
+async function getJson(url) {
+  try {
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) return { ok: false, error: `HTTP ${r.status}` };
+    return await r.json();
+  } catch (e) { return { ok: false, error: String(e) }; }
+}
+const setBody = (id, html) => document.getElementById(id).innerHTML = html;
+const err = (msg) => `<div class="error">⚠ ${esc(msg)}</div>`;
+
+// ---------- loaders ----------
+async function loadSys() {
+  setBody('sys-body', '<div class="loading">loading...</div>');
+  const d = await getJson('/api/debug/sys');
+  if (!d.ok) return setBody('sys-body', err(d.error || d.reason || 'failed'));
+  const cb = d.circuit_breaker || {};
+  const lat = d.latency || {};
+  const acct = d.account || {};
+  const clk = d.clock || {};
+  const cbBadge = cb.halted
+    ? `<span class="badge err">HALTED ${cb.remaining_sec}s</span>`
+    : `<span class="badge ok">OK</span>`;
+  const marketBadge = clk.is_open
+    ? `<span class="badge ok">MARKET OPEN</span>`
+    : `<span class="badge muted">MARKET CLOSED</span>`;
+  setBody('sys-body', `
+    <div style="margin-bottom: 10px;">${cbBadge} ${marketBadge}
+      <span class="badge ${d.connected ? 'ok' : 'err'}">${d.connected ? 'CONNECTED' : 'DISCONNECTED'}</span>
+      <span class="badge muted">${esc(d.server_type || '?')}</span>
+    </div>
+    <div class="grid2">
+      ${kvBlock([
+        kvRow('api_key', d.api_key),
+        kvRow('base_url', d.base_url),
+        kvRow('equity', acct.equity),
+        kvRow('cash', acct.cash),
+        kvRow('buying_power', acct.buying_power),
+      ])}
+      ${kvBlock([
+        kvRow('cb.consec_auth_err', cb.consecutive_auth_err, cb.consecutive_auth_err > 0 ? 'warn' : ''),
+        kvRow('latency.avg_ms', lat.avg_ms),
+        kvRow('latency.p50_ms', lat.p50_ms),
+        kvRow('latency.p95_ms', lat.p95_ms),
+        kvRow('latency.samples', lat.sample_count),
+        kvRow('clock.next_open', clk.next_open),
+        kvRow('clock.next_close', clk.next_close),
+      ])}
+    </div>
+  `);
+}
+
+async function loadDb() {
+  setBody('db-body', '<div class="loading">loading...</div>');
+  const d = await getJson('/api/db/health');
+  const ok = d && (d.ok === true || d.status === 'OK' || d.status === 'healthy' || d.healthy === true);
+  setBody('db-body', `
+    <div style="margin-bottom: 10px;">
+      <span class="badge ${ok ? 'ok' : 'err'}">${ok ? 'OK' : 'FAIL'}</span>
+    </div>
+    <pre>${esc(JSON.stringify(d, null, 2))}</pre>
+  `);
+}
+
+async function loadMctx() {
+  setBody('mctx-body', '<div class="loading">loading...</div>');
+  const d = await getJson('/api/debug/market_context');
+  if (!d.ok) return setBody('mctx-body', err(d.error || 'failed'));
+  const m = d.market_context || {};
+  const modeCls = m.run_mode === 'OK' ? 'ok' : 'warn';
+  setBody('mctx-body', `
+    <div style="margin-bottom: 10px;">
+      <span class="badge ${modeCls}">${esc(m.run_mode)}</span>
+      ${m.is_market_open ? '<span class="badge ok">OPEN</span>' : '<span class="badge muted">CLOSED</span>'}
+      ${(m.degraded_reasons || []).map(r => `<span class="badge warn">${esc(r)}</span>`).join(' ')}
+    </div>
+    ${kvBlock([
+      kvRow('connected', m.connected, m.connected ? 'good' : 'bad'),
+      kvRow('server_type', m.server_type),
+      kvRow('broker_snapshot_at', m.broker_snapshot_at),
+      kvRow('broker_age_sec', m.broker_snapshot_age_sec),
+      kvRow('portfolio_cache_age_sec', m.portfolio_cache_age_sec),
+      kvRow('next_open', m.next_open),
+      kvRow('next_close', m.next_close),
+    ])}
+  `);
+}
+
+async function loadFresh() {
+  setBody('fresh-body', '<div class="loading">loading...</div>');
+  const d = await getJson('/api/rebalance/status');
+  if (!d || d.error) return setBody('fresh-body', err((d && d.error) || 'unavailable'));
+  const phase = d.phase || '?';
+  const mode = d.mode || '?';
+  const phaseCls = phase === 'BATCH_DONE' ? 'ok' : (phase === 'FAILED' || phase === 'NO_FILL' ? 'err' : (phase === 'EXECUTING' || phase === 'BATCH_RUNNING' ? 'warn' : 'muted'));
+  const modeCls = mode === 'auto' ? 'warn' : 'muted';
+  const dueCls = d.rebal_due ? 'warn' : 'muted';
+  const allowCls = d.execute_allowed ? 'ok' : 'muted';
+  const freshCls = d.batch_fresh ? 'ok' : 'err';
+  const blocks = d.block_reasons || [];
+  setBody('fresh-body', `
+    <div style="margin-bottom: 10px;">
+      <span class="badge ${phaseCls}">phase ${esc(phase)}</span>
+      <span class="badge ${modeCls}">mode ${esc(mode)}</span>
+      <span class="badge ${dueCls}">due ${esc(d.rebal_due)}</span>
+      <span class="badge ${allowCls}">exec ${esc(d.execute_allowed)}</span>
+      <span class="badge ${freshCls}">batch_fresh ${esc(d.batch_fresh)}</span>
+    </div>
+    ${kvBlock([
+      kvRow('d_day', d.d_day),
+      kvRow('snapshot_version', d.snapshot_version),
+      kvRow('snapshot_created_at', d.snapshot_created_at),
+      kvRow('next_rebalance_date', d.next_rebalance_date),
+      kvRow('block_reasons', blocks.length ? blocks.join(', ') : '—', blocks.length ? 'warn' : ''),
+    ])}
+  `);
+}
+
+async function loadEvt() {
+  setBody('evt-body', '<div class="loading">loading...</div>');
+  const min = document.getElementById('evt-min').value;
+  const url = '/api/debug/data_events?limit=50' + (min ? '&min_level=' + min : '');
+  const d = await getJson(url);
+  if (!d.ok) return setBody('evt-body', err(d.error || 'failed'));
+  const events = d.events || [];
+  const esc_ = d.active_escalations || {};
+  const escCount = Object.keys(esc_).length;
+  const rows = events.map(e => {
+    const lvl = (e.level || '').toUpperCase();
+    const cls = lvl === 'CRITICAL' ? 'err' : (lvl === 'ERROR' ? 'err' : (lvl === 'WARN' ? 'warn' : 'muted'));
+    return `<tr><td>${esc(e.ts || '')}</td><td><span class="badge ${cls}">${esc(lvl)}</span></td><td>${esc(e.source || '')}</td><td style="max-width: 600px; overflow: hidden; text-overflow: ellipsis;">${esc(e.message || '')}</td></tr>`;
+  }).join('') || '<tr><td colspan="4" class="loading">no events</td></tr>';
+  setBody('evt-body', `
+    <div style="margin-bottom: 10px;">
+      <span class="badge muted">${events.length} events</span>
+      ${escCount > 0 ? `<span class="badge warn">${escCount} active escalation(s)</span>` : ''}
+    </div>
+    <table class="tight"><thead><tr><th>ts</th><th>lvl</th><th>source</th><th>message</th></tr></thead><tbody>${rows}</tbody></table>
+  `);
+}
+
+async function loadWs() {
+  setBody('ws-body', '<div class="loading">loading...</div>');
+  const d = await getJson('/api/debug/ws');
+  if (!d.ok) return setBody('ws-body', err(d.error || 'failed'));
+  if (!d.available) return setBody('ws-body', `<span class="badge muted">UNAVAILABLE</span> <span style="color: var(--muted);">${esc(d.reason || '')}</span>`);
+  setBody('ws-body', kvBlock([
+    kvRow('connected', d.connected, d.connected ? 'good' : 'bad'),
+    kvRow('last_msg_ts', d.last_msg_ts),
+    kvRow('msg_count', d.msg_count),
+    kvRow('reconnects', d.reconnects, (d.reconnects || 0) > 0 ? 'warn' : ''),
+    kvRow('subscriptions', (d.subscriptions || []).join(', ') || '—'),
+  ]));
+}
+
+async function loadTrace() {
+  setBody('trace-body', '<div class="loading">loading...</div>');
+  const d = await getJson('/api/debug/traces?limit=50');
+  if (!d.ok) return setBody('trace-body', err(d.error || d.reason || 'failed'));
+  const traces = d.traces || [];
+  const rows = traces.map(t => {
+    const s = t.status || 0;
+    const cls = s >= 500 ? 'err' : (s >= 400 ? 'warn' : (s >= 200 ? 'ok' : 'muted'));
+    const lat = t.latency_ms;
+    const latCls = lat > 1000 ? 'warn' : '';
+    return `<tr><td>${esc(t.ts || '')}</td><td>${esc(t.method || '')}</td><td style="max-width:300px; overflow:hidden; text-overflow:ellipsis;">${esc(t.path || '')}</td><td><span class="badge ${cls}">${esc(s)}</span></td><td class="${latCls}">${esc(lat)}</td></tr>`;
+  }).join('') || '<tr><td colspan="5" class="loading">no traces</td></tr>';
+  setBody('trace-body', `
+    <div style="margin-bottom: 10px;"><span class="badge muted">${traces.length} traces</span></div>
+    <table class="tight"><thead><tr><th>ts</th><th>method</th><th>path</th><th>status</th><th>ms</th></tr></thead><tbody>${rows}</tbody></table>
+  `);
+}
+
+async function loadHist() {
+  setBody('hist-body', '<div class="loading">loading...</div>');
+  const d = await getJson('/api/debug/histogram?bucket_ms=100');
+  if (!d.ok) return setBody('hist-body', err(d.error || d.reason || 'failed'));
+  const buckets = d.buckets || {};
+  const bucketRows = Object.entries(buckets).map(([b, n]) =>
+    `<tr><td>${esc(b)}</td><td>${esc(n)}</td></tr>`
+  ).join('') || '<tr><td colspan="2" class="loading">no samples</td></tr>';
+  setBody('hist-body', `
+    ${kvBlock([
+      kvRow('count', d.count),
+      kvRow('avg_ms', d.avg),
+      kvRow('p50_ms', d.p50),
+      kvRow('p95_ms', d.p95),
+      kvRow('max_ms', d.max),
+    ])}
+    <div style="margin-top: 10px;"><table class="tight"><thead><tr><th>bucket (ms)</th><th>count</th></tr></thead><tbody>${bucketRows}</tbody></table></div>
+  `);
+}
+
+async function loadDiff() {
+  setBody('diff-body', '<div class="loading">loading...</div>');
+  const d = await getJson('/api/debug/state_diff');
+  if (!d.ok) return setBody('diff-body', err(d.error || 'failed'));
+  const changes = d.changes || [];
+  const rows = changes.map(c =>
+    `<tr><td>${esc(c.key)}</td><td>${esc(fmt(c.prev))}</td><td>${esc(fmt(c.curr))}</td></tr>`
+  ).join('') || '<tr><td colspan="3" class="loading">no changes since last call</td></tr>';
+  setBody('diff-body', `
+    <div style="margin-bottom: 10px;">
+      <span class="badge ${changes.length > 0 ? 'warn' : 'muted'}">${changes.length} change(s)</span>
+      <span class="badge muted">cache ${esc(d.portfolio_cache_age_sec ?? '—')}s</span>
+    </div>
+    <table class="tight"><thead><tr><th>key</th><th>prev</th><th>curr</th></tr></thead><tbody>${rows}</tbody></table>
+  `);
+}
+
+async function loadTest() {
+  setBody('test-body', '<div class="loading">loading...</div>');
+  const [h, dh] = await Promise.all([getJson('/api/health'), getJson('/api/db/health')]);
+  const healthOk = h && h.status === 'OK';
+  const dbOk = dh && (dh.ok === true || dh.status === 'OK' || dh.status === 'healthy' || dh.healthy === true);
+  setBody('test-body', `
+    <div style="margin-bottom: 10px;">
+      <span class="badge ${healthOk ? 'ok' : 'err'}">/api/health ${healthOk ? 'OK' : 'FAIL'}</span>
+      <span class="badge ${dbOk ? 'ok' : 'err'}">db ${dbOk ? 'OK' : 'FAIL'}</span>
+    </div>
+    ${kvBlock([
+      kvRow('status', h.status),
+      kvRow('market', h.market),
+      kvRow('is_market_open', h.is_market_open),
+      kvRow('next_open', h.next_open),
+      kvRow('next_close', h.next_close),
+    ])}
+  `);
+}
+
+async function loadLog() {
+  setBody('log-body', '<div class="loading">loading...</div>');
+  const lines = document.getElementById('log-lines').value || 50;
+  const d = await getJson('/api/debug/logs?lines=' + lines);
+  if (!d.ok) return setBody('log-body', err(d.error || d.reason || 'failed'));
+  const body = (d.lines || []).join('\n');
+  setBody('log-body', `
+    <div style="margin-bottom: 6px;">
+      <span class="badge muted">${esc(d.file || '')}</span>
+      <span class="badge muted">${esc(d.total_lines || 0)} total lines</span>
+    </div>
+    <pre class="pre-scroll">${esc(body || '(empty)')}</pre>
+  `);
+}
+
+let _rawCache = null;
+async function loadRaw() {
+  setBody('raw-body', '<div class="loading">loading...</div>');
+  const d = await getJson('/api/debug/raw_state');
+  if (!d.ok) return setBody('raw-body', err(d.error || 'failed'));
+  _rawCache = d;
+  setBody('raw-body', `
+    <div style="margin-bottom: 6px;"><span class="badge muted">cache ${esc(d.cache_age_sec)}s</span></div>
+    <pre class="pre-scroll">${esc(JSON.stringify(d.summary, null, 2))}</pre>
+  `);
+}
+function copyRaw() {
+  if (!_rawCache) return;
+  navigator.clipboard.writeText(JSON.stringify(_rawCache.summary, null, 2));
+}
+
+// ---------- refresh all ----------
+function refreshAll() {
+  loadSys(); loadDb(); loadMctx(); loadFresh(); loadEvt();
+  loadWs(); loadTrace(); loadHist(); loadDiff(); loadTest();
+  loadLog(); loadRaw();
+  document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString();
+}
+
+// initial
+refreshAll();
+// auto-refresh every 30s
+setInterval(refreshAll, 30000);
+</script>
+</body>
+</html>
