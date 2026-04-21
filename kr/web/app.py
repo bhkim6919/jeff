@@ -1544,14 +1544,47 @@ def create_app() -> FastAPI:
 
     @application.get("/api/advisor/today")
     async def advisor_today():
-        """Today's advisor analysis results."""
+        """Today's advisor analysis results.
+
+        Priority: ENGINE_OFFLINE > STALE > NORMAL.
+
+        Stale handling: the prior implementation silently fell back to
+        the "latest available" directory when today/yesterday had no
+        output. That surfaced 20-day-old alerts on the dashboard as if
+        they were current — SAFE_MODE / RECON corrections / pending
+        orders from 2026-04-01 on a 2026-04-21 screen — the exact
+        operator-misjudgment class we are trying to eliminate. When
+        last_run_date is more than 3 days old we now return status=STALE
+        with alerts=[] and a single message pointing at the date, so
+        nothing looks like a live warning.
+
+        Engine gate: when the live engine is OFFLINE (see
+        _detect_engine_status) the entire advisor is paused regardless
+        of file freshness. Any advisor run from before the outage is
+        operating on stale assumptions — treat as DISABLED.
+        """
         try:
-            from datetime import datetime
+            from datetime import datetime, timedelta
+
+            # 1) Engine gate takes priority — advisor output is meaningless
+            #    while the engine is not running. Return DISABLED even if
+            #    today's file exists (might have been produced by a cron
+            #    that does not know engine is down).
+            engine = _detect_engine_status()
+            if engine.get("status") == "OFFLINE":
+                return {
+                    "status": "DISABLED",
+                    "alerts": [],
+                    "recommendations": [],
+                    "message": "AI ADVISOR paused (engine offline)",
+                    "engine_offline": True,
+                    "engine_reason": engine.get("reason"),
+                }
+
             today = datetime.now().strftime("%Y%m%d")
             advisor_dir = _Path(__file__).resolve().parent.parent / "advisor" / "output" / today
             if not advisor_dir.exists():
                 # Try yesterday
-                from datetime import timedelta
                 yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
                 advisor_dir = _Path(__file__).resolve().parent.parent / "advisor" / "output" / yesterday
             if not advisor_dir.exists():
@@ -1563,7 +1596,36 @@ def create_app() -> FastAPI:
             if not advisor_dir or not advisor_dir.exists():
                 return {"status": "NO_DATA", "alerts": [], "recommendations": []}
 
-            result = {"date": advisor_dir.name, "status": "OK"}
+            # 2) Compute staleness from directory name (YYYYMMDD)
+            stale_days = None
+            last_run_iso = advisor_dir.name  # fallback
+            try:
+                last_run_date = datetime.strptime(advisor_dir.name, "%Y%m%d").date()
+                stale_days = (datetime.now().date() - last_run_date).days
+                last_run_iso = last_run_date.isoformat()
+            except ValueError:
+                pass
+
+            # 3) Older than 3 days → STALE. Empty alerts/recs so the
+            #    dashboard cannot render them as current warnings.
+            if stale_days is not None and stale_days > 3:
+                return {
+                    "status": "STALE",
+                    "alerts": [],
+                    "recommendations": [],
+                    "date": advisor_dir.name,
+                    "last_run_date": last_run_iso,
+                    "stale_days": stale_days,
+                    "message": f"AI ADVISOR unavailable — last run: {last_run_iso}",
+                }
+
+            # 4) Fresh enough — return live data.
+            result = {
+                "status": "OK",
+                "date": advisor_dir.name,
+                "last_run_date": last_run_iso,
+                "stale_days": stale_days,
+            }
             for fname in ["alerts.json", "recommendations.json", "daily_analysis.json"]:
                 fpath = advisor_dir / fname
                 if fpath.exists():

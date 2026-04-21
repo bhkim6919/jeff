@@ -1482,10 +1482,37 @@ async function loadAdvisor() {
         const recsEl = document.getElementById('advisor-recs');
         if (!alertsEl) return;
 
+        // Priority: DISABLED (engine offline) > STALE > NO_DATA > OK.
+        // For DISABLED / STALE we MUST NOT render any alert list — the
+        // stored alerts describe a prior world and must not be mistaken
+        // for the current one.
+        if (data.status === 'DISABLED') {
+            badge.textContent = 'DISABLED';
+            badge.className = 'badge badge-readfail';
+            alertsEl.innerHTML =
+                '<div class="advisor-alert advisor-alert-high">' +
+                '🛑 ' + (data.message || 'AI ADVISOR paused (engine offline)') +
+                '</div>';
+            if (recsEl) recsEl.style.display = 'none';
+            return;
+        }
+
+        if (data.status === 'STALE') {
+            badge.textContent = 'STALE';
+            badge.className = 'badge badge-stale';
+            const msg = data.message ||
+                `AI ADVISOR unavailable — last run: ${data.last_run_date || '?'}`;
+            alertsEl.innerHTML =
+                `<div class="advisor-alert advisor-alert-high">⏸ ${msg}</div>`;
+            if (recsEl) recsEl.style.display = 'none';
+            return;
+        }
+
         if (data.status === 'NO_DATA') {
             badge.textContent = 'PENDING';
             badge.className = 'badge badge-mock';
             alertsEl.innerHTML = '<div class="dim">배치 실행 후 분석 결과가 표시됩니다</div>';
+            if (recsEl) recsEl.style.display = 'none';
             return;
         }
 
