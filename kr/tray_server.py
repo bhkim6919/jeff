@@ -2057,13 +2057,23 @@ class Win32TrayServer:
             clean_env.pop(var, None)
 
         try:
+            # CREATE_NEW_PROCESS_GROUP — needed so CTRL_BREAK_EVENT in
+            # _action_kr_live_stop reaches the engine without affecting tray
+            # itself.
+            # CREATE_NO_WINDOW — hide the cmd window that would otherwise
+            # flash on every spawn; Jeff is on a business trip during the
+            # first auto-spawns and a popping console would be confusing.
+            # Both flags are required together.
             self._kr_live_process = subprocess.Popen(
                 [str(KR_LIVE_PYTHON), "-X", "utf8", "main.py", "--live"],
                 cwd=str(KR_LIVE_BASE_DIR),
                 stdout=(self._kr_live_log_fh or subprocess.DEVNULL),
                 stderr=subprocess.STDOUT,
                 env=clean_env,
-                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+                creationflags=(
+                    subprocess.CREATE_NEW_PROCESS_GROUP
+                    | subprocess.CREATE_NO_WINDOW
+                ),
             )
             self._kr_live_running = True
             self._logger.info(
