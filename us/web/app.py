@@ -1507,6 +1507,19 @@ def create_app() -> FastAPI:
         sm.clear_stale_execute_lock()
         rs = sm.get_rebal_state()
 
+        # 0. Market closed — day-type orders submitted outside regular hours
+        # are canceled by Alpaca almost immediately (no fills). This produced
+        # the false-positive SUCCESS notification on 2026-04-21 pre-market.
+        # Fail fast with a clear reason instead of submitting doomed orders.
+        try:
+            _clock = p.get_clock() or {}
+        except Exception:
+            _clock = {}
+        if not _clock.get("is_open", False):
+            logger.warning(f"[US_REBAL_EXEC_REJECT] market_closed {log_ctx}")
+            _record_reject("MARKET_CLOSED")
+            return {"ok": False, "error": "Market is closed — day orders would be canceled. Try again during regular hours."}
+
         # 1. Idempotency
         if request_id == rs.get("last_execute_request_id", ""):
             logger.warning(f"[US_REBAL_DUP_BLOCK] {log_ctx}")
@@ -1613,23 +1626,25 @@ def create_app() -> FastAPI:
 
             # ── SELL ──
             sell_results = []
-            sell_ok_count = 0
+            sell_submit_ok = 0
             if mode in ("sell_only", "sell_and_buy"):
                 for s in sells:
                     try:
                         r = p.send_order(s.ticker, "SELL", s.quantity)
                         ok = is_order_success(r)
-                        if not ok:
-                            logger.warning(f"[ORDER_FAIL] SELL {s.ticker} x{s.quantity} result={r}")
-                        sell_results.append({"symbol": s.ticker, "qty": s.quantity, "ok": ok})
+                        entry = {"symbol": s.ticker, "qty": s.quantity, "ok": ok}
                         if ok:
-                            sell_ok_count += 1
+                            entry["order_no"] = r.get("order_no", "")
+                            sell_submit_ok += 1
+                        else:
+                            logger.warning(f"[ORDER_FAIL] SELL {s.ticker} x{s.quantity} result={r}")
+                        sell_results.append(entry)
                     except Exception as e:
                         sell_results.append({"symbol": s.ticker, "qty": s.quantity, "ok": False, "error": str(e)})
 
             # ── BUY ──
             buy_results = []
-            buy_ok_count = 0
+            buy_submit_ok = 0
             buy_blocked = ""
             if mode in ("buy_only", "sell_and_buy"):
                 if not buy_ok:
@@ -1642,24 +1657,102 @@ def create_app() -> FastAPI:
                         try:
                             r = p.send_order(b.ticker, "BUY", scaled_qty)
                             ok = is_order_success(r)
-                            if not ok:
-                                logger.warning(f"[ORDER_FAIL] BUY {b.ticker} x{scaled_qty} result={r}")
-                            buy_results.append({"symbol": b.ticker, "qty": scaled_qty, "ok": ok})
+                            entry = {"symbol": b.ticker, "qty": scaled_qty, "ok": ok}
                             if ok:
-                                buy_ok_count += 1
+                                entry["order_no"] = r.get("order_no", "")
+                                buy_submit_ok += 1
+                            else:
+                                logger.warning(f"[ORDER_FAIL] BUY {b.ticker} x{scaled_qty} result={r}")
+                            buy_results.append(entry)
                         except Exception as e:
                             buy_results.append({"symbol": b.ticker, "qty": scaled_qty, "ok": False, "error": str(e)})
+
+            # ── Post-submission status verification ──
+            # is_order_success() only confirms Alpaca accepted the POST; it does
+            # NOT confirm the broker didn't immediately cancel (e.g., pre-market
+            # day orders, buying-power rejection, bad symbol). Poll each order
+            # ~3s after submission and drop the ones Alpaca killed with 0 fills.
+            # Without this, 6 immediately-canceled orders registered as SUCCESS
+            # on 2026-04-21 21:15 KST and advanced last_rebalance_date falsely.
+            _DEAD = {"canceled", "cancelled", "expired", "rejected", "suspended"}
+
+            def _order_final(order_no: str) -> tuple[bool, int]:
+                """Return (alive, filled_qty) for a submitted order.
+
+                alive=False → broker terminated with zero fills (treat as failed).
+                On query error we default to alive=True (conservative — let the
+                async fill monitor resolve later).
+                """
+                if not order_no:
+                    return (True, 0)
+                try:
+                    o = p._get(f"/v2/orders/{order_no}")
+                    if not o:
+                        return (True, 0)
+                    status = (o.get("status") or "").lower()
+                    filled = int(float(o.get("filled_qty", 0) or 0))
+                    if status in _DEAD and filled == 0:
+                        return (False, 0)
+                    return (True, filled)
+                except Exception:
+                    return (True, 0)
+
+            if sell_submit_ok or buy_submit_ok:
+                await asyncio.sleep(3.0)
+
+            sell_ok_count = 0
+            sell_filled = 0
+            for r in sell_results:
+                if not r.get("ok"):
+                    continue
+                alive, filled = _order_final(r.get("order_no", ""))
+                r["alive"] = alive
+                r["filled_qty"] = filled
+                if not alive:
+                    r["ok"] = False
+                    logger.warning(
+                        f"[ORDER_KILLED] SELL {r['symbol']} x{r['qty']} "
+                        f"order_no={r.get('order_no','')[:8]} canceled/rejected by broker"
+                    )
+                else:
+                    sell_ok_count += 1
+                    sell_filled += filled
+
+            buy_ok_count = 0
+            buy_filled = 0
+            for r in buy_results:
+                if not r.get("ok"):
+                    continue
+                alive, filled = _order_final(r.get("order_no", ""))
+                r["alive"] = alive
+                r["filled_qty"] = filled
+                if not alive:
+                    r["ok"] = False
+                    logger.warning(
+                        f"[ORDER_KILLED] BUY {r['symbol']} x{r['qty']} "
+                        f"order_no={r.get('order_no','')[:8]} canceled/rejected by broker"
+                    )
+                else:
+                    buy_ok_count += 1
+                    buy_filled += filled
 
             # ── 결과 판정 ──
             total_sells = len(sells) if mode in ("sell_only", "sell_and_buy") else 0
             total_buys = len(buys) if mode in ("buy_only", "sell_and_buy") else 0
+            total_submit = sell_submit_ok + buy_submit_ok  # orders Alpaca accepted
+            total_alive = sell_ok_count + buy_ok_count     # orders still alive post-verify
             sell_all_ok = sell_ok_count == total_sells or total_sells == 0
             buy_all_ok = buy_ok_count == total_buys or total_buys == 0 or buy_blocked
 
-            if sell_all_ok and buy_all_ok and not buy_blocked:
+            if total_submit > 0 and total_alive == 0:
+                # Every submitted order was killed by broker (e.g. pre-market).
+                # NOT a success — do not advance last_rebalance_date.
+                exec_result = "NO_FILL"
+                exec_phase = "FAILED"
+            elif sell_all_ok and buy_all_ok and not buy_blocked:
                 exec_result = "SUCCESS"
                 exec_phase = "EXECUTED"
-            elif sell_ok_count > 0 or buy_ok_count > 0:
+            elif total_alive > 0:
                 exec_result = "PARTIAL"
                 exec_phase = "PARTIAL_EXECUTED"
             else:
@@ -1691,29 +1784,41 @@ def create_app() -> FastAPI:
 
             logger.info(
                 f"[US_REBAL_EXEC_DONE] {log_ctx} result={exec_result} "
-                f"sells={sell_ok_count}/{total_sells} buys={buy_ok_count}/{total_buys}"
+                f"sells={sell_ok_count}/{total_sells}(filled={sell_filled}) "
+                f"buys={buy_ok_count}/{total_buys}(filled={buy_filled})"
             )
 
             # Telegram
             try:
                 from notify.telegram_bot import send
+                _severity = {
+                    "SUCCESS": "INFO",
+                    "PARTIAL": "WARN",
+                    "NO_FILL": "CRITICAL",
+                    "FAILED": "CRITICAL",
+                }.get(exec_result, "WARN")
                 send(
                     f"<b>Rebalance {exec_result}</b>\n"
                     f"Mode: {mode} | Scale: {buy_scale:.0%}\n"
-                    f"Sells: {sell_ok_count}/{total_sells} | Buys: {buy_ok_count}/{total_buys}"
-                    + (f"\nBUY blocked: {buy_blocked}" if buy_blocked else ""),
-                    "INFO" if exec_result == "SUCCESS" else "WARN",
+                    f"Sells: {sell_ok_count}/{total_sells} (filled: {sell_filled})\n"
+                    f"Buys: {buy_ok_count}/{total_buys} (filled: {buy_filled})"
+                    + (f"\nBUY blocked: {buy_blocked}" if buy_blocked else "")
+                    + ("\n⚠ 모든 주문이 취소/거절됨 — last_rebalance_date 유지"
+                       if exec_result == "NO_FILL" else ""),
+                    _severity,
                 )
             except Exception:
                 pass
 
             return {
-                "ok": exec_result != "FAILED",
+                "ok": exec_result not in ("FAILED", "NO_FILL"),
                 "result": exec_result,
                 "sells": sell_results,
                 "buys": buy_results,
                 "sell_count": sell_ok_count,
                 "buy_count": buy_ok_count,
+                "sell_filled": sell_filled,
+                "buy_filled": buy_filled,
                 "buy_blocked": buy_blocked,
                 "buy_scale": buy_scale,
             }
