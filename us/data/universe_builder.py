@@ -174,25 +174,47 @@ def save_universe_snapshot(tickers: List[str], name: str,
 
 
 def load_universe_snapshot(name: str) -> List[str]:
-    """Load tickers from latest snapshot for given universe name."""
+    """Load tickers from latest snapshot for given universe name.
+
+    Returns [] on any missing-data condition. All such conditions emit
+    a [UNIVERSE_EMPTY] warning so callers and alerting see them — a
+    silent empty list cost us a full R3000 strategy outage on 2026-04-21.
+    """
     meta_path = UNIVERSES_DIR / "universe_meta.json"
     if not meta_path.exists():
-        logger.warning(f"[SNAPSHOT] No meta file, fetching fresh {name}")
+        logger.warning(
+            f"[UNIVERSE_EMPTY] {name}: no universe_meta.json at {meta_path}"
+        )
         return []
 
     meta = json.loads(meta_path.read_text())
     entry = meta.get(name)
     if not entry:
+        logger.warning(
+            f"[UNIVERSE_EMPTY] {name}: not registered in universe_meta.json "
+            f"(known={sorted(meta.keys())})"
+        )
         return []
 
     filepath = UNIVERSES_DIR / entry["file"]
     if not filepath.exists():
-        logger.warning(f"[SNAPSHOT] File missing: {filepath}")
+        logger.warning(
+            f"[UNIVERSE_EMPTY] {name}: snapshot file missing at {filepath}"
+        )
         return []
 
     df = pd.read_csv(filepath)
     tickers = df["ticker"].tolist()
-    logger.info(f"[SNAPSHOT] Loaded {name}: {len(tickers)} tickers (hash={entry.get('universe_hash', '?')[:8]})")
+    if not tickers:
+        logger.warning(
+            f"[UNIVERSE_EMPTY] {name}: snapshot file {entry['file']} "
+            f"has zero tickers"
+        )
+        return []
+    logger.info(
+        f"[SNAPSHOT] Loaded {name}: {len(tickers)} tickers "
+        f"(hash={entry.get('universe_hash', '?')[:8]})"
+    )
     return tickers
 
 
