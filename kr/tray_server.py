@@ -2381,8 +2381,26 @@ class Win32TrayServer:
 
         # Background scheduler: tooltip update + auto-batch
         def _background_scheduler():
+            # Pipeline Orchestrator shadow hook (Phase 3, 2026-04-21).
+            # No-op when QTRON_PIPELINE env var is unset. When set to "1"
+            # the orchestrator ticks alongside legacy auto-triggers below
+            # and writes pipeline_state_YYYYMMDD.json + PG mirror for
+            # observability. Legacy scheduling is unchanged. See
+            # kr/docs/PIPELINE_ORCHESTRATOR_PLAN.md §3.
+            try:
+                from pipeline.tray_integration import tick_if_enabled as _pipeline_tick
+            except Exception as _pipe_imp_err:
+                _pipeline_tick = None
+                self._logger.warning(
+                    f"[PIPELINE_TRAY_IMPORT_FAIL] {_pipe_imp_err}"
+                )
+
             while self._running:
                 time.sleep(30)
+
+                # Pipeline Orchestrator tick (shadow mode). Never raises.
+                if _pipeline_tick is not None:
+                    _pipeline_tick()
 
                 # Tooltip
                 batch_flag = " | Batch ON" if self._batch_auto else ""
