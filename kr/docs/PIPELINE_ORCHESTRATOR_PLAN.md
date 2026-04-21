@@ -2,8 +2,26 @@
 
 작성일: 2026-04-21
 작성자: Claude (TOM) — Jeff 승인 후 착수
-상태: **APPROVED — Phase 1 착수**
+상태: **Phase 1~4 COMPLETE · Phase 5 대기 (shadow→primary 관찰 후)**
 참조 설계 문서: `kr/docs/PIPELINE_ORCHESTRATOR.md` (commit `fafdf9f6`)
+
+---
+
+## 0.0 Progress Tracker (Live)
+
+| Phase | 상태 | Commit | Tests | 비고 |
+|---|---|---|---|---|
+| 1. Foundation (schema/state/backoff/mode/bootstrap) | ✅ DONE | `8eb3c88e` | 39 | 2026-04-21 |
+| 2. Step wrappers + PG mirror | ✅ DONE | `08af90d2` | 76 (+37) | 2026-04-21 |
+| 3. Orchestrator + tray shadow hook + lab_eod_us | ✅ DONE | `4e6c8afb` | 100 (+24) | 2026-04-21 |
+| 4. REST API + UI banner + primary-mode gating | ✅ DONE | `a9cba508` | 111 (+11) | 2026-04-21 — Phase 5 legacy gating 선행 완료 |
+| 5. Legacy 필드 제거 + advisor 전환 | ⏳ WAITING | — | — | `QTRON_PIPELINE=2` primary 1주일 무사고 후 착수 |
+
+**현재 운영 상태**: 코드 전체 배포됨. env `QTRON_PIPELINE` 미설정이라 no-op (regression 가드).
+  - `=1` shadow: orchestrator tick + state 기록 병렬, legacy trigger 그대로
+  - `=2` primary: legacy batch/backup/KR-EOD/US-EOD trigger 4블럭 suppress → orchestrator 단독 scheduler
+
+**Phase 3.5 (deferred)**: ohlcv_sync 독립 step 추출 — `run_batch` 내부 checkpoint와 tightly coupled. Phase 5 이후 `lifecycle/batch.py` 리팩토링과 함께 재평가.
 
 ---
 
