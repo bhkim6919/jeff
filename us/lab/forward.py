@@ -275,18 +275,70 @@ class ForwardTrader:
             prev_dir = VERSIONS_DIR / prev_run_id
 
             # Fetch market data from Alpaca
+            # Phase 2: universe-aware pool with feature flag + R1000 fallback.
+            # Invariant: Strategy(U) → Fetch(U). When flag OFF, behavior is
+            # identical to the prior R1000-only implementation.
             from regime.collector import fetch_alpaca_snapshots
+            import os as _os
+
             tickers_r1000 = load_universe_snapshot("RESEARCH_R1000")
+            tickers_pool = list(tickers_r1000)
+
+            _r3000_enabled = _os.environ.get(
+                "US_FORWARD_R3000_ENABLED", ""
+            ).lower() in ("1", "true", "yes")
+
+            extra_universes = sorted({
+                cfg.get("universe", "RESEARCH_R1000")
+                for cfg in STRATEGY_CONFIGS.values()
+            } - {"RESEARCH_R1000"})
+
+            if extra_universes and _r3000_enabled:
+                for uname in extra_universes:
+                    extra = load_universe_snapshot(uname)
+                    if extra:
+                        before_n = len(tickers_pool)
+                        tickers_pool = sorted(set(tickers_pool) | set(extra))
+                        logger.info(
+                            f"[FORWARD_UNIVERSE] expanded with {uname}: "
+                            f"+{len(tickers_pool) - before_n} new "
+                            f"(pool={len(tickers_pool)})"
+                        )
+                    else:
+                        logger.warning(
+                            f"[FORWARD_UNIVERSE] {uname} snapshot empty/missing — skip"
+                        )
+            elif extra_universes:
+                logger.warning(
+                    f"[FORWARD_UNIVERSE] non-R1000 universes referenced "
+                    f"({extra_universes}) but US_FORWARD_R3000_ENABLED=OFF "
+                    f"→ R1000 fallback. Set env=1 to enable."
+                )
 
             snapshots_data = {}
             if provider:
-                snapshots_data = fetch_alpaca_snapshots(tickers_r1000[:500], provider)
-                snapshots_data.update(fetch_alpaca_snapshots(tickers_r1000[500:], provider))
+                if _r3000_enabled and len(tickers_pool) > len(tickers_r1000):
+                    # Expanded pool: chunk in 500
+                    chunk_size = 500
+                    for i in range(0, len(tickers_pool), chunk_size):
+                        snapshots_data.update(
+                            fetch_alpaca_snapshots(tickers_pool[i:i + chunk_size], provider)
+                        )
+                    logger.info(
+                        f"[FORWARD_UNIVERSE] alpaca fetched {len(snapshots_data)}/"
+                        f"{len(tickers_pool)} symbols (r3000_enabled=True)"
+                    )
+                else:
+                    # Baseline: identical to prior 2-chunk R1000-only fetch
+                    snapshots_data = fetch_alpaca_snapshots(tickers_r1000[:500], provider)
+                    snapshots_data.update(fetch_alpaca_snapshots(tickers_r1000[500:], provider))
             else:
-                # Fallback: load from DB
+                # Fallback: load from DB (uses pool when expanded)
                 from data.db_provider import DbProviderUS
                 db = DbProviderUS()
-                close_dict_db = db.load_close_dict_research(min_history=1, symbols=tickers_r1000)
+                close_dict_db = db.load_close_dict_research(
+                    min_history=1, symbols=tickers_pool
+                )
                 for sym, series in close_dict_db.items():
                     if len(series) > 0:
                         snapshots_data[sym] = {
@@ -339,11 +391,30 @@ class ForwardTrader:
                     f"H>=max(O,C) or L<=min(O,C). samples={_samples}"
                 )
 
-            # Also load historical for signal generation
+            # Also load historical for signal generation.
+            # Phase 3: when R3000 flag ON, expand historical DB load to full
+            # pool so small-caps without today's alpaca quote still have
+            # history available for filter_universe_for_strategy. When OFF,
+            # use close_dict.keys() identical to prior behavior (strict
+            # baseline equivalence).
             from data.db_provider import DbProviderUS
             db = DbProviderUS()
-            ohlcv_dict = db.load_ohlcv_dict_research(min_history=20, symbols=list(close_dict.keys()))
-            full_close_dict = db.load_close_dict_research(min_history=20, symbols=list(close_dict.keys()))
+            if _r3000_enabled and len(tickers_pool) > len(tickers_r1000):
+                _hist_symbols = list(set(tickers_pool) | set(close_dict.keys()))
+            else:
+                _hist_symbols = list(close_dict.keys())
+            ohlcv_dict = db.load_ohlcv_dict_research(min_history=20, symbols=_hist_symbols)
+            full_close_dict = db.load_close_dict_research(min_history=20, symbols=_hist_symbols)
+
+            # Sanity check: full_close_dict empty means catastrophic DB + alpaca
+            # failure. Don't raise (would abort EOD); log CRITICAL so it shows
+            # in alerts while the loop continues to emit empty run record.
+            if not full_close_dict:
+                logger.critical(
+                    f"[FORWARD_DATA_EMPTY] full_close_dict empty — DB has no "
+                    f"history for pool ({len(_hist_symbols)} symbols). "
+                    f"All strategies will return 0 positions."
+                )
             # Meta layer: SPY + sector_map (same DB session, same snapshot)
             _spy_series = db.get_index("SPY")["close"] if hasattr(db, "get_index") else None
             _sector_map = db.get_sector_map() if hasattr(db, "get_sector_map") else {}
