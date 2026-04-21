@@ -221,3 +221,31 @@ def tick_if_enabled() -> Optional[dict]:
     except Exception as e:  # noqa: BLE001 — MUST NOT break tray loop
         _log.exception("[PIPELINE_TICK_WRAP_CRASH] %s", e)
         return None
+
+
+def notify_if_enabled() -> list[str]:
+    """Dispatch Telegram notifications for newly-terminal steps.
+
+    Re-reads today's state from disk (cheap — JSON) and feeds it to the
+    module-level PipelineNotifier, which dedupes via an internal set so
+    repeated ticks don't re-emit.
+
+    Returns list of step names for which a message was sent this call.
+    Safe to call every tick; returns [] when toggle is off or on any
+    error (never raises into the tray loop).
+    """
+    if not is_enabled():
+        return []
+    try:
+        orch = HOLDER.get()
+        if orch is None:
+            return []
+        state = PipelineState.load_or_create_today(
+            data_dir=orch._data_dir,
+            mode=orch._mode,
+        )
+        from .notify import get_notifier
+        return get_notifier().notify_transitions(state)
+    except Exception as e:  # noqa: BLE001 — MUST NOT break tray loop
+        _log.warning("[PIPELINE_NOTIFY_WRAP_CRASH] %s", e)
+        return []

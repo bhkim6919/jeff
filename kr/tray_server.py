@@ -2393,10 +2393,12 @@ class Win32TrayServer:
             try:
                 from pipeline.tray_integration import (
                     is_primary as _pipeline_is_primary,
+                    notify_if_enabled as _pipeline_notify,
                     tick_if_enabled as _pipeline_tick,
                 )
             except Exception as _pipe_imp_err:
                 _pipeline_tick = None
+                _pipeline_notify = None
                 _pipeline_is_primary = lambda: False  # noqa: E731
                 self._logger.warning(
                     f"[PIPELINE_TRAY_IMPORT_FAIL] {_pipe_imp_err}"
@@ -2409,6 +2411,11 @@ class Win32TrayServer:
                 # regardless of mode; only scheduling ownership differs.
                 if _pipeline_tick is not None:
                     _pipeline_tick()
+
+                # Telegram transition notifier — emits DONE / ABANDONED
+                # messages after each tick. Safe on failure (returns []).
+                if _pipeline_notify is not None:
+                    _pipeline_notify()
 
                 # Snapshot primary-mode flag once per tick so legacy
                 # trigger blocks below can uniformly skip under PRIMARY.
