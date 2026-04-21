@@ -385,14 +385,103 @@ def _read_trail_stops_from(fb: dict) -> dict:
     return result
 
 
+def _detect_engine_status() -> dict:
+    """Detect whether the KR live engine is currently running.
+
+    The UI must distinguish three separate situations that all look like
+    "stale RECON" on the surface:
+
+      1. Engine running, RECON ran recently, all good.
+      2. Engine running, RECON temporarily stale (retry pending).
+      3. Engine NOT running at all — nobody is writing runtime_state.
+
+    (3) is the dangerous one: REST polling keeps broker values fresh so
+    the dashboard looks alive, but trail stop / DD guard / rebalance /
+    EOD are all dead. Operators can mistake it for (2).
+
+    This helper identifies (3) by three independent checks:
+      - kr/state/ directory exists
+      - runtime_state_live.json exists and is parseable
+      - the state was written recently (<10min) by the engine itself
+        (``_write_origin == "engine"``)
+
+    Any one of those failing forces ENGINE_OFFLINE in the returned dict.
+    Returned dict is additive — existing callers ignore it; new call
+    sites (state snapshot, health endpoint) override RED/disable
+    auto-trading accordingly.
+    """
+    state_dir = _GEN04_STATE_DIR
+    runtime_file = state_dir / "runtime_state_live.json"
+    portfolio_file = state_dir / "portfolio_state_live.json"
+
+    checks = {
+        "state_dir_exists": state_dir.exists(),
+        "runtime_file_exists": runtime_file.exists(),
+        "portfolio_file_exists": portfolio_file.exists(),
+    }
+
+    last_write_ts = 0.0
+    last_write_origin = None
+    if checks["runtime_file_exists"]:
+        try:
+            data = json.loads(runtime_file.read_text(encoding="utf-8"))
+            last_write_origin = data.get("_write_origin")
+            ts_str = data.get("_write_ts") or data.get("timestamp")
+            if ts_str:
+                try:
+                    last_write_ts = datetime.fromisoformat(ts_str).timestamp()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    last_write_age_sec = (time.time() - last_write_ts) if last_write_ts else None
+
+    fresh = (last_write_age_sec is not None and last_write_age_sec < 600)
+    engine_origin = (last_write_origin == "engine")
+
+    if not checks["state_dir_exists"]:
+        status, reason = "OFFLINE", "kr/state/ directory missing"
+    elif not checks["runtime_file_exists"]:
+        status, reason = "OFFLINE", "runtime_state_live.json missing"
+    elif last_write_age_sec is None:
+        status, reason = "OFFLINE", "engine state has no write timestamp"
+    elif not fresh:
+        _h = last_write_age_sec / 3600.0
+        status, reason = "OFFLINE", f"engine state stale ({_h:.1f}h since last write)"
+    elif not engine_origin:
+        status, reason = "OFFLINE", f"state not written by live engine (origin={last_write_origin!r})"
+    else:
+        status, reason = "ONLINE", "live engine writing state"
+
+    return {
+        "status": status,
+        "reason": reason,
+        "last_write_ts": last_write_ts,
+        "last_write_age_sec": round(last_write_age_sec, 1) if last_write_age_sec is not None else None,
+        "last_write_origin": last_write_origin,
+        "checks": checks,
+    }
+
+
 def _compute_recon_status() -> dict:
-    """Read RECON status from runtime state."""
+    """Read RECON status from runtime state.
+
+    When the live engine is OFFLINE (see _detect_engine_status()), RECON
+    is reported with an extra ``status="UNAVAILABLE"`` + ``engine_offline=True``
+    to distinguish it from the "engine running, RECON just stale" case.
+    Existing fields (``stale``, ``expired``, ``age_sec``, ...) stay so older
+    consumers keep working.
+    """
     raw = _safe_read_json(str(_GEN04_STATE_DIR / "runtime_state_live.json"))
     fb = _get_or_fallback("runtime_state", raw)
     data = fb.get("data") or {}
     source_ts = fb.get("source_ts", 0)
     age = time.time() - source_ts if source_ts else 99999
-    return {
+
+    engine = _detect_engine_status()
+
+    out = {
         "unreliable": data.get("recon_unreliable", False),
         "last_run": data.get("timestamp", ""),
         "age_sec": round(age, 1),
@@ -402,6 +491,14 @@ def _compute_recon_status() -> dict:
         "expired": fb.get("expired", False),
         "error": fb.get("error"),
     }
+    if engine["status"] == "OFFLINE":
+        out["status"] = "UNAVAILABLE"
+        out["engine_offline"] = True
+        out["engine_reason"] = engine["reason"]
+    else:
+        out["status"] = "AVAILABLE"
+        out["engine_offline"] = False
+    return out
 
 
 def _read_recent_trades(limit: int = 10) -> dict:
@@ -1347,16 +1444,63 @@ def create_app() -> FastAPI:
         except Exception as _e:
             snap["auto_trading"] = {"enabled": False, "blockers": [f"EVAL_ERROR:{type(_e).__name__}"],
                                     "reason_summary": "eval_error"}
+
+        # ── ENGINE_OFFLINE safety gate (prevents operator misjudgment) ──
+        # When the live engine stops writing runtime_state, REST polling still
+        # keeps broker values fresh → dashboard looks healthy. Force-override
+        # health/auto_trading/recon so no human mistakes "REST alive" for
+        # "engine alive". See _detect_engine_status() for the detection logic.
+        _engine = _detect_engine_status()
+        snap["engine_status"] = _engine
+        if _engine["status"] == "OFFLINE":
+            snap["health"] = {
+                "status": "RED",
+                "reason": f"ENGINE_OFFLINE: {_engine['reason']}",
+            }
+            _auto_dict = snap.get("auto_trading") or {}
+            _blockers = list(_auto_dict.get("blockers") or [])
+            if "ENGINE_OFFLINE" not in _blockers:
+                _blockers.insert(0, "ENGINE_OFFLINE")
+            _auto_dict["enabled"] = False
+            _auto_dict["blockers"] = _blockers
+            _auto_dict["reason_summary"] = "engine_offline"
+            _auto_dict["highest_priority_blocker"] = "ENGINE_OFFLINE"
+            snap["auto_trading"] = _auto_dict
+            _recon = snap.get("recon") or {}
+            _recon["status"] = "UNAVAILABLE"
+            _recon["engine_offline"] = True
+            _recon["engine_reason"] = _engine["reason"]
+            snap["recon"] = _recon
+            # Annotate sync rows so the dual-read panel shows COM_DISABLED
+            # instead of implying a REST↔COM consistency problem.
+            for _row in (snap.get("sync") or []):
+                if isinstance(_row, dict):
+                    _row["com_disabled"] = True
+                    _row["com_reason"] = "ENGINE_OFFLINE"
         return snap
 
     @application.get("/api/health")
     async def get_health():
-        """Quick health check endpoint."""
+        """Quick health check endpoint.
+
+        ENGINE_OFFLINE overrides tracker health: the REST layer can be
+        perfectly healthy while the live engine is not running, and that
+        case must surface as RED — not YELLOW or GREEN — so external
+        monitors (Telegram alerts, uptime checks, tray icon) treat it
+        as a real outage.
+        """
         snap = tracker.snapshot()
+        status = snap["health"]["status"]
+        reason = snap["health"]["reason"]
+        engine = _detect_engine_status()
+        if engine["status"] == "OFFLINE":
+            status = "RED"
+            reason = f"ENGINE_OFFLINE: {engine['reason']}"
         return {
-            "status": snap["health"]["status"],
-            "reason": snap["health"]["reason"],
+            "status": status,
+            "reason": reason,
             "timestamp": snap["timestamp_str"],
+            "engine_status": engine["status"],
         }
 
     @application.get("/api/advisor/today")
