@@ -1514,6 +1514,18 @@ def create_app() -> FastAPI:
             snap["auto_trading"] = {"enabled": False, "blockers": [f"EVAL_ERROR:{type(_e).__name__}"],
                                     "reason_summary": "eval_error"}
 
+        # theme_regime fallback — SSE 10min cycle 에 의존하지 않고 DB 에서 직접 로드.
+        # cache 우선, 비었으면 PG regime_theme_daily 오늘자 조회.
+        try:
+            if not snap.get("theme_regime"):
+                _tr_cached = _portfolio_cache.get("theme_regime")
+                if _tr_cached:
+                    snap["theme_regime"] = _tr_cached
+                else:
+                    snap["theme_regime"] = _load_theme_regime_from_db() or []
+        except Exception as _tr_err:
+            logging.getLogger("web").debug(f"theme_regime fallback: {_tr_err}")
+
         # ENGINE_OFFLINE safety gate — shared with /sse/state via helper.
         _apply_engine_offline_override(snap)
         return snap
@@ -3387,6 +3399,50 @@ def _get_global_provider():
     return _global_provider_cache["instance"]
 
 
+def _load_theme_regime_from_db(limit: int = 15) -> list:
+    """Fallback: load theme_regime from PG regime_theme_daily (no Kiwoom call).
+
+    Prefers today's row. Falls back to the most recent market_date present.
+    Returns list compatible with dashboard.js consumer:
+        [{code, name, count, change_pct, regime, streak, held_count}]
+    """
+    try:
+        from shared.db.pg_base import connection as _conn
+        from datetime import date as _date
+        today_str = _date.today().strftime("%Y-%m-%d")
+        with _conn() as _c:
+            cur = _c.cursor()
+            cur.execute(
+                "SELECT theme_code, theme_name, stock_count, change_pct, regime, "
+                "streak_days, market_date FROM regime_theme_daily "
+                "WHERE market_date=%s ORDER BY change_pct DESC LIMIT %s",
+                (today_str, limit),
+            )
+            rows = cur.fetchall()
+            if not rows:
+                cur.execute(
+                    "SELECT theme_code, theme_name, stock_count, change_pct, regime, "
+                    "streak_days, market_date FROM regime_theme_daily "
+                    "WHERE market_date=(SELECT MAX(market_date) FROM regime_theme_daily) "
+                    "ORDER BY change_pct DESC LIMIT %s",
+                    (limit,),
+                )
+                rows = cur.fetchall()
+            cur.close()
+        out = []
+        for r in rows:
+            out.append({
+                "code": r[0], "name": r[1], "count": r[2],
+                "change_pct": float(r[3]) if r[3] is not None else 0.0,
+                "regime": r[4], "streak": r[5], "held_count": 0,
+                "as_of": str(r[6]) if r[6] else "",
+            })
+        return out
+    except Exception as _e:
+        logging.getLogger("web").debug(f"_load_theme_regime_from_db: {_e}")
+        return []
+
+
 def _enrich_day_change_fast(holdings: list) -> None:
     """경량 전일대비 enrich — Kiwoom prev_close_price 우선, DB fallback.
     모듈 레벨 (create_app 클로저 우회, SSE generator에서 호출 가능).
@@ -3750,6 +3806,13 @@ async def _sse_generator(
                     logging.getLogger("web").warning(f"Theme regime: {_te}")
             if _portfolio_cache.get("theme_regime"):
                 data["theme_regime"] = _portfolio_cache["theme_regime"]
+            else:
+                # DB fallback — avoid 10min cold-start gap where UI shows "loading..."
+                _tr_db = _load_theme_regime_from_db()
+                if _tr_db:
+                    data["theme_regime"] = _tr_db
+                    # Warm cache so subsequent ticks skip DB roundtrip
+                    _portfolio_cache["theme_regime"] = _tr_db
 
             # ── System Risk ──
             ds = {}
