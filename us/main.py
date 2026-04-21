@@ -336,14 +336,20 @@ def run_batch():
             total_n = n_r1000 + n_r3000
             print(f"  [RESEARCH_BATCH] done: R1000={n_r1000}, R3000={n_r3000}, "
                   f"total={total_n}/{len(r1000) + len(r3000_only)}")
-            logger.info(
+            # Use logging.getLogger() inline — run_batch() has a conditional
+            # `logger = logging.getLogger(...)` at line 148 that makes `logger`
+            # a local name, so referencing it here when that branch is not
+            # taken raises UnboundLocalError (observed 2026-04-21 batch run —
+            # Step 7 completed but the whole batch crashed afterward, leaving
+            # snapshot_version unwritten).
+            logging.getLogger("qtron.us.main").info(
                 f"[BATCH_R3000] r1000={n_r1000}/{len(r1000)} (period={period_r1000}) "
                 f"r3000={n_r3000}/{len(r3000_only)} (period={period_r3000})"
             )
         except Exception as e:
             msg = f"[BATCH_RESEARCH_FAIL] {e}"
             print(f"  ✗ {msg}")
-            logger.error(msg, exc_info=True)
+            logging.getLogger("qtron.us.main").error(msg, exc_info=True)
             try:
                 from notify.telegram_bot import send as _tg_send
                 _tg_send(f"US batch research ingestion failed: {e}",
