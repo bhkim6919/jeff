@@ -151,7 +151,32 @@ def get_stock_list(market: str = "KOSPI",
             "[PYKRX_FAIL] get_market_ticker_list failed after %d retries", MAX_RETRY
         )
 
-    # Fallback: CSV directory
+    # Fallback 1: sector_map (preferred — clean market split, kept in sync by batch)
+    try:
+        from data.db_provider import DbProvider
+        _db = DbProvider()
+        _conn = _db._conn()
+        _cur = _conn.cursor()
+        _cur.execute(
+            "SELECT code FROM sector_map WHERE market = %s ORDER BY code",
+            (market,),
+        )
+        tickers = [r[0] for r in _cur.fetchall()]
+        _cur.close()
+        _conn.close()
+        if tickers:
+            logger.info(
+                "[PYKRX_FALLBACK_DB] ticker list from sector_map: %d (%s)",
+                len(tickers), market,
+            )
+            return tickers
+    except Exception as e:
+        logger.warning(
+            "[PYKRX_FALLBACK_DB_FAIL] sector_map query failed: %s: %s",
+            type(e).__name__, e,
+        )
+
+    # Fallback 2: CSV directory (legacy)
     if ohlcv_dir and ohlcv_dir.exists():
         tickers = sorted(f.stem for f in ohlcv_dir.glob("*.csv"))
         if tickers:
