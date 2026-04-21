@@ -4,6 +4,10 @@ cd /d "C:\Q-TRON-32_ARCHIVE\kr"
 set PYTHON=C:\Q-TRON-32_ARCHIVE\.venv64\Scripts\pythonw.exe
 set PORT=8080
 
+:: Pipeline Orchestrator mode — 2026-04-21 Phase 4.5b cutover
+::   unset/0 = disabled, 1 = shadow, 2 = primary (legacy triggers suppressed)
+set QTRON_PIPELINE=2
+
 :: Kill existing process on port
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT% " ^| findstr "LISTENING"') do (
     echo [PORT] %PORT% occupied by PID %%a - killing...
