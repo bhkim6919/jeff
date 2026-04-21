@@ -19,6 +19,7 @@ from typing import Any, Callable, Optional
 
 from ..state import PipelineState
 from .base import StepBase, StepRunResult
+from .time_window import TimeWindow, _TIME_WINDOW_UNSET
 
 _log = logging.getLogger("gen4.pipeline.steps.lab_eod_kr")
 
@@ -37,6 +38,9 @@ class LabEodKrStep(StepBase):
     backoff_min_wait_sec = 300
     backoff_max_fails = 3
 
+    # Legacy tray window: KR_LAB_EOD_HOUR=15, MINUTE=35, LAB_EOD_WINDOW_SEC=60.
+    time_window = TimeWindow(tz="Asia/Seoul", hour=15, minute=35, window_sec=60)
+
     def __init__(
         self,
         *,
@@ -49,8 +53,9 @@ class LabEodKrStep(StepBase):
         run_daily_timeout: float = 180.0,
         update_ohlcv: bool = True,
         clock: Any = None,
+        time_window: Any = _TIME_WINDOW_UNSET,
     ):
-        super().__init__(clock=clock)
+        super().__init__(clock=clock, time_window=time_window)
         self._port = int(port)
         self._host = str(host)
         self._http_get = http_get

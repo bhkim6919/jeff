@@ -50,6 +50,7 @@ def test_batch_success_marks_done(tmp_path):
     step = BatchStep(
         config_factory=_fake_cfg,
         run_batch_fn=lambda cfg, fast=True: target,
+        time_window=None,
     )
     state = _make_state(tmp_path)
 
@@ -65,6 +66,7 @@ def test_batch_empty_universe_marks_failed(tmp_path):
     step = BatchStep(
         config_factory=_fake_cfg,
         run_batch_fn=lambda cfg, fast=True: None,
+        time_window=None,
     )
     state = _make_state(tmp_path)
 
@@ -80,6 +82,7 @@ def test_batch_empty_target_list_marks_failed(tmp_path):
     step = BatchStep(
         config_factory=_fake_cfg,
         run_batch_fn=lambda cfg, fast=True: {"target_tickers": []},
+        time_window=None,
     )
     state = _make_state(tmp_path)
 
@@ -93,7 +96,7 @@ def test_batch_crash_does_not_propagate(tmp_path):
     def _boom(cfg, fast=True):
         raise RuntimeError("db_connect_timeout")
 
-    step = BatchStep(config_factory=_fake_cfg, run_batch_fn=_boom)
+    step = BatchStep(config_factory=_fake_cfg, run_batch_fn=_boom, time_window=None)
     state = _make_state(tmp_path)
 
     result = step.run(state)
@@ -107,6 +110,7 @@ def test_batch_precondition_blocks_without_bootstrap(tmp_path):
     step = BatchStep(
         config_factory=_fake_cfg,
         run_batch_fn=lambda cfg, fast=True: {"target_tickers": ["A"]},
+        time_window=None,
     )
     state = _make_state(tmp_path, bootstrap_done=False)
 
@@ -128,6 +132,7 @@ def test_batch_fast_flag_passed_through(tmp_path):
         config_factory=_fake_cfg,
         run_batch_fn=_spy,
         fast=False,
+        time_window=None,
     )
     state = _make_state(tmp_path)
 

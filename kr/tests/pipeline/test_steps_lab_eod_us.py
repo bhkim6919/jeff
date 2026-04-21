@@ -57,6 +57,7 @@ def test_lab_eod_us_success(tmp_path):
         http_get=_get,
         http_post=_post,
         eod_date="2026-04-21",
+        time_window=None,
     )
     state = _state_with_bootstrap_done(tmp_path)
 
@@ -75,7 +76,7 @@ def test_lab_eod_us_error_in_body(tmp_path):
     def _post(url, json=None, timeout=None):
         return _FakeResp(body={"error": "alpaca_rate_limit"})
 
-    step = LabEodUsStep(http_get=_get, http_post=_post)
+    step = LabEodUsStep(http_get=_get, http_post=_post, time_window=None)
     state = _state_with_bootstrap_done(tmp_path)
 
     result = step.run(state)
@@ -95,7 +96,7 @@ def test_lab_eod_us_health_fail_blocks_eod(tmp_path):
         post_called.append(url)
         return _FakeResp()
 
-    step = LabEodUsStep(http_get=_get, http_post=_post)
+    step = LabEodUsStep(http_get=_get, http_post=_post, time_window=None)
     state = _state_with_bootstrap_done(tmp_path)
 
     result = step.run(state)
@@ -112,7 +113,7 @@ def test_lab_eod_us_http_error_code(tmp_path):
     def _post(url, json=None, timeout=None):
         return _FakeResp(status_code=503, ok=False)
 
-    step = LabEodUsStep(http_get=_get, http_post=_post)
+    step = LabEodUsStep(http_get=_get, http_post=_post, time_window=None)
     state = _state_with_bootstrap_done(tmp_path)
 
     result = step.run(state)
@@ -134,6 +135,7 @@ def test_lab_eod_us_force_flag_passed_through(tmp_path):
     step = LabEodUsStep(
         http_get=_get, http_post=_post,
         force=True, eod_date="2026-04-21",
+        time_window=None,
     )
     state = _state_with_bootstrap_done(tmp_path)
     step.run(state)
@@ -150,6 +152,7 @@ def test_lab_eod_us_blocked_without_bootstrap(tmp_path):
     step = LabEodUsStep(
         http_get=lambda *a, **kw: _FakeResp(),
         http_post=lambda *a, **kw: _FakeResp(),
+        time_window=None,
     )
     result = step.run(state)
 

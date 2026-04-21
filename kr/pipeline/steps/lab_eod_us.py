@@ -20,6 +20,7 @@ from typing import Any, Callable, Optional
 
 from ..state import PipelineState
 from .base import StepBase, StepRunResult
+from .time_window import TimeWindow, _TIME_WINDOW_UNSET
 
 _log = logging.getLogger("gen4.pipeline.steps.lab_eod_us")
 
@@ -37,6 +38,11 @@ class LabEodUsStep(StepBase):
     backoff_min_wait_sec = 300
     backoff_max_fails = 3
 
+    # Legacy tray window: US_LAB_EOD_HOUR=16, MINUTE=5 US/Eastern —
+    # i.e. ~5 minutes after US close. Critical: never fire while the US
+    # market is still open, so the tz must be US/Eastern (NOT Asia/Seoul).
+    time_window = TimeWindow(tz="US/Eastern", hour=16, minute=5, window_sec=60)
+
     def __init__(
         self,
         *,
@@ -49,8 +55,9 @@ class LabEodUsStep(StepBase):
         force: bool = False,
         eod_date: Optional[str] = None,
         clock: Any = None,
+        time_window: Any = _TIME_WINDOW_UNSET,
     ):
-        super().__init__(clock=clock)
+        super().__init__(clock=clock, time_window=time_window)
         self._port = int(port)
         self._host = str(host)
         self._http_get = http_get

@@ -57,7 +57,7 @@ def test_lab_eod_kr_success(tmp_path):
             })
         pytest.fail(f"unexpected POST {url}")
 
-    step = LabEodKrStep(http_get=_get, http_post=_post)
+    step = LabEodKrStep(http_get=_get, http_post=_post, time_window=None)
     state = _state_with_batch_done(tmp_path)
 
     result = step.run(state)
@@ -78,7 +78,7 @@ def test_lab_eod_kr_skipped(tmp_path):
             return _FakeResp(body={"skipped": True, "reason": "already_ran"})
         return _FakeResp()
 
-    step = LabEodKrStep(http_get=_get, http_post=_post)
+    step = LabEodKrStep(http_get=_get, http_post=_post, time_window=None)
     state = _state_with_batch_done(tmp_path)
 
     result = step.run(state)
@@ -97,7 +97,7 @@ def test_lab_eod_kr_health_fail(tmp_path):
             raise ConnectionError("refused")
 
     bad_get = _BadGet()
-    step = LabEodKrStep(http_get=bad_get, http_post=lambda *a, **kw: _FakeResp())
+    step = LabEodKrStep(http_get=bad_get, http_post=lambda *a, **kw: _FakeResp(), time_window=None)
     state = _state_with_batch_done(tmp_path)
 
     result = step.run(state)
@@ -117,7 +117,7 @@ def test_lab_eod_kr_http_error_code(tmp_path):
             return _FakeResp(status_code=500, ok=False)
         return _FakeResp()
 
-    step = LabEodKrStep(http_get=_get, http_post=_post)
+    step = LabEodKrStep(http_get=_get, http_post=_post, time_window=None)
     state = _state_with_batch_done(tmp_path)
 
     result = step.run(state)
@@ -136,6 +136,7 @@ def test_lab_eod_kr_blocked_without_batch(tmp_path):
     step = LabEodKrStep(
         http_get=lambda *a, **kw: _FakeResp(),
         http_post=lambda *a, **kw: _FakeResp(),
+        time_window=None,
     )
     result = step.run(state)
 
@@ -152,7 +153,7 @@ def test_lab_eod_kr_explicit_failure_payload(tmp_path):
             return _FakeResp(body={"ok": False, "error": "snapshot_mismatch"})
         return _FakeResp()
 
-    step = LabEodKrStep(http_get=_get, http_post=_post)
+    step = LabEodKrStep(http_get=_get, http_post=_post, time_window=None)
     state = _state_with_batch_done(tmp_path)
 
     result = step.run(state)

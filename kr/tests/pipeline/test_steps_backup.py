@@ -30,7 +30,7 @@ def test_backup_success(tmp_path):
     def _run():
         return (True, "[BACKUP_OK] 20260421 completed in 30s\n  pg_dump: OK")
 
-    step = BackupStep(run_backup_fn=_run)
+    step = BackupStep(run_backup_fn=_run, time_window=None)
     state = _state_with_lab_eod_done(tmp_path)
 
     result = step.run(state)
@@ -44,7 +44,7 @@ def test_backup_failure(tmp_path):
     def _run():
         return (False, "[BACKUP_FAIL] 20260421 — failed: pg_dump")
 
-    step = BackupStep(run_backup_fn=_run)
+    step = BackupStep(run_backup_fn=_run, time_window=None)
     state = _state_with_lab_eod_done(tmp_path)
 
     result = step.run(state)
@@ -58,7 +58,7 @@ def test_backup_crash(tmp_path):
     def _run():
         raise RuntimeError("pg_dump_binary_missing")
 
-    step = BackupStep(run_backup_fn=_run)
+    step = BackupStep(run_backup_fn=_run, time_window=None)
     state = _state_with_lab_eod_done(tmp_path)
 
     result = step.run(state)
@@ -73,7 +73,7 @@ def test_backup_blocked_without_lab_eod(tmp_path):
         mode="paper_forward",
         trade_date=date(2026, 4, 21),
     )
-    step = BackupStep(run_backup_fn=lambda: (True, "ok"))
+    step = BackupStep(run_backup_fn=lambda: (True, "ok"), time_window=None)
 
     result = step.run(state)
 

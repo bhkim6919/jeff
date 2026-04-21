@@ -20,6 +20,7 @@ from typing import Any, Callable, Optional
 
 from ..state import PipelineState
 from .base import StepBase, StepRunResult
+from .time_window import TimeWindow, _TIME_WINDOW_UNSET
 
 _log = logging.getLogger("gen4.pipeline.steps.batch")
 
@@ -38,6 +39,10 @@ class BatchStep(StepBase):
     backoff_min_wait_sec = 300   # 5 min between outer retries
     backoff_max_fails = 3
 
+    # Legacy tray window: BATCH_HOUR=16, BATCH_MINUTE=5, wide (~55 min)
+    # acceptance so a slow pykrx start still lands inside.
+    time_window = TimeWindow(tz="Asia/Seoul", hour=16, minute=5, window_sec=3300)
+
     def __init__(
         self,
         *,
@@ -45,6 +50,7 @@ class BatchStep(StepBase):
         run_batch_fn: Optional[Callable[..., Any]] = None,
         fast: bool = True,
         clock: Any = None,
+        time_window: Any = _TIME_WINDOW_UNSET,
     ):
         """Create a BatchStep.
 
@@ -59,7 +65,7 @@ class BatchStep(StepBase):
         fast : bool
             Passed through to run_batch. Default True (matches tray behavior).
         """
-        super().__init__(clock=clock)
+        super().__init__(clock=clock, time_window=time_window)
         self._config_factory = config_factory
         self._run_batch_fn = run_batch_fn
         self._fast = fast

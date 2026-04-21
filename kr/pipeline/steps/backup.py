@@ -15,6 +15,7 @@ from typing import Any, Callable, Optional
 
 from ..state import PipelineState
 from .base import StepBase, StepRunResult
+from .time_window import TimeWindow, _TIME_WINDOW_UNSET
 
 _log = logging.getLogger("gen4.pipeline.steps.backup")
 
@@ -34,12 +35,17 @@ class BackupStep(StepBase):
     backoff_min_wait_sec = 600
     backoff_max_fails = 2
 
+    # Legacy tray window: backup kicks off 17:00 KST once lab_eod_kr is DONE.
+    # Wide 1-hour acceptance so a slow EOD still lets backup land today.
+    time_window = TimeWindow(tz="Asia/Seoul", hour=17, minute=0, window_sec=3600)
+
     def __init__(
         self,
         *,
         run_backup_fn: Optional[Callable[[], tuple]] = None,
         repo_root: Optional[Path] = None,
         clock: Any = None,
+        time_window: Any = _TIME_WINDOW_UNSET,
     ):
         """Create a BackupStep.
 
@@ -52,7 +58,7 @@ class BackupStep(StepBase):
             Repo root to prepend to sys.path so `import backup.daily_backup`
             resolves. Default: parent of `kr/`.
         """
-        super().__init__(clock=clock)
+        super().__init__(clock=clock, time_window=time_window)
         self._run_backup_fn = run_backup_fn
         self._repo_root = repo_root
 

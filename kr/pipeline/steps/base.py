@@ -27,11 +27,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Optional, Tuple
 
 from ..backoff import BackoffTracker
 from ..schema import STATUS_DONE, STATUS_SKIPPED
 from ..state import PipelineState
+from .time_window import TimeWindow, _TIME_WINDOW_UNSET
 
 _log = logging.getLogger("gen4.pipeline.steps")
 
@@ -81,11 +83,19 @@ class StepBase:
     backoff_min_wait_sec: int = BackoffTracker.DEFAULT_MIN_WAIT_SEC
     backoff_max_fails: int = BackoffTracker.DEFAULT_MAX_FAILS
 
+    # Optional time-window gate. None = always eligible (legacy default).
+    # Subclasses that participate in primary-mode scheduling should set this
+    # so a freshly-enabled orchestrator cannot fire them at the wrong time.
+    # Only consulted on the first attempt (fail_count == 0); retries are
+    # gated by BackoffTracker instead.
+    time_window: Optional[TimeWindow] = None
+
     def __init__(
         self,
         *,
         clock: Any = None,
         tracker: Optional[BackoffTracker] = None,
+        time_window: Any = _TIME_WINDOW_UNSET,
     ):
         if not self.name:
             raise TypeError(
@@ -98,6 +108,24 @@ class StepBase:
             max_fails=self.backoff_max_fails,
             clock=clock,
         )
+        # Sentinel default keeps the class-level `time_window`. Explicit
+        # None (or a TimeWindow instance) overrides it on this instance.
+        if time_window is not _TIME_WINDOW_UNSET:
+            self.time_window = time_window
+
+    # ---------- clock helper ----------
+
+    def _now(self) -> datetime:
+        """Return "now" for time-window checks.
+
+        Uses the injected clock if any (tests), else timezone-aware UTC.
+        TimeWindow.check accepts both naive and aware — naive is treated
+        as being in the window's own tz, which matches how test clocks
+        usually construct fake "local" times.
+        """
+        if self._clock is not None:
+            return self._clock()
+        return datetime.now(timezone.utc)
 
     # ---------- precondition chain ----------
 
@@ -139,6 +167,23 @@ class StepBase:
                 self.name, reason,
             )
             return StepRunResult(ok=False, skipped=True, error=reason)
+
+        # Time-window gate — only on first attempt. Retries are handled
+        # by BackoffTracker below; once a step has failed, its
+        # `last_failed_at` + backoff spacing owns the timing so a late
+        # retry is not suppressed because we drifted past the window.
+        if self.time_window is not None:
+            if state.step(self.name).fail_count == 0:
+                inside, wreason = self.time_window.check(self._now())
+                if not inside:
+                    _log.info(
+                        "[PIPELINE_STEP_WINDOW] step=%s reason=%s",
+                        self.name, wreason,
+                    )
+                    return StepRunResult(
+                        ok=False, skipped=True,
+                        error=f"outside_time_window:{wreason}",
+                    )
 
         allowed, br = self._tracker.can_run_now(state)
         if not allowed:

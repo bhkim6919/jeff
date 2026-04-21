@@ -2,7 +2,7 @@
 
 작성일: 2026-04-21
 작성자: Claude (TOM) — Jeff 승인 후 착수
-상태: **Phase 1~4 COMPLETE · Phase 5 대기 (shadow→primary 관찰 후)**
+상태: **Phase 1~4.5b COMPLETE · Phase 5 대기 (shadow→primary 관찰 후)**
 참조 설계 문서: `kr/docs/PIPELINE_ORCHESTRATOR.md` (commit `fafdf9f6`)
 
 ---
@@ -15,6 +15,7 @@
 | 2. Step wrappers + PG mirror | ✅ DONE | `08af90d2` | 76 (+37) | 2026-04-21 |
 | 3. Orchestrator + tray shadow hook + lab_eod_us | ✅ DONE | `4e6c8afb` | 100 (+24) | 2026-04-21 |
 | 4. REST API + UI banner + primary-mode gating | ✅ DONE | `a9cba508` | 111 (+11) | 2026-04-21 — Phase 5 legacy gating 선행 완료 |
+| 4.5b. Step time-window gates (primary cutover 전제) | ✅ DONE | (이 커밋) | 127 (+16) | 2026-04-21 — batch/KR-EOD/US-EOD/backup 시각 고정, 엉뚱한 시각 fire 방지 |
 | 5. Legacy 필드 제거 + advisor 전환 | ⏳ WAITING | — | — | `QTRON_PIPELINE=2` primary 1주일 무사고 후 착수 |
 
 **현재 운영 상태**: 코드 전체 배포됨. env `QTRON_PIPELINE` 미설정이라 no-op (regression 가드).
