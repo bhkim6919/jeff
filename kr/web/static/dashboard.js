@@ -1873,6 +1873,9 @@ function updateHeroBadges(data) {
     // BUY STATUS
     const dd = data.dd_guard || {};
     const perm = dd.buy_permission || 'UNKNOWN';
+    // ENGINE_OFFLINE overrides buy_permission to BLOCKED server-side, so
+    // this map already handles it; the key is that 'NORMAL' must never
+    // render while the engine is down.
     const buyClass = {NORMAL:'badge-normal', REDUCED:'badge-reduced', BLOCKED:'badge-blocked'}[perm] || 'badge-unknown';
     buyBadge.className = 'status-badge ' + buyClass;
     buyBadge.textContent = 'BUY: ' + perm;
@@ -1880,18 +1883,28 @@ function updateHeroBadges(data) {
     // SYSTEM RISK
     const sr = data.system_risk || {};
     const primary = sr.primary || 'OK';
+    // ENGINE_OFFLINE reuses the red READ_FAIL styling — both mean "do
+    // not trust auto-trading right now". Keeping the class name scheme
+    // simple so no new CSS is needed.
     const riskClass = {OK:'badge-ok', STALE:'badge-stale', RECON_WARN:'badge-recon',
-                       SAFE_MODE:'badge-safemode', READ_FAIL:'badge-readfail'}[primary] || 'badge-unknown';
+                       SAFE_MODE:'badge-safemode', READ_FAIL:'badge-readfail',
+                       ENGINE_OFFLINE:'badge-readfail'}[primary] || 'badge-unknown';
     riskBadge.className = 'status-badge ' + riskClass;
     riskBadge.textContent = 'RISK: ' + primary;
     if (sr.reason_codes && sr.reason_codes.length > 1) {
         riskBadge.title = sr.reason_codes.join(', ');
+    } else if (primary === 'ENGINE_OFFLINE' && sr.reason) {
+        riskBadge.title = sr.reason;
     }
 
     // Emergency badge
-    if (primary === 'SAFE_MODE' || primary === 'READ_FAIL') {
+    if (primary === 'SAFE_MODE' || primary === 'READ_FAIL' || primary === 'ENGINE_OFFLINE') {
         emergBadge.style.display = 'inline-flex';
-        emergBadge.textContent = primary === 'SAFE_MODE' ? 'SAFE MODE' : 'READ FAIL';
+        emergBadge.textContent = {
+            SAFE_MODE: 'SAFE MODE',
+            READ_FAIL: 'READ FAIL',
+            ENGINE_OFFLINE: 'ENGINE OFFLINE',
+        }[primary];
     } else {
         emergBadge.style.display = 'none';
     }

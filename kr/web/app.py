@@ -479,6 +479,9 @@ def _apply_engine_offline_override(snap: dict) -> dict:
       - auto_trading.enabled = False, blocker ← "ENGINE_OFFLINE" (top)
       - recon.status = UNAVAILABLE, engine_offline = True
       - sync rows annotated com_disabled=True, com_reason=ENGINE_OFFLINE
+      - dd_guard.buy_permission = BLOCKED (so the BUY pill stops saying NORMAL)
+      - system_risk.primary = ENGINE_OFFLINE with matching reason_codes
+        (so the RISK pill stops saying READ_FAIL or the stale value)
 
     Returns the same dict it was given (convenience for chaining).
     """
@@ -509,6 +512,24 @@ def _apply_engine_offline_override(snap: dict) -> dict:
         if isinstance(_row, dict):
             _row["com_disabled"] = True
             _row["com_reason"] = "ENGINE_OFFLINE"
+
+    # Hero badges on dashboard (BUY / RISK / Emergency) read these two
+    # fields directly; without overriding them the operator sees a green
+    # "BUY: NORMAL" next to the red ENGINE_OFFLINE banner — the exact
+    # mixed signal we must not allow.
+    _dd = snap.get("dd_guard") or {}
+    _dd["buy_permission"] = "BLOCKED"
+    _dd["engine_offline"] = True
+    snap["dd_guard"] = _dd
+    _sr = snap.get("system_risk") or {}
+    _sr["primary"] = "ENGINE_OFFLINE"
+    _rc = list(_sr.get("reason_codes") or [])
+    if "ENGINE_OFFLINE" not in _rc:
+        _rc.insert(0, "ENGINE_OFFLINE")
+    _sr["reason_codes"] = _rc
+    _sr["engine_offline"] = True
+    _sr["reason"] = engine["reason"]
+    snap["system_risk"] = _sr
     return snap
 
 
