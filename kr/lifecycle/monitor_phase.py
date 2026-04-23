@@ -133,6 +133,16 @@ def run_monitor(ctx: LiveContext) -> None:
                         now.hour == MONITOR_END_HOUR and now.minute >= MONITOR_END_MIN):
                     break
 
+                # R10 (2026-04-23): idle heartbeat to runtime_state_live.
+                # Refreshes timestamp so dashboard/monitoring doesn't flag
+                # ENGINE_OFFLINE during quiet market periods when no events
+                # naturally trigger a state write. Errors swallowed to never
+                # break the monitor loop.
+                try:
+                    state_mgr.heartbeat()
+                except Exception as _hb_e:
+                    logger.warning(f"[HEARTBEAT_FAIL] {_hb_e}")
+
                 # paper_test fast reentry
                 if not _test_reentry_done:
                     _rt_check = state_mgr.load_runtime()

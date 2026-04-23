@@ -32,6 +32,12 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+# 2026-04-24 Jeff 보고 건: 빈 cmd.exe 창이 떠 있다가 몇 분 뒤 사라짐.
+# 원인: Windows 에서 `subprocess.run(["netstat"…])` 등 native 커맨드가
+# 기본적으로 새 console window 를 spawn. pythonw.exe 로 tray 가 떠 있어도
+# 자식 프로세스만 보임. CREATE_NO_WINDOW 로 일괄 억제한다.
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
+
 # ── Path setup (must precede any kr.* / shared.* import) ──
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # audit:allow-syspath: bootstrap-locator
 import _bootstrap_path  # noqa: F401  -- side-effect: adds project root for `shared.*`
@@ -259,6 +265,15 @@ class Win32TrayServer:
             logger.addHandler(fh)
 
             if sys.stdout is not None:
+                # R20 (2026-04-23): reconfigure stdout to UTF-8 with replace
+                # to prevent UnicodeEncodeError on cp949 Windows consoles.
+                try:
+                    if hasattr(sys.stdout, "reconfigure"):
+                        sys.stdout.reconfigure(
+                            encoding="utf-8", errors="replace"
+                        )
+                except Exception:
+                    pass
                 ch = logging.StreamHandler(sys.stdout)
                 ch.setFormatter(fmt)
                 logger.addHandler(ch)
@@ -663,7 +678,10 @@ class Win32TrayServer:
     def _action_copy_log(self):
         path_str = str(self._today_log())
         try:
-            subprocess.run(["clip"], input=path_str.encode("utf-8"), timeout=3)
+            subprocess.run(
+                ["clip"], input=path_str.encode("utf-8"), timeout=3,
+                creationflags=_NO_WINDOW,
+            )
             self._show_balloon("Q-TRON", f"Copied:\n{path_str}")
         except Exception as e:
             self._show_balloon("Q-TRON", f"Copy failed: {e}")
@@ -2328,6 +2346,7 @@ class Win32TrayServer:
             result = subprocess.run(
                 ["netstat", "-ano"],
                 capture_output=True, text=True, timeout=5,
+                creationflags=_NO_WINDOW,
             )
             for line in result.stdout.splitlines():
                 if f":{target} " in line and "LISTENING" in line:
@@ -2336,6 +2355,7 @@ class Win32TrayServer:
                         subprocess.run(
                             ["taskkill", "/PID", str(pid), "/F"],
                             capture_output=True, timeout=5,
+                            creationflags=_NO_WINDOW,
                         )
                         self._logger.info(f"[TRAY] Killed PID {pid} on port {target}")
                         time.sleep(1)

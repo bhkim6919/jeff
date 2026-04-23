@@ -169,6 +169,48 @@ def _map_theme(sector: str) -> str:
     return _THEME_MAP.get(sector, "기타")
 
 
+def _compute_rebal_schedule(last_rebal_str: str, cycle_days: int = 21) -> dict:
+    """R24 (2026-04-23): precise rebal schedule from KOSPI trading calendar.
+
+    Replaces dashboard.js calendar-day approx (`cycle * 1.4`) with real
+    business day counting. Future dates via pd.bdate_range (excludes
+    weekends; Korean holidays not perfect but close enough for display).
+
+    Returns dict with: last, cycle, next_date ("YYYY.MM.DD"), d_day (int).
+    Fields next_date/d_day omitted silently on any failure — caller may
+    fall back to client-side approximation.
+    """
+    result = {"last": last_rebal_str, "cycle": cycle_days}
+    if not last_rebal_str:
+        return result
+    try:
+        import pandas as _pd
+        # Past: count trading days elapsed from KOSPI.csv
+        from config import Gen4Config as _G4Cfg
+        _kdf = _pd.read_csv(_G4Cfg().INDEX_FILE)
+        _dcol = "date" if "date" in _kdf.columns else "index"
+        _kdf[_dcol] = _pd.to_datetime(_kdf[_dcol])
+        _last_dt = _pd.to_datetime(last_rebal_str, format="%Y%m%d")
+        _today_dt = _pd.Timestamp.now().normalize()
+        _elapsed = _kdf[
+            (_kdf[_dcol] > _last_dt) & (_kdf[_dcol] <= _today_dt)
+        ]
+        _d_day = max(0, cycle_days - len(_elapsed))
+        result["d_day"] = _d_day
+        # Future: use pandas business-day offset (weekdays only)
+        if _d_day > 0:
+            _next_dt = _pd.bdate_range(
+                _today_dt + _pd.Timedelta(days=1),
+                periods=_d_day,
+            )[-1]
+        else:
+            _next_dt = _today_dt
+        result["next_date"] = _next_dt.strftime("%Y.%m.%d")
+    except Exception:
+        pass
+    return result
+
+
 def _inject_sectors(account_data: dict) -> None:
     """Add sector/theme field to each holding in account data."""
     if not account_data:
@@ -424,12 +466,13 @@ def _detect_engine_status() -> dict:
     last_write_origin = None
     if checks["runtime_file_exists"]:
         try:
+            from datetime import datetime as _dt
             data = json.loads(runtime_file.read_text(encoding="utf-8"))
             last_write_origin = data.get("_write_origin")
             ts_str = data.get("_write_ts") or data.get("timestamp")
             if ts_str:
                 try:
-                    last_write_ts = datetime.fromisoformat(ts_str).timestamp()
+                    last_write_ts = _dt.fromisoformat(ts_str).timestamp()
                 except Exception:
                     pass
         except Exception:
@@ -865,11 +908,15 @@ def create_app() -> FastAPI:
             if not sector_map_path.exists():
                 sector_map_path = _Path(__file__).resolve().parent.parent.parent / "backtest" / "data_full" / "sector_map.json"
 
-            # 1. Load latest target
-            target_files = sorted(signals_dir.glob("target_portfolio_*.json"), reverse=True)
-            if not target_files:
+            # 1. Load latest target — unified via factor_ranker.load_target_portfolio
+            # which has PG fallback (hot-patch 2026-04-22, see factor_ranker.py).
+            try:
+                from strategy.factor_ranker import load_target_portfolio
+                target = load_target_portfolio(signals_dir)
+            except Exception:
+                target = None
+            if not target:
                 return {"error": "No target portfolio found"}
-            target = json.loads(target_files[0].read_text(encoding="utf-8"))
             target_tickers = set(target.get("target_tickers", []))
             target_date = target.get("date", "")
 
@@ -957,7 +1004,30 @@ def create_app() -> FastAPI:
                 except Exception:
                     pass
             last_rebal = rebal_state.get("last_rebalance_date", "")
-            days_since = rebal_state.get("days_since_rebal", 0)
+            # R24 (2026-04-23): compute days_since_rebal on the fly from KOSPI
+            # trading calendar. Previously `rebal_state.get("days_since_rebal", 0)`
+            # returned 0 (writer never populates this field) → dashboard showed
+            # "D-21" permanently regardless of elapsed trading days.
+            days_since = rebal_state.get("days_since_rebal")
+            if days_since is None and last_rebal:
+                try:
+                    import pandas as _pd
+                    from config import Gen4Config as _G4Cfg
+                    _kdf = _pd.read_csv(_G4Cfg().INDEX_FILE)
+                    # KOSPI.csv may have `date` or `index` column name
+                    # depending on who last wrote it (batch vs yfinance).
+                    _dcol = "date" if "date" in _kdf.columns else "index"
+                    _kdf[_dcol] = _pd.to_datetime(_kdf[_dcol])
+                    _last_dt = _pd.to_datetime(last_rebal, format="%Y%m%d")
+                    _today_dt = _pd.Timestamp.now().normalize()
+                    _trading = _kdf[
+                        (_kdf[_dcol] >= _last_dt)
+                        & (_kdf[_dcol] <= _today_dt)
+                    ]
+                    days_since = max(0, len(_trading) - 1)
+                except Exception:
+                    days_since = 0
+            days_since = days_since or 0
             days_remaining = max(0, 21 - days_since)
 
             # 7. REBALANCE SCORE 계산
@@ -1914,10 +1984,10 @@ def create_app() -> FastAPI:
 
     @application.get("/api/capital/events")
     async def capital_events_list(
-        mode: Optional[str] = Query(None),
-        market: Optional[str] = Query(None),
-        date_from: Optional[str] = Query(None),
-        date_to: Optional[str] = Query(None),
+        mode: str | None = Query(None),
+        market: str | None = Query(None),
+        date_from: str | None = Query(None),
+        date_to: str | None = Query(None),
         limit: int = Query(500, ge=1, le=5000),
     ):
         """List capital events with optional filters."""
@@ -1936,9 +2006,9 @@ def create_app() -> FastAPI:
     async def capital_summary(
         mode: str = Query("live"),
         market: str = Query("KR"),
-        baseline_date: Optional[str] = Query(None,
+        baseline_date: str | None = Query(None,
             description="시작일 (없으면 전체). e.g. 2026-04-01"),
-        as_of_date: Optional[str] = Query(None,
+        as_of_date: str | None = Query(None,
             description="기준일 (없으면 today)"),
     ):
         """
@@ -1976,22 +2046,40 @@ def create_app() -> FastAPI:
 
     @application.get("/api/charts/equity")
     async def get_equity_chart(days: int = Query(90, ge=7, le=730)):
-        """Equity curve 데이터. LIVE 없으면 Lab Forward Trading 합산."""
+        """Equity curve 데이터. LIVE 없으면 Lab Forward Trading 합산.
+
+        R21 (2026-04-23): LIVE 경로 `report_equity_log.kospi_close` 가 0 으로
+        저장되는 알려진 이슈 — writer 미구현. `kospi_index` 테이블에서 LEFT
+        JOIN 으로 실제 값 채워넣어 dashboard KOSPI 비교선 정상 표시.
+        """
         try:
             from shared.db.pg_base import connection
             with connection() as conn:
                 cur = conn.cursor()
+                # R21: LEFT JOIN kospi_index to replace zero/null kospi_close.
+                # COALESCE prefers the joined value over the log's possibly-0 value.
                 cur.execute(
-                    "SELECT date,equity,cash,n_positions,daily_pnl_pct,"
-                    "kospi_close,regime "
-                    "FROM report_equity_log "
-                    "WHERE mode='LIVE' ORDER BY date DESC LIMIT %s", (days,))
+                    "SELECT r.date, r.equity, r.cash, r.n_positions, "
+                    "r.daily_pnl_pct, "
+                    "COALESCE(NULLIF(r.kospi_close, 0), k.close_price) "
+                    "  AS kospi_close, "
+                    "r.regime "
+                    "FROM report_equity_log r "
+                    "LEFT JOIN kospi_index k ON r.date::date = k.date "
+                    "WHERE r.mode='LIVE' ORDER BY r.date DESC LIMIT %s",
+                    (days,),
+                )
                 cols = [d[0] for d in cur.description]
                 rows = [dict(zip(cols, r)) for r in cur.fetchall()]
                 cur.close()
-            if rows:
+            # R22 (2026-04-23): require at least 7 LIVE rows before primary path
+            # takes over — otherwise a single early row (e.g. first day of LIVE
+            # mode) would hide the richer Lab Forward fallback chart. Prior to
+            # 2026-04-22 dashboard showed 14-day continuous Lab curve; on 04-22
+            # the first LIVE row triggered primary → chart collapsed to 1 point.
+            if rows and len(rows) >= 7:
                 rows.reverse()
-                return {"days": days, "data": rows}
+                return {"days": days, "data": rows, "source": "live"}
         except Exception:
             pass
 
@@ -2507,12 +2595,20 @@ def create_app() -> FastAPI:
     _lab_live_sim: dict = {"sim": None}
 
     def _ensure_lab_live():
-        """state.json이 있으면 자동 복원."""
+        """Lab Live sim 자동 복원.
+
+        R8/R9 (2026-04-23): v2 (head.json + states/) 및 v1 (state.json)
+        양쪽을 모두 체크해 auto-restore. 기존에는 v1 path 만 확인해서
+        v2-migrated 시스템에서 tray 재시작 후 dashboard = empty 였음.
+        (배치 step 8은 직접 sim.initialize() 호출해서 복원 되지만,
+        dashboard 첫 접근 경로가 이 gate 에 걸려 skip → "초기화된 듯" 증상)
+        """
         if _lab_live_sim.get("sim") and _lab_live_sim["sim"]._initialized:
             return _lab_live_sim["sim"]
         from web.lab_live.config import LabLiveConfig
         cfg = LabLiveConfig()
-        if cfg.state_file.exists():
+        # v2 우선: head.json 존재 → 복원 가능. v1 fallback: state.json.
+        if cfg.head_file.exists() or cfg.state_file.exists():
             from web.lab_live.engine import LabLiveSimulator
             sim = LabLiveSimulator()
             sim.initialize()
@@ -2839,6 +2935,202 @@ def create_app() -> FastAPI:
             "selected_source": run_meta.get("selected_source"),
             "data_last_date": run_meta.get("data_last_date"),
         }
+
+    @application.get("/api/debug/batch_log")
+    async def debug_batch_log(lines: int = Query(200, ge=10, le=2000)):
+        """R14 (2026-04-23): real-time batch log tail for Debug UI.
+
+        Reads today's batch-related log. Priority order:
+          1. kr/logs/gen4_batch_{today}.log   (CLI batch direct log)
+          2. kr/data/logs/rest_api_{today}.log (orchestrator + batch mixed)
+
+        Returns list of log lines with source file. Caller refreshes every
+        ~5s for near-real-time tailing during 1-2 hour batch runs.
+        """
+        import os as _os
+        from pathlib import Path as _Path
+        from datetime import date as _date
+
+        today = _date.today().strftime("%Y%m%d")
+        repo_root = _Path(__file__).resolve().parents[2]
+        candidates = [
+            repo_root / "kr" / "logs" / f"gen4_batch_{today}.log",
+            repo_root / "kr" / "data" / "logs" / f"rest_api_{today}.log",
+        ]
+
+        for path in candidates:
+            if not path.exists():
+                continue
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+                all_lines = content.splitlines()
+                tail = all_lines[-lines:] if len(all_lines) > lines else all_lines
+                return {
+                    "ok": True,
+                    "source": str(path.relative_to(repo_root)),
+                    "total_lines": len(all_lines),
+                    "shown": len(tail),
+                    "mtime": path.stat().st_mtime,
+                    "lines": tail,
+                }
+            except OSError as e:
+                return {"ok": False, "error": f"read failed: {e!r}", "lines": []}
+
+        return {"ok": False, "error": "no today log found", "lines": []}
+
+    @application.get("/api/debug/qobs")
+    async def debug_qobs():
+        """R14 (2026-04-23): observe_today.ps1 equivalent for Debug UI.
+
+        Returns pipeline snapshot: heartbeat, marker, incidents, DEADMAN,
+        watchdog status. Replicates scripts/observe_today.ps1 logic.
+        """
+        import os as _os
+        import json as _json
+        from pathlib import Path as _Path
+        from datetime import date as _date, datetime as _dt, timezone as _tz
+
+        repo_root = _Path(__file__).resolve().parents[2]
+        pipeline_dir = repo_root / "kr" / "data" / "pipeline"
+        incident_dir = repo_root / "backup" / "reports" / "incidents"
+
+        result = {
+            "ok": True,
+            "trade_date": _date.today().isoformat(),
+            "heartbeat": None,
+            "marker": None,
+            "incidents": [],
+            "deadman_configured": False,
+        }
+
+        # Heartbeat
+        hb_path = pipeline_dir / "heartbeat.json"
+        if hb_path.exists():
+            try:
+                hb = _json.loads(hb_path.read_text(encoding="utf-8"))
+                ts_raw = hb.get("ts", "")
+                try:
+                    ts = _dt.fromisoformat(ts_raw)
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=_tz.utc)
+                    age_sec = int(
+                        (_dt.now(_tz.utc) - ts).total_seconds()
+                    )
+                except Exception:
+                    age_sec = None
+                result["heartbeat"] = {
+                    "age_sec": age_sec,
+                    "tick_seq": hb.get("tick_seq"),
+                    "pid": hb.get("pid"),
+                    "tray_session": hb.get("tray_session", "")[:16],
+                }
+            except Exception as e:
+                result["heartbeat"] = {"error": str(e)}
+
+        # Marker
+        today = _date.today().strftime("%Y%m%d")
+        marker_path = pipeline_dir / f"run_completion_{today}.json"
+        if marker_path.exists():
+            try:
+                m = _json.loads(marker_path.read_text(encoding="utf-8"))
+                result["marker"] = {
+                    "last_update": m.get("last_update"),
+                    "runs": {
+                        rt: {
+                            "status": r.get("status"),
+                            "attempt_no": r.get("attempt_no"),
+                            "worst_status_today": r.get("worst_status_today"),
+                            "started_at": r.get("started_at"),
+                            "finished_at": r.get("finished_at"),
+                            "error": r.get("error"),
+                            "checks": r.get("checks"),
+                        }
+                        for rt, r in (m.get("runs") or {}).items()
+                    },
+                    "known_bombs": m.get("known_bombs") or [],
+                }
+            except Exception as e:
+                result["marker"] = {"error": str(e)}
+
+        # Incidents today
+        if incident_dir.exists():
+            try:
+                today_prefix = today
+                incidents = sorted(
+                    [
+                        {"name": f.name, "size": f.stat().st_size}
+                        for f in incident_dir.glob(f"{today_prefix}_*.md")
+                    ],
+                    key=lambda x: x["name"],
+                )
+                # Also include non-dated watchdog_external incidents from today
+                for f in incident_dir.glob(f"{today_prefix}*watchdog*.md"):
+                    if not any(i["name"] == f.name for i in incidents):
+                        incidents.append(
+                            {"name": f.name, "size": f.stat().st_size}
+                        )
+                result["incidents"] = incidents
+            except OSError:
+                result["incidents"] = []
+
+        # DEADMAN configured
+        result["deadman_configured"] = bool(
+            _os.environ.get("QTRON_TELEGRAM_TOKEN_DEADMAN")
+            and _os.environ.get("QTRON_TELEGRAM_CHAT_ID_DEADMAN")
+        )
+
+        # R13 (2026-04-23): Expected vs actual run status per EXPECTED_WINDOWS_KST.
+        # For each expected run_type, shows window + current phase + marker status
+        # + alert flag (past_deadline without SUCCESS/SKIPPED).
+        try:
+            from pipeline.completion_schema import EXPECTED_WINDOWS_KST
+            from zoneinfo import ZoneInfo
+            _kst_now = _dt.now(ZoneInfo("Asia/Seoul"))
+            _now_min = _kst_now.hour * 60 + _kst_now.minute
+            marker_runs = (result.get("marker") or {}).get("runs") or {}
+            expected: dict = {}
+            for run_type, (earliest, deadline) in EXPECTED_WINDOWS_KST.items():
+                run_entry = marker_runs.get(run_type) or {}
+                actual_status = run_entry.get("status")
+                # Phase vs window (minutes — handle deadline past midnight: US_BATCH
+                # deadline 1480 = 00:40 next day. Treat now_min + 1440 as "today
+                # afternoon + next day carry-over" for deadline > 1440.)
+                if deadline > 1440:
+                    # Window spans midnight: in_window if now >= earliest OR
+                    # now <= (deadline - 1440)
+                    if _now_min >= earliest or _now_min <= (deadline - 1440):
+                        phase = "in_window"
+                    elif _now_min < earliest:
+                        phase = "before_window"
+                    else:
+                        phase = "past_deadline"
+                else:
+                    if _now_min < earliest:
+                        phase = "before_window"
+                    elif _now_min <= deadline:
+                        phase = "in_window"
+                    else:
+                        phase = "past_deadline"
+                alert = (
+                    phase == "past_deadline"
+                    and actual_status not in ("SUCCESS", "SKIPPED")
+                )
+                expected[run_type] = {
+                    "earliest_kst": f"{earliest//60:02d}:{earliest%60:02d}",
+                    "deadline_kst": (
+                        f"{(deadline % 1440)//60:02d}:{(deadline % 1440)%60:02d}"
+                        + ("+1d" if deadline > 1440 else "")
+                    ),
+                    "phase": phase,
+                    "actual_status": actual_status,
+                    "alert": alert,
+                }
+            result["expected_runs"] = expected
+            result["now_kst"] = _kst_now.strftime("%H:%M:%S")
+        except Exception as _r13e:
+            result["expected_runs_error"] = repr(_r13e)
+
+        return result
 
     @application.get("/api/lab/live/trades")
     async def lab_live_trades(limit: int = Query(50, ge=1, le=500)):
@@ -3582,7 +3874,9 @@ async def _sse_generator(
                 except Exception:
                     pass
             if _portfolio_cache.get("rebal"):
-                data["rebalance"] = {"last": _portfolio_cache["rebal"], "cycle": 21}
+                data["rebalance"] = _compute_rebal_schedule(
+                    _portfolio_cache["rebal"], 21
+                )
 
             # ── DD Guard + Trail Stops + RECON (every 10th cycle, offset 3) ──
             # Single file read for dd_guard + trail_stops (same source)
@@ -3994,7 +4288,9 @@ async def _regime_background_task() -> None:
                     recon=_portfolio_cache.get("recon"),
                     regime_actual=_actual,
                     regime_predict=_predict,
-                    rebalance={"last": _portfolio_cache.get("rebal", ""), "cycle": 21},
+                    rebalance=_compute_rebal_schedule(
+                        _portfolio_cache.get("rebal", ""), 21
+                    ),
                 )
                 _portfolio_cache["_eod_report_date"] = _today_str
                 logging.getLogger("web").info("[EOD] REST daily report generated")
@@ -4035,7 +4331,9 @@ async def _regime_background_task() -> None:
                 "dd_guard": _portfolio_cache.get("dd_guard"),
                 "recon": _portfolio_cache.get("recon"),
                 "data_age_max_sec": 0,
-                "rebalance": {"last": _portfolio_cache.get("rebal", ""), "cycle": 21},
+                "rebalance": _compute_rebal_schedule(
+                    _portfolio_cache.get("rebal", ""), 21
+                ),
             }
             events = evaluate(_snap)
             if events:
@@ -4166,10 +4464,13 @@ if __name__ == "__main__":
     _port = 8080
 
     # ── Port conflict auto-resolve ──
+    # CREATE_NO_WINDOW 로 netstat/taskkill 의 console window 억제 (2026-04-24).
+    _no_window = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
     try:
         result = subprocess.run(
             ["netstat", "-ano"],
             capture_output=True, text=True, timeout=5,
+            creationflags=_no_window,
         )
         for line in result.stdout.splitlines():
             if f":{_port}" in line and "LISTENING" in line:
@@ -4177,7 +4478,8 @@ if __name__ == "__main__":
                 pid = int(parts[-1])
                 print(f"[PORT] {_port} occupied by PID {pid} — killing...")
                 subprocess.run(["taskkill", "/PID", str(pid), "/F"],
-                               capture_output=True, timeout=5)
+                               capture_output=True, timeout=5,
+                               creationflags=_no_window)
                 import time as _t
                 _t.sleep(1)
                 print(f"[PORT] PID {pid} killed, proceeding.")

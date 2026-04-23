@@ -127,15 +127,36 @@ def save_target_portfolio(target: dict, signals_dir: Path) -> Path:
 
 def load_target_portfolio(signals_dir: Path,
                           target_date: Optional[str] = None) -> Optional[dict]:
-    """Load most recent target portfolio JSON."""
+    """Load most recent target portfolio.
+
+    Hot-patch (2026-04-22): PG fallback when JSON is missing. Temporary measure
+    until Phase 6 (Storage Retirement) formally migrates reads to PG. Rationale:
+    signals/ dir was silently cleared 2026-04-21 → dashboard preview broken
+    despite PG audit being intact. PG fallback unblocks dashboard without
+    regenerating the JSON file (which would reinforce JSON dependence).
+    """
     if target_date:
         path = signals_dir / f"target_portfolio_{target_date}.json"
         if path.exists():
             return json.loads(path.read_text(encoding="utf-8"))
-        return None
+    else:
+        files = sorted(signals_dir.glob("target_portfolio_*.json"), reverse=True)
+        if files:
+            return json.loads(files[0].read_text(encoding="utf-8"))
 
-    # Find most recent
-    files = sorted(signals_dir.glob("target_portfolio_*.json"), reverse=True)
-    if not files:
-        return None
-    return json.loads(files[0].read_text(encoding="utf-8"))
+    try:
+        from data.db_provider import DbProvider
+        pg_date = ""
+        if target_date:
+            pg_date = (f"{target_date[:4]}-{target_date[4:6]}-{target_date[6:]}"
+                       if len(target_date) == 8 else target_date)
+        target = DbProvider().get_target_portfolio(pg_date)
+        if target:
+            logger.warning(
+                "[TARGET_SOURCE_PG_FALLBACK] JSON missing — loaded from PG "
+                "date=%s tickers=%d (Phase 6 TODO: migrate to PG-first)",
+                target.get("date", "?"), len(target.get("target_tickers", [])))
+            return target
+    except Exception as e:
+        logger.warning("[TARGET_PG_FALLBACK_FAIL] %s", e, exc_info=True)
+    return None

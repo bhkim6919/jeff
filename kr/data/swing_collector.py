@@ -55,14 +55,24 @@ class SwingRankingCollector:
         self._snapshot_count: int = 0
         self._capped_codes_count: int = 0
 
+        # Capability gate — REST provider lacks ranking TR; disable silently
+        # rather than spamming "[SWING] snapshot error" every monitor tick.
+        self._disabled = not hasattr(provider, "query_realtime_ranking")
+
         # CSV header
         self._ensure_csv_header()
         # Recover from restart
         self._recover_seen_codes()
 
-        logger.info(
-            "[SwingCollector] init: dir=%s, today=%s, recovered=%d",
-            self._ranking_dir, today_str, len(self._all_seen_codes))
+        if self._disabled:
+            logger.info(
+                "[SwingCollector] disabled — provider %s has no "
+                "query_realtime_ranking (ranking TR not available on REST)",
+                type(provider).__name__)
+        else:
+            logger.info(
+                "[SwingCollector] init: dir=%s, today=%s, recovered=%d",
+                self._ranking_dir, today_str, len(self._all_seen_codes))
 
     # ── FIX-001: Pre-market seed ─────────────────────────────────
     def seed_pre_market(self):
@@ -73,6 +83,8 @@ class SwingRankingCollector:
         from market open instead of waiting for the first
         30-min (now 10-min) scheduled snapshot.
         """
+        if self._disabled:
+            return
         logger.info("[SwingCollector] Pre-market seed — querying ranking...")
         self._take_snapshot()
         self._last_snapshot_time = time.time()
@@ -109,6 +121,8 @@ class SwingRankingCollector:
 
     def check_and_snapshot(self):
         """Called every monitor cycle. Takes snapshot if 30min elapsed."""
+        if self._disabled:
+            return
         now = time.time()
         if self._last_snapshot_time and \
            (now - self._last_snapshot_time) < self.SNAPSHOT_INTERVAL:
@@ -117,6 +131,8 @@ class SwingRankingCollector:
         self._last_snapshot_time = now
 
     def _take_snapshot(self):
+        if self._disabled:
+            return
         rankings = self._provider.query_realtime_ranking(top_n=20)
         if not rankings:
             logger.warning("[SwingCollector] snapshot empty (TR failed)")

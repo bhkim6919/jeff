@@ -115,7 +115,6 @@ class OrchestratorHolder:
 
     def __init__(self):
         self._orch: Optional[Orchestrator] = None
-        self._bootstrap_recorded = False
         self._last_tick_summary: Optional[dict] = None
 
     def _build(self) -> Orchestrator:
@@ -152,20 +151,28 @@ class OrchestratorHolder:
         return self._orch
 
     def _record_bootstrap(self, orch: Orchestrator) -> None:
-        """Record bootstrap_env outcome exactly once per process.
+        """Record bootstrap_env outcome idempotently per trading day.
+
+        Checks today's state file first; if bootstrap_env is already DONE,
+        skip. Otherwise run bootstrap_env and record outcome. This replaces
+        the prior per-process flag which did not reset on date rollover
+        and silently blocked all downstream steps (see incident 2026-04-22:
+        lab_eod_us missed its 60-second window because tray never restarted
+        across midnight KST).
 
         Uses strict=False so a local env issue doesn't kill the tray —
-        instead the orchestrator records SKIPPED for the bootstrap step
-        and downstream preconditions block as designed.
+        instead the orchestrator records FAILED and downstream preconditions
+        block as designed (with fail_count driving backoff retries).
         """
-        if self._bootstrap_recorded:
-            return
         try:
-            checks = bootstrap_env(data_dir=orch._data_dir, strict=False)
             state = PipelineState.load_or_create_today(
                 data_dir=orch._data_dir,
                 mode=orch._mode,
             )
+            existing = state.steps.get("bootstrap_env")
+            if existing is not None and existing.status == STATUS_DONE:
+                return
+            checks = bootstrap_env(data_dir=orch._data_dir, strict=False)
             if all(checks.values()):
                 state.mark_done("bootstrap_env", details=checks)
             else:
@@ -177,15 +184,17 @@ class OrchestratorHolder:
             try:
                 from . import pg_mirror
                 pg_mirror.mirror_step(state, "bootstrap_env")
-            except Exception:
-                pass
-            self._bootstrap_recorded = True
+            except Exception as e:  # noqa: BLE001
+                _log.warning(
+                    "[PIPELINE_PG_MIRROR_SKIP] step=bootstrap_env err=%s",
+                    e,
+                )
             _log.info(
-                "[PIPELINE_TRAY_BOOTSTRAP] checks=%s", checks,
+                "[PIPELINE_TRAY_BOOTSTRAP] trade_date=%s checks=%s",
+                state.trade_date, checks,
             )
         except BootstrapError as be:
-            _log.error("[PIPELINE_TRAY_BOOTSTRAP_FAIL] %s", be)
-            self._bootstrap_recorded = True  # don't retry per-tick
+            _log.error("[PIPELINE_TRAY_BOOTSTRAP_FAIL] %s", be, exc_info=True)
         except Exception as e:  # noqa: BLE001
             _log.exception("[PIPELINE_TRAY_BOOTSTRAP_ERR] %s", e)
 

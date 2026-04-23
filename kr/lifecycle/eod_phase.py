@@ -317,6 +317,29 @@ def run_eod(ctx: LiveContext) -> None:
     except Exception as e:
         logger.warning(f"KOSPI fetch failed: {e} (non-critical)")
 
+    # R23 (2026-04-23): provider 실패/0 반환 시 kospi_index DB 에서 최신 close
+    # 로 fallback. 이전엔 provider 실패하면 kospi_close=0 그대로 DB 에 저장되어
+    # report_equity_log LIVE 행 전부 kospi_close=0. 내일부터 정상값 기록됨.
+    if kospi_close_val <= 0:
+        try:
+            from shared.db.pg_base import connection as _kdb_conn
+            with _kdb_conn() as _kconn:
+                _kcur = _kconn.cursor()
+                _kcur.execute(
+                    "SELECT close_price FROM kospi_index "
+                    "ORDER BY date DESC LIMIT 1"
+                )
+                _krow = _kcur.fetchone()
+                if _krow and _krow[0]:
+                    kospi_close_val = float(_krow[0])
+                    logger.info(
+                        f"[R23_KOSPI_DB_FALLBACK] provider returned 0, "
+                        f"using DB latest: {kospi_close_val:.2f}"
+                    )
+                _kcur.close()
+        except Exception as _ke:
+            logger.warning(f"[R23_KOSPI_DB_FALLBACK_FAIL] {_ke!r}")
+
     try:
         kosdaq_close_val = provider.get_kosdaq_close()
         if kosdaq_close_val > 0:

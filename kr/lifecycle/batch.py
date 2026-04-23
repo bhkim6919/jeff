@@ -15,6 +15,127 @@ except Exception:
     def _alert_data(*a, **kw): pass  # notify 미초기화 시 no-op
 
 
+# R16 (2026-04-23): Fundamental snapshot hard timeout
+#
+# Background: 2026-04-23 batch hung in Step 5 Fundamental snapshot for 60+
+# minutes. Root cause: fetch_daily_fundamental_naver loops 2770 stocks with
+# requests.get(timeout=10) and sleep(0.35). No internal timeout → unbounded
+# runtime when Naver rate-limits.
+#
+# Sizing (measured 2026-04-23 via CLI on production repo):
+#   - 74s for 50 stocks → 1.48s/stock (stable rate, 100-stock test confirmed)
+#   - 2770 stocks × 1.48s = 4099s ≈ 68 min normal case
+#   - Jeff spec: normal + 30 min buffer = 98 min → round to 100 min
+#
+# Fix: wrap call with hard thread-level timeout. On timeout return None
+# (existing handling: logger.warning + _alert_data + continue). Lab
+# strategies use latest-available fundamental file on timeout.
+FUNDAMENTAL_SNAPSHOT_TIMEOUT_SEC = 6000  # 100 minutes (normal ~68min + 30min buffer)
+
+
+def _fetch_daily_snapshot_with_timeout(logger, timeout_sec: int = FUNDAMENTAL_SNAPSHOT_TIMEOUT_SEC):
+    """Call fetch_daily_snapshot with a hard thread timeout. None on timeout.
+
+    The underlying function may be slow (Naver Finance 2770-stock crawl)
+    or hang on rate limits. This wrapper guarantees the caller returns
+    within `timeout_sec`, matching existing "returned None" handling
+    downstream (batch step 5/6 tolerate None gracefully).
+
+    Implementation note: we deliberately do NOT use `with ... as executor`
+    because that calls shutdown(wait=True) on exit — which blocks the
+    caller until the daemon thread finishes, defeating the purpose of the
+    timeout. Instead we call shutdown(wait=False) so the orphaned thread
+    continues in the background while we return immediately.
+    """
+    import concurrent.futures as _cf
+    from data.fundamental_collector import fetch_daily_snapshot
+
+    executor = _cf.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="fund-snapshot",
+    )
+    future = executor.submit(fetch_daily_snapshot)
+    try:
+        result = future.result(timeout=timeout_sec)
+        executor.shutdown(wait=False)
+        return result
+    except _cf.TimeoutError:
+        logger.warning(
+            f"[FUND_TIMEOUT] fetch_daily_snapshot exceeded "
+            f"{timeout_sec}s hard limit — returning None. "
+            f"Lab uses latest-available file. "
+            f"Daemon thread continues orphaned in background."
+        )
+        try:
+            _alert_data(
+                "fundamental_timeout",
+                f"fetch_daily_snapshot > {timeout_sec}s",
+                {"timeout_sec": timeout_sec},
+            )
+        except Exception:
+            pass
+        # Abandon the still-running task — daemon=False on the underlying
+        # thread would block process exit, but ThreadPoolExecutor workers
+        # are daemon=True in CPython so process can still terminate.
+        try:
+            executor.shutdown(wait=False, cancel_futures=True)
+        except TypeError:
+            # Python < 3.9 fallback — cancel_futures unsupported
+            executor.shutdown(wait=False)
+        return None
+    except Exception:
+        executor.shutdown(wait=False)
+        raise
+
+
+def _ensure_fundamental_csv(fund_path: Path, fund_date: str, logger) -> "Optional[pandas.DataFrame]":  # noqa: F821
+    """R26 (2026-04-24): CSV 존재하면 재사용, 없으면 fetch + write.
+
+    Returns DataFrame (CSV 또는 fetch 결과) 또는 None (fetch 실패/timeout).
+    DB upsert 판정과 분리되어, DB 갱신을 보장하지 않던 구 skip 패턴을 대체.
+    """
+    import pandas as _pd
+    if fund_path.exists():
+        try:
+            df = _pd.read_csv(fund_path)
+            logger.info(f"  Fundamental CSV reused: {fund_path} ({len(df)} stocks)")
+            return df
+        except Exception as e:
+            logger.warning(f"  Fundamental CSV read failed: {e} → refetching")
+
+    # CSV 없음 또는 read 실패 → fetch
+    fund_df = _fetch_daily_snapshot_with_timeout(logger)
+    if fund_df is None:
+        logger.warning("  Fundamental: fetch_daily_snapshot returned None")
+        return None
+    try:
+        fund_df.to_csv(fund_path, index=False)
+        logger.info(f"  Fundamental fetched + saved: {fund_path} ({len(fund_df)} stocks)")
+    except Exception as e:
+        logger.warning(f"  Fundamental CSV write failed: {e} (DB upsert still proceeds)")
+    return fund_df
+
+
+def _ensure_fundamental_db(fund_date: str, fund_df, logger) -> None:
+    """R26 (2026-04-24): DB 독립 판정 — 해당 fund_date 의 fundamental 행이 DB 에
+    없으면 upsert. 있으면 skip. CSV/DB 가 다른 단계에서 disjoint 하게 갱신되므로
+    이 경계를 명확히 분리한다.
+    """
+    try:
+        from data.db_provider import DbProvider
+        db = DbProvider()
+        if db.has_fundamental_for(fund_date):
+            logger.info(f"  Fundamental DB already fresh for {fund_date} — skip upsert")
+            return
+        n = db.upsert_fundamental(fund_date, fund_df)
+        logger.info(f"  Fundamental DB upsert: {n} rows (date={fund_date})")
+    except Exception as e2:
+        logger.warning(f"  Fundamental DB save failed: {e2}")
+        try:
+            _alert_data("fundamental_db", str(e2), {"fund_date": fund_date})
+        except Exception:
+            pass
+
+
 def _load_checkpoint(config) -> dict:
     """배치 진행 체크포인트 로드. 중단 후 재시작 시 완료 단계 skip."""
     cp_path = Path(config.OHLCV_DIR).parent / "batch_checkpoint.json"
@@ -65,10 +186,18 @@ def run_batch(config, fast: bool = False):
     ohlcv_dir = config.OHLCV_DIR
 
     # Step 1: pykrx OHLCV update (existing + new listings)
-    if "step1_ohlcv" in _done:
-        logger.info("[1/5] OHLCV update — SKIP (checkpoint)")
+    # R26 (2026-04-24): CSV update 와 DB sync 를 독립 checkpoint 로 분리.
+    # 레거시 "step1_ohlcv" 토큰은 두 단계 모두 완료로 해석 (backward-compat).
+    _legacy_done = "step1_ohlcv" in _done
+    _csv_done = _legacy_done or "step1_ohlcv_csv" in _done
+    _db_done = _legacy_done or "step1_ohlcv_db" in _done
+
+    # 1a. CSV update (pykrx incremental)
+    if _csv_done:
+        logger.info("[1/5] OHLCV CSV update — SKIP (checkpoint)")
     elif not is_weekday():
         logger.info("  Skipping pykrx update — weekend, using existing data")
+        _csv_done = True
     else:
         try:
             existing = set(f.stem for f in ohlcv_dir.glob("*.csv"))
@@ -87,31 +216,39 @@ def run_batch(config, fast: bool = False):
             if codes:
                 updated = update_ohlcv_incremental(ohlcv_dir, codes, days=30)
                 logger.info(f"  Updated {updated}/{len(codes)} stocks")
-                # DB sync: CSV → DB for updated stocks
-                try:
-                    from data.db_provider import DbProvider
-                    db = DbProvider()
-                    db_synced = 0
-                    for code in codes:
-                        csv_path = ohlcv_dir / f"{code}.csv"
-                        if csv_path.exists():
-                            import pandas as _pd
-                            _df = _pd.read_csv(csv_path, parse_dates=["date"])
-                            # Only last 5 days (incremental)
-                            _df = _df.tail(5)
-                            if not _df.empty:
-                                db.upsert_ohlcv(code, _df)
-                                db_synced += 1
-                    logger.info(f"  DB synced: {db_synced} stocks")
-                except Exception as e2:
-                    logger.warning(f"  DB sync failed: {e2} (non-critical)")
+            _save_checkpoint(config, "step1_ohlcv_csv", _cp)
+            _csv_done = True
         except Exception as e:
             logger.warning(f"  pykrx update failed: {e}. Using existing data.")
 
-        # KOSPI index 업데이트 (DB + CSV)
+        # KOSPI index 업데이트 (DB + CSV) — CSV block 소속
         _update_kospi_index(config, logger)
 
-        _save_checkpoint(config, "step1_ohlcv", _cp)
+    # 1b. DB sync (CSV → DB upsert, CSV 성공 여부 무관 독립 실행)
+    # 기존 문제: CSV update 완료 후 DB upsert 실패해도 step1_ohlcv 로 묶여 저장됐음 →
+    # 재시작 시 DB stale 방치. 지금은 DB 전용 체크포인트로 재시도 가능.
+    if _db_done:
+        logger.info("[1/5] OHLCV DB sync — SKIP (checkpoint)")
+    else:
+        try:
+            from data.db_provider import DbProvider
+            import pandas as _pd
+            db = DbProvider()
+            db_synced = 0
+            # CSV dir 전체 스캔: CSV update 가 skip/실패한 경우에도 DB 보수
+            for csv_path in sorted(ohlcv_dir.glob("*.csv")):
+                try:
+                    _df = _pd.read_csv(csv_path, parse_dates=["date"])
+                    _df = _df.tail(5)
+                    if not _df.empty:
+                        db.upsert_ohlcv(csv_path.stem, _df)
+                        db_synced += 1
+                except Exception:
+                    continue
+            logger.info(f"  DB synced: {db_synced} stocks")
+            _save_checkpoint(config, "step1_ohlcv_db", _cp)
+        except Exception as e2:
+            logger.warning(f"  DB sync failed: {e2} (non-critical)")
 
     # Step 2: Build universe
     logger.info("[2/5] Building universe...")
@@ -137,6 +274,40 @@ def run_batch(config, fast: bool = False):
         logger.error("Empty universe!")
         _notify_batch_error("Empty universe — batch 중단", logger)
         return None
+
+    # R4 Stage 1 (2026-04-23): SHADOW comparison with DB-direct universe.
+    # Default path (CSV above) UNCHANGED. DB path logs diff metrics only.
+    # 3-day shadow observation → JUG review → default switch (Stage 3).
+    # See backup/reports/work_plan_20260423.md §R4 원칙.
+    try:
+        from data.universe_builder import build_universe_from_db, compare_universes
+        from data.db_provider import DbProvider
+        _db_shadow = DbProvider()
+        _db_universe = build_universe_from_db(
+            _db_shadow,
+            min_close=config.UNIV_MIN_CLOSE,
+            min_amount=config.UNIV_MIN_AMOUNT,
+            min_history=config.UNIV_MIN_HISTORY,
+            min_count=config.UNIV_MIN_COUNT,
+            allowed_markets=_markets,
+            sector_map=_sector_map_batch,
+        )
+        _diff = compare_universes(universe, _db_universe)
+        logger.info(
+            f"[UNIVERSE_SHADOW] csv={_diff['csv_count']} db={_diff['db_count']} "
+            f"only_csv={_diff['only_csv_count']} only_db={_diff['only_db_count']} "
+            f"diff_pct={_diff['diff_pct']}%"
+        )
+        if _diff["only_csv_count"] > 0 or _diff["only_db_count"] > 0:
+            logger.info(
+                f"  only_csv_sample: {_diff['only_csv_sample']}"
+            )
+            logger.info(
+                f"  only_db_sample:  {_diff['only_db_sample']}"
+            )
+    except Exception as _r4_err:
+        # Shadow must never break batch
+        logger.warning(f"[UNIVERSE_SHADOW_FAIL] {_r4_err!r} (non-critical)")
 
     # Step 3: Load OHLCV for scoring (DB only — CSV fallback 금지)
     logger.info("[3/5] Loading OHLCV...")
@@ -230,27 +401,16 @@ def run_batch(config, fast: bool = False):
             fund_date = target.get("date", datetime.now().strftime("%Y%m%d"))
             fund_path = fund_dir / f"fundamental_{fund_date}.csv"
 
-            if fund_path.exists():
-                logger.info(f"  Already exists: {fund_path}")
+            # R26 (2026-04-24): CSV 존재 ≠ DB 갱신. CSV/DB 판정 분리.
+            # 기존: CSV exists → 전체 skip (DB 도 upsert 되지 않음, 오늘 3일 stale 원인)
+            # 수정: CSV/DB 독립 판정 — CSV 없으면 fetch, DB stale 이면 CSV 에서 읽어 upsert.
+            fund_df = _ensure_fundamental_csv(fund_path, fund_date, logger)
+            if fund_df is not None:
+                _ensure_fundamental_db(fund_date, fund_df, logger)
             else:
-                from data.fundamental_collector import fetch_daily_snapshot
-                fund_df = fetch_daily_snapshot()
-                if fund_df is not None:
-                    fund_df.to_csv(fund_path, index=False)
-                    logger.info(f"  Fundamental: {fund_path} ({len(fund_df)} stocks)")
-                    # DB 저장
-                    try:
-                        from data.db_provider import DbProvider
-                        db = DbProvider()
-                        db.upsert_fundamental(fund_date, fund_df)
-                        logger.info(f"  Fundamental saved to DB")
-                    except Exception as e2:
-                        logger.warning(f"  Fundamental DB save failed: {e2}")
-                        _alert_data("fundamental_db", str(e2), {"fund_date": fund_date})
-                else:
-                    logger.warning("  Fundamental: fetch_daily_snapshot returned None")
-                    _alert_data("fundamental", "fetch_daily_snapshot returned None",
-                                {"expected_date": fund_date})
+                logger.warning("  Fundamental: no DataFrame available (fetch/CSV both missing)")
+                _alert_data("fundamental", "CSV absent and fetch returned None",
+                            {"expected_date": fund_date})
         except Exception as e:
             logger.warning(f"  Fundamental failed: {e} (Lab uses latest available)")
             _alert_data("fundamental", f"fetch exception: {e}",
@@ -293,7 +453,8 @@ def run_batch(config, fast: bool = False):
         logger.warning(f"  Report generation failed: {e} (non-critical)")
 
     # Step 6: Collect daily fundamental snapshot (for backtest DB + Valuation report)
-    # Skips if today's file already exists (avoid 11min re-crawl)
+    # R26 (2026-04-24): CSV/DB 독립 판정 — CSV 없으면 fetch, DB stale 이면 CSV 재활용 upsert.
+    # 기존: CSV exists → 전체 skip (DB upsert 아예 없음, step 7 Valuation 에만 사용)
     logger.info("[6/7] Collecting fundamental snapshot...")
     try:
         fund_dir = config.OHLCV_DIR.parent / "fundamental"
@@ -301,14 +462,9 @@ def run_batch(config, fast: bool = False):
         fund_date = target.get("date", datetime.now().strftime("%Y%m%d"))
         fund_path = fund_dir / f"fundamental_{fund_date}.csv"
 
-        if fund_path.exists():
-            logger.info(f"  Already exists: {fund_path} - skipping")
-        else:
-            from data.fundamental_collector import fetch_daily_snapshot
-            fund_df = fetch_daily_snapshot()
-            if fund_df is not None:
-                fund_df.to_csv(fund_path, index=False)
-                logger.info(f"  Fundamental snapshot: {fund_path} ({len(fund_df)} stocks)")
+        fund_df = _ensure_fundamental_csv(fund_path, fund_date, logger)
+        if fund_df is not None:
+            _ensure_fundamental_db(fund_date, fund_df, logger)
     except Exception as e:
         logger.warning(f"  Fundamental collection failed: {e} (non-critical)")
 

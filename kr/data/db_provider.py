@@ -381,6 +381,43 @@ class DbProvider:
         conn.close()
         return count
 
+    def has_fundamental_for(self, date_str: str) -> bool:
+        """R26 (2026-04-24): DB에 해당 날짜 fundamental 행이 1개 이상 존재하는지.
+
+        CSV 파일 존재 != DB 갱신 보장. CSV-exists-skip 패턴이 DB 를 stale 시키는
+        것을 막기 위해, upsert 이전에 DB 독립 판정에 사용한다.
+        """
+        try:
+            conn = self._conn()
+            cur = conn.cursor()
+            cur.execute("SELECT 1 FROM fundamental WHERE date = %s LIMIT 1", (date_str,))
+            row = cur.fetchone()
+            cur.close()
+            conn.close()
+            return bool(row)
+        except Exception as e:
+            logger.warning(f"[has_fundamental_for] query failed: {e} → returning False")
+            return False
+
+    def get_last_ohlcv_date(self, code: str) -> Optional[date]:
+        """R26 (2026-04-24): 단일 종목 OHLCV 최신 date 반환 (없으면 None).
+
+        Step 1 checkpoint skip 경로에서 DB 가 CSV 보다 뒤처졌는지 판정하는 데 사용.
+        """
+        try:
+            conn = self._conn()
+            cur = conn.cursor()
+            cur.execute("SELECT MAX(date) FROM ohlcv WHERE code = %s", (code,))
+            row = cur.fetchone()
+            cur.close()
+            conn.close()
+            if row and row[0]:
+                return row[0] if isinstance(row[0], date) else pd.to_datetime(row[0]).date()
+            return None
+        except Exception as e:
+            logger.warning(f"[get_last_ohlcv_date] {code} query failed: {e}")
+            return None
+
     def upsert_fundamental(self, date_str: str, df: pd.DataFrame) -> int:
         """Fundamental 데이터 upsert."""
         conn = self._conn()

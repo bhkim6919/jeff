@@ -41,7 +41,9 @@ class LabEodUsStep(StepBase):
     # Legacy tray window: US_LAB_EOD_HOUR=16, MINUTE=5 US/Eastern —
     # i.e. ~5 minutes after US close. Critical: never fire while the US
     # market is still open, so the tz must be US/Eastern (NOT Asia/Seoul).
-    time_window = TimeWindow(tz="US/Eastern", hour=16, minute=5, window_sec=60)
+    # Window widened from 60s → 600s (10 min) after 2026-04-22 incident
+    # where a single skipped tick cost the whole EOD window.
+    time_window = TimeWindow(tz="US/Eastern", hour=16, minute=5, window_sec=600)
 
     def __init__(
         self,

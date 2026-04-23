@@ -25,6 +25,17 @@ def setup_logging(log_dir: Path, mode: str):
     today = date.today().strftime("%Y%m%d")
     log_file = log_dir / f"gen4_{mode}_{today}.log"
     fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+    # R20 (2026-04-23): prevent UnicodeEncodeError on Windows cp949 consoles.
+    # Reconfigures stdout to UTF-8 with `errors='replace'` so em-dash (—),
+    # bullet (•), emoji (✅) etc. don't raise when logged. File handler is
+    # already UTF-8 — only stream handler was the culprit.
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
     logging.basicConfig(
         level=logging.INFO, format=fmt,
         handlers=[
@@ -239,6 +250,26 @@ def _compute_regime_snapshot(config) -> tuple:
 
         kospi_close = float(closes.iloc[-1])
         kospi_ma200 = float(closes.iloc[-200:].mean())
+
+        # R11 (2026-04-23): sanity check for mixed-scale KOSPI.csv corruption.
+        # Root cause: pre-2026 rows had wrong values (~70000-120000 scale from
+        # unknown ticker), 2026 rows appended at real KOSPI scale (~6400).
+        # MA200 dominated by 198 bad historical + 2 good → ratio 0.086 → false BEAR.
+        # If ratio falls outside plausible range [0.5, 2.0], treat KOSPI.csv as
+        # corrupted and fall back to SIDE (neutral) instead of emitting BEAR/BULL
+        # based on garbage MA200.
+        if kospi_ma200 > 0:
+            ratio = kospi_close / kospi_ma200
+            if ratio < 0.5 or ratio > 2.0:
+                _logger.error(
+                    "[REGIME_SNAPSHOT] KOSPI.csv corruption detected — "
+                    "kospi_close=%.0f / ma200=%.0f ratio=%.3f outside [0.5, 2.0]. "
+                    "Falling back to SIDE (advisory). "
+                    "Likely cause: mixed historical data; regenerate KOSPI.csv.",
+                    kospi_close, kospi_ma200, ratio,
+                )
+                return ("SIDE", 0.0, 0.5)
+
         breadth = 0.5  # placeholder — proper breadth from batch-time universe
         regime = calc_regime(kospi_close, kospi_ma200, breadth)
 
