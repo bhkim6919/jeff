@@ -853,11 +853,15 @@ async function _rebalExecute(mode) {
     window._qtronExecuting = true;
     const panel = $('rebal-preview');
     panel.innerHTML = '<span style="color:var(--yellow)">Executing...</span>';
+    // Idempotency key: UUID v4 per click. Backend stores the last request_id per
+    // rebal slot; duplicate submissions within the same slot return the prior
+    // result instead of re-executing.
+    const request_id = (crypto.randomUUID?.() || `req-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
     try {
         const resp = await fetch('/api/rebalance/execute', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({mode}),
+            body: JSON.stringify({mode, request_id}),
         });
         const d = await resp.json();
         if (!d.ok) { panel.innerHTML = `<span style="color:var(--red)">Failed: ${d.error}</span>`; return; }

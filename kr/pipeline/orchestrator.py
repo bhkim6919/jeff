@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from . import pg_mirror as _pg_mirror
+from .heartbeat import HeartbeatWriter
 from .schema import (
     MODE_PAPER_FORWARD,
     STATUS_PENDING,
@@ -48,7 +49,13 @@ _log = logging.getLogger("gen4.pipeline.orchestrator")
 # A step that has been PENDING for longer than this is assumed to have
 # crashed or been killed during a prior run (daemon thread abandoned on
 # process exit). Re-classify as FAILED so backoff can gate the retry.
-STALE_PENDING_SEC = 30 * 60  # 30 minutes
+STALE_PENDING_SEC = 30 * 60  # 30 minutes — sweep when daemon thread NOT alive
+# R17 (2026-04-23): even if daemon thread is still alive, force sweep after
+# this longer threshold. Prevents indefinite PENDING when a step hangs
+# mid-execution (e.g. step 5 Fundamental snapshot hung on 2026-04-23 batch).
+# The daemon thread continues running in the background; only state+marker
+# are transitioned to FAILED so lifecycle precondition gates unblock.
+STALE_PENDING_FORCE_SEC = 2 * STALE_PENDING_SEC  # 60 minutes — force sweep
 
 
 class Orchestrator:
@@ -99,6 +106,10 @@ class Orchestrator:
         self._running: set[str] = set()
         # Step name → instance for mirror-after-run dispatch
         self._by_name: dict[str, StepBase] = {s.name: s for s in self._steps}
+        # A1-5: heartbeat — beats every tick (including idle). External
+        # watchdog reads heartbeat.json to decide "tray alive but no work"
+        # vs "tray dead". No semantic change to step scheduling.
+        self._heartbeat = HeartbeatWriter(data_dir=self._data_dir)
 
     # ---------- public entry ----------
 
@@ -144,6 +155,13 @@ class Orchestrator:
             _log.exception("[PIPELINE_TICK_CRASH] %s", e)
             summary["errors"].append(repr(e))
 
+        # A1-5: always beat heartbeat, even on tick-crash path, so external
+        # watchdog distinguishes "tray alive but idle / crashy" from "tray dead".
+        try:
+            self._heartbeat.beat()
+        except Exception as e:  # noqa: BLE001 — heartbeat must never break tick
+            _log.warning("[HEARTBEAT_BEAT_FAIL] %s", e)
+
         _log.info(
             "[PIPELINE_TICK] date=%s spawned=%s skipped=%s swept=%s",
             summary["trade_date"],
@@ -158,13 +176,19 @@ class Orchestrator:
     def _sweep_stale_pending(self, state: PipelineState) -> list[str]:
         """Re-classify too-old PENDING entries as FAILED so retry gates work.
 
-        A step is stale-PENDING if:
-          - status == PENDING
-          - started_at is older than STALE_PENDING_SEC
-          - it is NOT currently in self._running (this process crashed
-            before registering, or it's a different tray instance)
+        Two-tier sweep (R17):
+          Tier 1 (daemon thread NOT alive, age > STALE_PENDING_SEC = 30min):
+            Normal sweep — daemon likely crashed between process lifetimes.
+          Tier 2 (daemon thread IS alive, age > STALE_PENDING_FORCE_SEC = 60min):
+            Force sweep — daemon hung mid-execution. State+marker transition
+            to FAILED so downstream preconditions unblock. Daemon thread
+            continues running in background (Python can't kill daemons
+            cleanly) but is effectively orphaned.
 
-        Returns the list of swept step names.
+        R15 (2026-04-23): invokes marker_integration.record_stale_sweep to
+        transition marker RUNNING → FAILED in sync with state change.
+
+        Returns list of swept step names.
         """
         swept: list[str] = []
         now = self._clock()
@@ -172,15 +196,42 @@ class Orchestrator:
             st = state.steps.get(step.name)
             if st is None or st.status != STATUS_PENDING:
                 continue
-            if step.name in self._running:
-                continue
+
             if st.started_at is None:
                 # Safety: treat as stale immediately
                 state.mark_failed(step.name, "stale_pending_no_started_at")
                 swept.append(step.name)
                 self._mirror_safe(state, step.name)
+                self._marker_stale_sweep_safe(state, step.name, 0, daemon_alive=False)
                 continue
+
             age = (now - st.started_at).total_seconds()
+            daemon_alive = step.name in self._running
+
+            if daemon_alive:
+                # Tier 2: force sweep for hung daemon
+                if age > STALE_PENDING_FORCE_SEC:
+                    _log.critical(
+                        "[PIPELINE_FORCE_SWEEP] step=%s age=%ds daemon_alive — "
+                        "daemon orphaned, state+marker forced to FAILED",
+                        step.name, int(age),
+                    )
+                    state.mark_failed(
+                        step.name,
+                        f"force_sweep_daemon_hung_{int(age)}s",
+                    )
+                    # Clear from _running so next tick can evaluate a fresh retry
+                    # (daemon still exists in background but we disown it).
+                    with self._lock:
+                        self._running.discard(step.name)
+                    swept.append(step.name)
+                    self._mirror_safe(state, step.name)
+                    self._marker_stale_sweep_safe(
+                        state, step.name, int(age), daemon_alive=True,
+                    )
+                continue
+
+            # Tier 1: normal sweep (daemon not alive)
             if age > STALE_PENDING_SEC:
                 state.mark_failed(
                     step.name,
@@ -188,7 +239,25 @@ class Orchestrator:
                 )
                 swept.append(step.name)
                 self._mirror_safe(state, step.name)
+                self._marker_stale_sweep_safe(
+                    state, step.name, int(age), daemon_alive=False,
+                )
         return swept
+
+    def _marker_stale_sweep_safe(
+        self, state: PipelineState, step_name: str,
+        age_sec: int, *, daemon_alive: bool,
+    ) -> None:
+        """R15: sync marker with state stale-sweep. All errors swallowed."""
+        try:
+            from . import marker_integration
+            marker_integration.record_stale_sweep(
+                state, step_name, age_sec, daemon_alive=daemon_alive,
+            )
+        except Exception as e:  # noqa: BLE001
+            _log.warning(
+                "[MARKER_STALE_SYNC_FAIL] step=%s err=%r", step_name, e,
+            )
 
     def _evaluate_and_maybe_run(self, step: StepBase, state: PipelineState) -> str:
         """Decide whether to spawn `step`. Returns one of:
@@ -213,10 +282,21 @@ class Orchestrator:
         if not ok:
             return f"precondition:{reason}"
 
-        # Backoff + abandon gate (centralized in step's tracker)
-        # We can't cheaply pre-check without importing BackoffTracker;
-        # StepBase.run() re-checks these, so a false-positive here just
-        # wastes a tick thread. Prefer to spawn and let StepBase decide.
+        # R25 (2026-04-23): backoff pre-check BEFORE thread spawn.
+        # Root cause audit found ~33s-interval PG pollution + daemon thread
+        # spam because orchestrator spawned every tick even when backoff
+        # already guaranteed early-exit. Pre-checking tracker here eliminates
+        # unnecessary thread spawn + mirror writes + backoff-gate log noise.
+        # False-positive risk is zero: step._tracker.can_run_now is the same
+        # check StepBase.run() does — just earlier.
+        try:
+            allowed, tracker_reason = step._tracker.can_run_now(state)
+            if not allowed:
+                return tracker_reason  # 'abandoned' | 'backoff' | 'already_done'
+        except Exception:
+            # Defensive: if tracker check fails (bug), fall through to spawn
+            # so StepBase.run() can handle it (preserves old behavior).
+            pass
 
         if self._spawn_threads:
             t = threading.Thread(
@@ -245,11 +325,32 @@ class Orchestrator:
                 tz=self._tz,
                 clock=self._clock,
             )
+            # R25 (2026-04-23): mirror only on real transition.
+            # Capture pre-run snapshot of this step's status; if step.run
+            # early-exits via precondition/backoff/window without mutating
+            # state, skip PG mirror to prevent history pollution. Previously
+            # every spawn produced a PG row even when state was unchanged.
+            _pre = state.step(step.name)
+            _pre_status = _pre.status
+            _pre_fails = _pre.fail_count
+            _pre_started = _pre.started_at
+            _pre_finished = _pre.finished_at
+
             result = step.run(state)
-            self._mirror_safe(state, step.name)
+
+            _post = state.step(step.name)
+            _changed = (
+                _post.status != _pre_status
+                or _post.fail_count != _pre_fails
+                or _post.started_at != _pre_started
+                or _post.finished_at != _pre_finished
+            )
+            if _changed:
+                self._mirror_safe(state, step.name)
+
             _log.info(
-                "[PIPELINE_STEP_OUTCOME] step=%s ok=%s skipped=%s err=%s",
-                step.name, result.ok, result.skipped, result.error,
+                "[PIPELINE_STEP_OUTCOME] step=%s ok=%s skipped=%s err=%s mirrored=%s",
+                step.name, result.ok, result.skipped, result.error, _changed,
             )
         except Exception as e:  # noqa: BLE001 — defense in depth
             _log.exception("[PIPELINE_RUN_AND_MIRROR_CRASH] step=%s", step.name)

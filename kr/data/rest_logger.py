@@ -77,6 +77,14 @@ def setup_rest_logging(log_dir: str = None, level: int = logging.INFO) -> None:
     datefmt = "%Y-%m-%d %H:%M:%S"
     formatter = logging.Formatter(fmt, datefmt)
 
+    # R20 (2026-04-23): prevent UnicodeEncodeError on Windows cp949 consoles.
+    # See kr/lifecycle/utils.py::setup_logging for full rationale.
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
     # Daily rotating file handler
     fh = DailyFileHandler(log_path, prefix="rest_api")
     fh.setLevel(level)

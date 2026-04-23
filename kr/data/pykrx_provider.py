@@ -3,6 +3,15 @@ pykrx_provider.py — OHLCV data via pykrx
 ==========================================
 Adapted from Gen3 (95% reuse).
 Provides historical price data for batch scoring and universe building.
+
+Data source principle (R7, 2026-04-23):
+  - CSV = performance cache. DB = canonical truth.
+  - `update_ohlcv_incremental` writes CSV first, then batch.py step 1
+    upserts last 5 days to DB (`data.db_provider.DbProvider.upsert_ohlcv`).
+  - On CSV corruption/truncation, restore from DB via
+    `scripts/restore_ohlcv_from_db.py` (never from external sources).
+  - R3 truncate guard (line 200+) refuses to overwrite existing CSV with
+    smaller result — protects against the 2026-04-22 universe=0 sequence.
 """
 from __future__ import annotations
 import logging
@@ -202,6 +211,14 @@ def update_ohlcv_incremental(ohlcv_dir: Path, codes: List[str],
     """
     Incrementally update per-stock OHLCV CSVs.
 
+    R3 (2026-04-23) SAFETY: refuses to overwrite an existing CSV with a
+    result that has FEWER rows than the existing file (truncation guard).
+    Root cause audit: 2026-04-22 batch saw universe=0 because CSVs had been
+    truncated to ~30 rows, failing min_history=260 filter. If existing is
+    corrupted/empty but present, prior logic would silently overwrite with
+    just the 30-day new_df. Guard: if len(combined) < len(existing), log
+    and skip; operator runs scripts/restore_ohlcv_from_db.py to restore.
+
     Args:
         ohlcv_dir: Directory containing {code}.csv files.
         codes: List of ticker codes to update.
@@ -212,6 +229,7 @@ def update_ohlcv_incremental(ohlcv_dir: Path, codes: List[str],
     """
     ohlcv_dir.mkdir(parents=True, exist_ok=True)
     updated = 0
+    truncate_guard_hits = 0
 
     for i, code in enumerate(codes):
         try:
@@ -222,9 +240,24 @@ def update_ohlcv_incremental(ohlcv_dir: Path, codes: List[str],
 
             if path.exists():
                 existing = pd.read_csv(path, parse_dates=["date"])
+                existing_rows = len(existing)
                 combined = pd.concat([existing, new_df]).drop_duplicates(
                     subset=["date"], keep="last")
                 combined = combined.sort_values("date").reset_index(drop=True)
+
+                # R3 truncation guard — refuse to write if combined has
+                # fewer rows than existing (should be impossible under
+                # append+dedup semantics; if fires, existing or new_df
+                # is malformed — do not propagate the damage).
+                if len(combined) < existing_rows:
+                    truncate_guard_hits += 1
+                    logger.error(
+                        f"[R3_TRUNCATE_GUARD] {code}: refusing write "
+                        f"(combined={len(combined)} < existing={existing_rows}). "
+                        f"Run scripts/restore_ohlcv_from_db.py --codes {code} to restore."
+                    )
+                    continue
+
                 combined.to_csv(path, index=False)
             else:
                 new_df.to_csv(path, index=False)
@@ -238,5 +271,10 @@ def update_ohlcv_incremental(ohlcv_dir: Path, codes: List[str],
             logger.warning(f"Failed to update {code}: {e}")
             continue
 
+    if truncate_guard_hits > 0:
+        logger.warning(
+            f"[R3_TRUNCATE_GUARD] Blocked {truncate_guard_hits} truncation writes. "
+            f"Investigate existing CSVs for corruption."
+        )
     logger.info(f"Updated {updated}/{len(codes)} stocks")
     return updated

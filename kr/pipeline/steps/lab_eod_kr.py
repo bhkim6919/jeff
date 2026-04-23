@@ -39,7 +39,10 @@ class LabEodKrStep(StepBase):
     backoff_max_fails = 3
 
     # Legacy tray window: KR_LAB_EOD_HOUR=15, MINUTE=35, LAB_EOD_WINDOW_SEC=60.
-    time_window = TimeWindow(tz="Asia/Seoul", hour=15, minute=35, window_sec=60)
+    # Widened 60s → 600s after 2026-04-22 US EOD miss incident — a single
+    # skipped tick (bootstrap retry, tray restart, transient http 503)
+    # should not cost the whole EOD window.
+    time_window = TimeWindow(tz="Asia/Seoul", hour=15, minute=35, window_sec=600)
 
     def __init__(
         self,

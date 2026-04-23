@@ -100,6 +100,25 @@ BUY/SELL 조건, count, cash, signal, retry, data source, snapshot 변경은
 - **KR**: raw ingestion = CSV, serving = DB, DB stale 시 CSV fallback
 - **US**: Alpaca API(primary) → DB(serving), DB fallback 시 OHLC 불가 경고
 
+### DB = Canonical Truth, CSV = Performance Cache (R7, 2026-04-23)
+
+**원칙**: DB는 단일 진실 기준. CSV는 성능 캐시로만 간주.
+
+| 상황 | 권장 경로 | 이유 |
+|------|----------|------|
+| Universe 구성 (batch step 2) | CSV primary (R4 Stage 1 shadow) | 과거 관행 유지, R4 Stage 3 전환 대기 |
+| 가격 조회 (서빙) | DB primary | 2026-04-16 DB 통합 기준 |
+| OHLCV 증분 업데이트 | CSV append → DB upsert | 원천 이중 쓰기 (`kr/data/pykrx_provider.py::update_ohlcv_incremental`) |
+| CSV 복구 | DB → CSV dump | `scripts/restore_ohlcv_from_db.py` (R2) |
+
+**사건 기록**:
+- 2026-04-22 universe=0 사고 원인 = CSV 가 30일로 truncated, DB 는 정상 → DB 를 truth 로 삼았다면 발생 불가
+- 대책: R3 truncate guard (`pykrx_provider.py:229`), R4 Stage 1 shadow (DB 병행 + diff 로그)
+
+**R4 관찰 프로토콜** (Jeff 고정):
+- Default 전환 금지 — 3영업일 `[UNIVERSE_SHADOW] diff_pct < 1%` + 극단치 없음 + JUG 승인 후 Stage 3
+- CSV 실사용 유지, DB 는 shadow diff 로그만
+
 ## Idempotency Rules
 
 ### snapshot_version 구성

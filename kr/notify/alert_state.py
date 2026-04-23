@@ -77,21 +77,24 @@ def record_sent(event_key: str, severity: str, state: str = "") -> None:
                 UPDATE dashboard_alert_state SET
                     last_sent = NOW(),
                     send_count = send_count + 1,
+                    severity = %s,
                     run_ts = %s,
                     updated_at = NOW()
                 WHERE alert_key = %s
-            """, (now_utc(), event_key))
+            """, (severity, now_utc(), event_key))
         else:
             cur.execute("""
                 INSERT INTO dashboard_alert_state
-                    (alert_key, last_sent, send_count, suppressed, run_ts, updated_at)
-                VALUES (%s, NOW(), 1, 0, %s, NOW())
+                    (alert_key, last_sent, send_count, suppressed,
+                     severity, run_ts, updated_at)
+                VALUES (%s, NOW(), 1, 0, %s, %s, NOW())
                 ON CONFLICT (alert_key) DO UPDATE SET
                     last_sent = NOW(),
                     send_count = dashboard_alert_state.send_count + 1,
+                    severity = EXCLUDED.severity,
                     run_ts = EXCLUDED.run_ts,
                     updated_at = NOW()
-            """, (event_key, now_utc()))
+            """, (event_key, severity, now_utc()))
 
         conn.commit()
         cur.close()

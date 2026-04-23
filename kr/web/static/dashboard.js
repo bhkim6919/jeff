@@ -27,6 +27,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     initModeSwitcher();
     initClock();
     initLogRefresh();
+    initBatchLogPanel();   // R14 D-BATCH
+    initQobsPanel();       // R14 D-QOBS
     initTraceFilters();
     initAlertClose();
     initCopyJson();
@@ -349,29 +351,38 @@ function updateRebalSchedule(data) {
     const ld = lastDate.substring(6,8);
     lastEl.textContent = `${ly}.${lm}.${ld}`;
 
-    // Calculate next rebalance (approximate: last + cycle trading days ≈ cycle * 1.4 calendar days)
-    const lastDt = new Date(parseInt(ly), parseInt(lm)-1, parseInt(ld));
-    const calendarDays = Math.round(cycle * 1.4); // 21 trading days ≈ 30 calendar days
-    const nextDt = new Date(lastDt.getTime() + calendarDays * 86400000);
-    const ny = nextDt.getFullYear();
-    const nm = String(nextDt.getMonth()+1).padStart(2,'0');
-    const nd = String(nextDt.getDate()).padStart(2,'0');
-    nextEl.textContent = `${ny}.${nm}.${nd}`;
-
-    // D-day
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    const diffDays = Math.ceil((nextDt - today) / 86400000);
-    if (diffDays > 0) {
-        ddayEl.textContent = `D-${diffDays}`;
-        ddayEl.className = 'rebal-dday' + (diffDays <= 3 ? ' urgent' : '');
-    } else if (diffDays === 0) {
-        ddayEl.textContent = 'D-DAY';
-        ddayEl.className = 'rebal-dday urgent';
+    // R24 (2026-04-23): prefer server-side trading-calendar values.
+    // API returns next_date ("YYYY.MM.DD") + d_day (trading days remaining).
+    // Only fall back to client-side calendar approx when API omits them.
+    if (rebal.next_date) {
+        nextEl.textContent = rebal.next_date;
     } else {
-        ddayEl.textContent = `D+${Math.abs(diffDays)}`;
-        ddayEl.className = 'rebal-dday overdue';
+        // Legacy calendar approx (21 trading days ≈ 30 calendar days)
+        const lastDt = new Date(parseInt(ly), parseInt(lm)-1, parseInt(ld));
+        const calendarDays = Math.round(cycle * 1.4);
+        const nextDt = new Date(lastDt.getTime() + calendarDays * 86400000);
+        const ny = nextDt.getFullYear();
+        const nm = String(nextDt.getMonth()+1).padStart(2,'0');
+        const nd = String(nextDt.getDate()).padStart(2,'0');
+        nextEl.textContent = `${ny}.${nm}.${nd}`;
     }
+
+    if (typeof rebal.d_day === 'number') {
+        const d = rebal.d_day;
+        if (d > 0) {
+            ddayEl.textContent = `D-${d}`;
+            ddayEl.className = 'rebal-dday' + (d <= 3 ? ' urgent' : '');
+        } else if (d === 0) {
+            ddayEl.textContent = 'D-DAY';
+            ddayEl.className = 'rebal-dday urgent';
+        } else {
+            ddayEl.textContent = `D+${Math.abs(d)}`;
+            ddayEl.className = 'rebal-dday overdue';
+        }
+    }
+    // Note: updateRebalStatus() also writes rebal-dday from /api/rebalance/status.
+    // Both paths now share the same trading-calendar semantics, so whichever
+    // fires last yields the same value (no race-induced flicker).
 }
 
 // ── Rebalance Control Panel ──────────────────────────
@@ -1362,6 +1373,310 @@ function computeDiff(oldObj, newObj, prefix) {
         }
     }
     return diffs;
+}
+
+// ── D-BATCH / D-QOBS Panels (R14 — 2026-04-23) ───────────────
+
+let _batchLogTimer = null;
+let _qobsTimer = null;
+
+function initBatchLogPanel() {
+    const btn = document.getElementById('btn-refresh-batch-log');
+    const chk = document.getElementById('batch-log-autorefresh');
+    if (btn) btn.addEventListener('click', fetchBatchLog);
+    if (chk) {
+        chk.addEventListener('change', () => {
+            if (chk.checked) {
+                fetchBatchLog();
+                _batchLogTimer = setInterval(fetchBatchLog, 5000);
+            } else if (_batchLogTimer) {
+                clearInterval(_batchLogTimer);
+                _batchLogTimer = null;
+            }
+        });
+        // Initial: auto-refresh on if checked
+        if (chk.checked) {
+            fetchBatchLog();
+            _batchLogTimer = setInterval(fetchBatchLog, 5000);
+        }
+    }
+}
+
+async function fetchBatchLog() {
+    try {
+        const resp = await fetch('/api/debug/batch_log?lines=500');
+        const data = await resp.json();
+        renderBatchLog(data);
+    } catch (err) {
+        console.error('Batch log fetch error:', err);
+        const c = document.getElementById('batch-log-container');
+        if (c) c.innerHTML = `<div class="empty-row log-error">fetch error: ${esc(String(err))}</div>`;
+    }
+}
+
+function renderBatchLog(data) {
+    const container = document.getElementById('batch-log-container');
+    const srcBadge = document.getElementById('batch-log-source');
+    if (!container) return;
+
+    if (!data.ok) {
+        container.innerHTML = `<div class="empty-row">${esc(data.error || '로그 없음')}</div>`;
+        if (srcBadge) srcBadge.textContent = '';
+        return;
+    }
+
+    if (srcBadge) {
+        const mtime = data.mtime
+            ? new Date(data.mtime * 1000).toLocaleTimeString('ko-KR')
+            : '';
+        srcBadge.textContent = `${data.source} (${data.shown}/${data.total_lines} lines, ${mtime})`;
+    }
+
+    const lines = data.lines || [];
+    if (lines.length === 0) {
+        container.innerHTML = '<div class="empty-row">로그 내용 없음</div>';
+        return;
+    }
+
+    // ── Progress bar detection ─────────────────────────────
+    // Pattern: "Progress: N/TOTAL (N success)"
+    // Handles dual-batch case (CLI + tray concurrent) — group by TOTAL and
+    // extract latest CURRENT per group, then show one bar per distinct batch.
+    const progressRe = /Progress:\s*(\d+)\/(\d+)\s*\((\d+)\s+success\)/;
+    const tsRe = /^(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})/;
+
+    // Walk from newest (end) → oldest, collect LATEST entry per (total, closestCurrent-group)
+    // Simpler heuristic: collect last 2 distinct (current,total) pairs — if their
+    // current values differ by >20, treat as 2 separate batches.
+    const recentProgresses = [];
+    for (let i = lines.length - 1; i >= 0 && recentProgresses.length < 4; i--) {
+        const m = lines[i].match(progressRe);
+        if (!m) continue;
+        const current = parseInt(m[1]);
+        const total = parseInt(m[2]);
+        const tsM = lines[i].match(tsRe);
+        const ts = tsM ? tsM[1] : '';
+        // Deduplicate — skip if we already collected same current+total
+        if (recentProgresses.some(p => p.current === current && p.total === total)) continue;
+        recentProgresses.push({current, total, ts, lineIdx: i});
+    }
+
+    // Group into 2 sequences if values differ significantly
+    let batches = [];
+    if (recentProgresses.length === 0) {
+        batches = [];
+    } else if (recentProgresses.length === 1) {
+        batches = [recentProgresses[0]];
+    } else {
+        // Sort by ts desc (newest first); pick top 2 with differing current
+        const sorted = [...recentProgresses].sort((a, b) => b.ts.localeCompare(a.ts));
+        batches.push(sorted[0]);
+        for (let i = 1; i < sorted.length; i++) {
+            if (Math.abs(sorted[i].current - batches[0].current) > 20) {
+                batches.push(sorted[i]);
+                break;
+            }
+        }
+    }
+
+    // Render progress bars
+    let progressHtml = '';
+    if (batches.length > 0) {
+        progressHtml = '<div style="background:#1a1a1a;padding:10px;margin-bottom:8px;border-radius:4px;">';
+        progressHtml += '<div style="font-weight:bold;margin-bottom:6px;font-size:12px;">📊 FUND Progress' + (batches.length > 1 ? ' (2 concurrent batches)' : '') + '</div>';
+        batches.forEach((b, idx) => {
+            const pct = b.total > 0 ? (b.current / b.total * 100) : 0;
+            const pctStr = pct.toFixed(1);
+            const label = batches.length > 1 ? `Batch ${String.fromCharCode(65 + idx)}` : 'Batch';
+            // Color: green if >=75%, yellow if >=25%, else blue
+            const barColor = pct >= 75 ? '#4caf50' : pct >= 25 ? '#ff9800' : '#2196f3';
+            // Rate estimate — not critical, just raw progress
+            progressHtml += `
+                <div style="margin-bottom:6px;">
+                    <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;">
+                        <span><strong>${label}</strong> ${b.ts || ''}</span>
+                        <span>${b.current.toLocaleString()}/${b.total.toLocaleString()} (${pctStr}%)</span>
+                    </div>
+                    <div style="background:#333;height:18px;border-radius:3px;overflow:hidden;position:relative;">
+                        <div style="width:${pctStr}%;height:100%;background:${barColor};transition:width 0.4s;"></div>
+                        <div style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;text-shadow:0 0 3px #000;">
+                            ${pctStr}%
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        // ETA estimate based on first batch's rate (1.48s/stock measured)
+        if (batches[0] && batches[0].total > 0) {
+            const remaining = batches[0].total - batches[0].current;
+            const etaSec = Math.round(remaining * 1.48);
+            const etaMin = Math.round(etaSec / 60);
+            progressHtml += `<div style="font-size:11px;color:#888;margin-top:4px;">Batch A 예상 완료: 약 ${etaMin}분 후 (${remaining.toLocaleString()} stocks 남음 × 1.48s/stock)</div>`;
+        }
+        progressHtml += '</div>';
+    }
+
+    // Log line rendering
+    const logHtml = lines.map(line => {
+        let cls = 'log-info';
+        if (/\bERROR\b|Traceback|CRITICAL|FAIL/i.test(line)) cls = 'log-error';
+        else if (/\bWARN(ING)?\b/i.test(line)) cls = 'log-warn';
+        else if (/Progress:|\[FUND_TIMEOUT/.test(line)) cls = 'log-info';
+        return `<div class="log-line ${cls}">${esc(line)}</div>`;
+    }).join('');
+
+    container.innerHTML = progressHtml + logHtml;
+
+    // Auto-scroll to bottom
+    container.scrollTop = container.scrollHeight;
+}
+
+function initQobsPanel() {
+    const btn = document.getElementById('btn-refresh-qobs');
+    const chk = document.getElementById('qobs-autorefresh');
+    if (btn) btn.addEventListener('click', fetchQobs);
+    if (chk) {
+        chk.addEventListener('change', () => {
+            if (chk.checked) {
+                fetchQobs();
+                _qobsTimer = setInterval(fetchQobs, 10000);
+            } else if (_qobsTimer) {
+                clearInterval(_qobsTimer);
+                _qobsTimer = null;
+            }
+        });
+    }
+    // Initial fetch
+    fetchQobs();
+}
+
+async function fetchQobs() {
+    try {
+        const resp = await fetch('/api/debug/qobs');
+        const data = await resp.json();
+        renderQobs(data);
+    } catch (err) {
+        console.error('Qobs fetch error:', err);
+        const c = document.getElementById('qobs-container');
+        if (c) c.innerHTML = `<div class="empty-row log-error">fetch error: ${esc(String(err))}</div>`;
+    }
+}
+
+function renderQobs(data) {
+    const container = document.getElementById('qobs-container');
+    if (!container) return;
+
+    // Heartbeat
+    let hbHtml;
+    if (data.heartbeat) {
+        const hb = data.heartbeat;
+        if (hb.error) {
+            hbHtml = `<span class="log-error">ERROR: ${esc(hb.error)}</span>`;
+        } else {
+            const age = hb.age_sec;
+            const cls = age == null ? 'log-warn' : (age > 120 ? 'log-error' : (age > 60 ? 'log-warn' : 'log-info'));
+            hbHtml = `<span class="${cls}">age=${age}s</span> tick_seq=${hb.tick_seq} pid=${hb.pid} session=${esc(hb.tray_session || '-')}`;
+        }
+    } else {
+        hbHtml = '<span class="log-error">MISSING (tray 미기동?)</span>';
+    }
+
+    // Marker runs
+    let markerHtml = '';
+    if (data.marker && data.marker.runs) {
+        const runs = data.marker.runs;
+        const rows = Object.entries(runs).map(([rt, r]) => {
+            const statusCls = r.status === 'SUCCESS' ? 'log-info' :
+                              (r.status === 'FAILED' || r.status === 'PRE_FLIGHT_FAIL' || r.status === 'PRE_FLIGHT_STALE_INPUT') ? 'log-error' :
+                              r.status === 'PARTIAL' ? 'log-warn' :
+                              r.status === 'RUNNING' ? 'log-warn' : 'log-info';
+            const errMsg = r.error ? `<div style="margin-left:20px;font-size:11px;color:#c77;">err[${esc(r.error.stage || '')}]: ${esc((r.error.message || '').substring(0, 150))}</div>` : '';
+            return `<div style="padding:4px 0;">
+                <strong style="display:inline-block;width:110px;">${esc(rt)}</strong>
+                <span class="${statusCls}">${esc(r.status)}</span>
+                attempt=${r.attempt_no} worst=${esc(r.worst_status_today || '-')}
+                ${errMsg}
+            </div>`;
+        }).join('');
+        markerHtml = rows || '<div class="empty-row">runs 없음</div>';
+    } else if (data.marker && data.marker.error) {
+        markerHtml = `<div class="log-error">marker ERROR: ${esc(data.marker.error)}</div>`;
+    } else {
+        markerHtml = '<div class="empty-row">오늘 marker 없음</div>';
+    }
+
+    // Incidents
+    const incCount = (data.incidents || []).length;
+    const incHtml = incCount > 0
+        ? (data.incidents || []).map(i => `<div>  ${esc(i.name)} (${i.size} bytes)</div>`).join('')
+        : '<div class="empty-row">0 건</div>';
+
+    // DEADMAN
+    const dmHtml = data.deadman_configured
+        ? '<span class="log-info">configured</span>'
+        : '<span class="log-error">MISSING — env var 미설정</span>';
+
+    // Known bombs
+    const bombs = (data.marker && data.marker.known_bombs) || [];
+    const bombHtml = bombs.length > 0
+        ? bombs.map(b => `<div class="log-error">  ${esc(b.module)} state=${esc(b.state)} since=${esc(b.detected_since)}</div>`).join('')
+        : '';
+
+    // R13 (2026-04-23): Expected vs actual runs — schedule table
+    let expectedHtml = '';
+    if (data.expected_runs) {
+        const rows = Object.entries(data.expected_runs).map(([rt, e]) => {
+            const phaseCls = e.phase === 'in_window' ? 'log-info' :
+                             e.phase === 'before_window' ? 'log-warn' : 'log-info';
+            const phaseLabel = e.phase === 'in_window' ? '실행창' :
+                               e.phase === 'before_window' ? '대기' : '종료';
+            const statusCls = e.actual_status === 'SUCCESS' ? 'log-info' :
+                              (e.actual_status === 'FAILED' || e.actual_status === 'PRE_FLIGHT_FAIL' || e.actual_status === 'PRE_FLIGHT_STALE_INPUT') ? 'log-error' :
+                              e.actual_status === 'RUNNING' ? 'log-warn' :
+                              e.actual_status === 'PARTIAL' ? 'log-warn' : '';
+            const statusText = e.actual_status || '—';
+            const alertMark = e.alert ? '<span class="log-error" style="margin-left:8px;">⚠ 기한 초과</span>' : '';
+            return `<div style="padding:3px 0;font-size:11px;">
+                <strong style="display:inline-block;width:110px;">${esc(rt)}</strong>
+                <span style="display:inline-block;width:130px;color:#aaa;">${esc(e.earliest_kst)}~${esc(e.deadline_kst)}</span>
+                <span class="${phaseCls}" style="display:inline-block;width:70px;">${phaseLabel}</span>
+                <span class="${statusCls}">${esc(statusText)}</span>
+                ${alertMark}
+            </div>`;
+        }).join('');
+        expectedHtml = rows;
+    } else if (data.expected_runs_error) {
+        expectedHtml = `<div class="log-error">expected_runs ERROR: ${esc(data.expected_runs_error)}</div>`;
+    }
+
+    const now = new Date().toLocaleTimeString('ko-KR');
+    const nowKst = data.now_kst ? ` (KST ${esc(data.now_kst)})` : '';
+    container.innerHTML = `
+        <div style="font-family:monospace;font-size:12px;line-height:1.6;">
+            <div style="font-size:11px;color:#888;margin-bottom:8px;">fetched: ${now}${nowKst}   trade_date: ${esc(data.trade_date)}</div>
+            <div style="margin-bottom:12px;">
+                <strong>Heartbeat</strong><br>
+                <span style="margin-left:20px;">${hbHtml}</span>
+            </div>
+            ${expectedHtml ? `<div style="margin-bottom:12px;">
+                <strong>Expected vs Actual (R13)</strong>
+                <div style="margin-left:20px;">${expectedHtml}</div>
+            </div>` : ''}
+            <div style="margin-bottom:12px;">
+                <strong>Marker Runs</strong>
+                ${markerHtml}
+            </div>
+            <div style="margin-bottom:12px;">
+                <strong>Incidents (${incCount})</strong>
+                <div style="margin-left:20px;font-size:11px;">${incHtml}</div>
+            </div>
+            <div style="margin-bottom:12px;">
+                <strong>DEADMAN</strong>
+                <span style="margin-left:20px;">${dmHtml}</span>
+            </div>
+            ${bombs.length > 0 ? `<div style="margin-bottom:12px;"><strong>Known Bombs</strong>${bombHtml}</div>` : ''}
+        </div>
+    `;
 }
 
 // ── Log Panel (Debug) ────────────────────────────────────────

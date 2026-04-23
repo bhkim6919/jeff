@@ -424,6 +424,8 @@
                 <a href="#sec-histogram" class="debug-toc-chip"><code>D-HIST</code> <span>응답시간 분포</span></a>
                 <a href="#sec-logs" class="debug-toc-chip"><code>D-LOG</code> <span>로그 스트림</span></a>
                 <a href="#sec-diff" class="debug-toc-chip"><code>D-DIFF</code> <span>상태 변경 추적</span></a>
+                <a href="#sec-batch-log" class="debug-toc-chip debug-toc-chip-new"><code>D-BATCH</code> <span>배치 로그 스트림</span></a>
+                <a href="#sec-qobs" class="debug-toc-chip debug-toc-chip-new"><code>D-QOBS</code> <span>Pipeline 스냅샷</span></a>
             </div>
         </section>
 
@@ -735,6 +737,39 @@
             </h3>
             <div id="diff-container" class="diff-container">
                 <div class="empty-row">변경 사항 대기 중...</div>
+            </div>
+        </section>
+
+        <!-- ====== Debug Mode: Batch Log Stream (R14) ======== -->
+        <section id="sec-batch-log" class="section mode-debug" hidden>
+            <h3 class="section-title">
+                <span>배치 로그 스트림</span>
+                <span class="sec-id-badge" title="진단 ID: gen4_batch_YYYYMMDD.log 실시간 tail. 2시간 batch 진행 관찰용">D-BATCH</span>
+                <span id="batch-log-source" class="log-tag" style="margin-left:8px;"></span>
+                <label style="margin-left:auto;font-size:12px;cursor:pointer;">
+                    <input type="checkbox" id="batch-log-autorefresh" checked>
+                    자동 새로고침 (5s)
+                </label>
+                <button id="btn-refresh-batch-log" class="btn-sm">새로고침</button>
+            </h3>
+            <div id="batch-log-container" class="log-container" style="max-height:600px;overflow:auto;font-family:monospace;font-size:11px;line-height:1.4;">
+                <div class="empty-row">대기 중...</div>
+            </div>
+        </section>
+
+        <!-- ====== Debug Mode: qobs Pipeline Snapshot (R14) === -->
+        <section id="sec-qobs" class="section mode-debug" hidden>
+            <h3 class="section-title">
+                <span>Pipeline 스냅샷 (qobs)</span>
+                <span class="sec-id-badge" title="진단 ID: observe_today.ps1 동등 — heartbeat/marker/incidents/DEADMAN 일괄 조회">D-QOBS</span>
+                <label style="margin-left:auto;font-size:12px;cursor:pointer;">
+                    <input type="checkbox" id="qobs-autorefresh">
+                    자동 새로고침 (10s)
+                </label>
+                <button id="btn-refresh-qobs" class="btn-sm">새로고침</button>
+            </h3>
+            <div id="qobs-container" class="qobs-container" style="padding:8px;">
+                <div class="empty-row">대기 중...</div>
             </div>
         </section>
 

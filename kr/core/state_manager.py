@@ -194,6 +194,24 @@ class StateManager:
         with self._timed_lock():
             return self._atomic_read(self._runtime_file) or {}
 
+    def heartbeat(self) -> bool:
+        """R10 (2026-04-23): Lightweight heartbeat — refresh only timestamp.
+
+        Motivation: dashboard flags ENGINE_OFFLINE when runtime_state
+        timestamp is older than its threshold (~20-30 min). During
+        quiet markets the engine monitor loop can go idle without
+        writing state for 30+ minutes, causing false OFFLINE +
+        BUY_BLOCKED even though the engine is alive.
+
+        This method preserves all other fields and only refreshes
+        the `timestamp` marker. Safe to call every monitor tick (60s).
+        """
+        with self._timed_lock():
+            data = self._atomic_read(self._runtime_file) or {}
+            data["timestamp"] = datetime.now().isoformat()
+            data["_heartbeat"] = True  # marker for observability
+            return self._atomic_write(self._runtime_file, data)
+
     # ── Rebalance Tracking ───────────────────────────────────────────
 
     def get_last_rebalance_date(self) -> Optional[str]:
