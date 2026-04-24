@@ -103,6 +103,24 @@ HEARTBEAT_STALE_SEC = 120  # 2 min — tray tick every 30s, 4x margin
 RUNNING_STALE_SEC = 30 * 60  # 30 min
 STALE_SYSTEM_SEC = 24 * 3600  # 24h
 DEDUP_REFIRE_SEC = 6 * 3600  # re-alert same condition every 6h
+
+# Severity tiers (Jeff 2026-04-24): "CRITICAL 도배로 가독성 저하" 방지.
+#  - CRITICAL 🔴: 사람 개입 필요, 실거래 블로킹 가능
+#  - WARN     🟡: 운영 저하, 조사 권장, 기능은 유지
+#  - INFO     🔵: 관찰용 blip (텔레그램 푸시 제외, 파일만)
+SEVERITY_CRITICAL = "CRITICAL"
+SEVERITY_WARN = "WARN"
+SEVERITY_INFO = "INFO"
+
+SEVERITY_EMOJI = {
+    SEVERITY_CRITICAL: "🔴",
+    SEVERITY_WARN: "🟡",
+    SEVERITY_INFO: "🔵",
+}
+
+# Heartbeat age tiers (seconds). Below WARN threshold = not even an alert.
+HEARTBEAT_WARN_SEC = 300        # 120-300s: still INFO (single tick blip)
+HEARTBEAT_CRITICAL_SEC = 600    # >600s: real tray downtime
 # R5: business-day lag before crying "stale". 3 bdays ≈ covers Monday holiday +
 # one normal weekend gap without spamming. Tuneable via env if a market holiday
 # stretches longer.
@@ -170,7 +188,23 @@ class Alert:
 
     def human(self) -> str:
         rt = f" {self.run_type}" if self.run_type else ""
-        return f"[{self.severity}] {self.code}{rt} ({self.trade_date}): {self.detail}"
+        emoji = SEVERITY_EMOJI.get(self.severity, "")
+        prefix = f"{emoji} [{self.severity}]" if emoji else f"[{self.severity}]"
+        return f"{prefix} {self.code}{rt} ({self.trade_date}): {self.detail}"
+
+
+def _classify_heartbeat_severity(age_sec: float) -> str:
+    """STALLED_HEARTBEAT severity from age (seconds).
+
+    age 120~300s  → INFO (file only, no Telegram)
+    age 300~600s  → WARN
+    age >600s     → CRITICAL (long downtime, needs human)
+    """
+    if age_sec >= HEARTBEAT_CRITICAL_SEC:
+        return SEVERITY_CRITICAL
+    if age_sec >= HEARTBEAT_WARN_SEC:
+        return SEVERITY_WARN
+    return SEVERITY_INFO
 
 
 def in_window(now_kst_minutes: int, window: tuple[int, int]) -> bool:
@@ -206,16 +240,20 @@ def evaluate_alerts(
 
     # --- Heartbeat checks (process alive?) ---
     if heartbeat is None:
+        # No heartbeat file at all = tray never started or file lost. Always CRITICAL.
         alerts.append(Alert(
             code=ALERT_HEARTBEAT_MISSING, run_type=None, trade_date=td_str,
             detail="no heartbeat file (tray likely dead or never started)",
+            severity=SEVERITY_CRITICAL,
         ))
     else:
         hb_ts = _parse_iso(heartbeat.get("ts"))
         if hb_ts is None:
+            # Corrupt timestamp — treat as WARN; tray may still be up but writing bad data.
             alerts.append(Alert(
                 code=ALERT_STALLED_HEARTBEAT, run_type=None, trade_date=td_str,
                 detail="heartbeat timestamp unparseable",
+                severity=SEVERITY_WARN,
             ))
         else:
             age = (now_utc - (hb_ts if hb_ts.tzinfo else hb_ts.replace(tzinfo=timezone.utc))).total_seconds()
@@ -223,6 +261,7 @@ def evaluate_alerts(
                 alerts.append(Alert(
                     code=ALERT_STALLED_HEARTBEAT, run_type=None, trade_date=td_str,
                     detail=f"heartbeat age={int(age)}s (threshold={HEARTBEAT_STALE_SEC}s)",
+                    severity=_classify_heartbeat_severity(age),
                 ))
 
     # --- Per-run_type checks ---
@@ -234,21 +273,25 @@ def evaluate_alerts(
 
         if run is None:
             # Run not recorded at all. Only alert if past deadline.
+            # CRITICAL: a scheduled execution window has truly passed without
+            # any marker entry — a real trading opportunity was missed.
             if past_deadline(now_min, win):
                 alerts.append(Alert(
                     code=ALERT_MISSING_RUN, run_type=run_type, trade_date=td_str,
                     detail=f"no marker entry; past deadline "
                            f"(window={_fmt_window(win)})",
+                    severity=SEVERITY_CRITICAL,
                 ))
             continue
 
         status = run.get("status", STATUS_MISSING)
 
-        # MISSING explicit + past deadline
+        # MISSING explicit + past deadline (CRITICAL — same as no entry case).
         if status == STATUS_MISSING and past_deadline(now_min, win):
             alerts.append(Alert(
                 code=ALERT_MISSING_RUN, run_type=run_type, trade_date=td_str,
                 detail=f"status=MISSING past deadline (window={_fmt_window(win)})",
+                severity=SEVERITY_CRITICAL,
             ))
 
         # RUNNING stalled (v4 권장 4: only CRITICAL if heartbeat dead; else WARN)
@@ -271,7 +314,8 @@ def evaluate_alerts(
                     ))
 
         # Invariant: SUCCESS with checks.any_false (shouldn't happen per producer
-        # invariants, but defensive — catches corrupted marker)
+        # invariants, but defensive — catches corrupted marker). CRITICAL because
+        # state machine integrity is broken.
         if status == STATUS_SUCCESS:
             checks = run.get("checks") or {}
             if any(v is False for v in checks.values()):
@@ -279,6 +323,7 @@ def evaluate_alerts(
                     code=ALERT_INVARIANT_VIOLATION, run_type=run_type, trade_date=td_str,
                     detail=f"status=SUCCESS with checks any_false: "
                            f"{[k for k, v in checks.items() if v is False]}",
+                    severity=SEVERITY_CRITICAL,
                 ))
 
     # --- STALE_SYSTEM: marker last_update > 24h even though something exists ---
@@ -591,8 +636,14 @@ def run_once(
     to_fire, updated_dedup = filter_by_dedup(alerts, dedup, now_epoch)
 
     sent = 0
+    skipped_info = 0
     if to_fire and not dry_run:
         for a in to_fire:
+            # INFO severity: file only, skip Telegram to reduce DEADMAN noise.
+            # Jeff 2026-04-24: CRITICAL 도배 방지 → 단기 tick blip 은 파일 보관만.
+            if a.severity == SEVERITY_INFO:
+                skipped_info += 1
+                continue
             if send_telegram(a.human()):
                 sent += 1
         incident_path = write_incident(to_fire, incident_dir, now_utc=now_utc)
@@ -602,9 +653,9 @@ def run_once(
 
     _log.info(
         "[WATCHDOG_PASS] trade_date=%s heartbeat=%s marker=%s "
-        "alerts_total=%d to_fire=%d sent=%d incident=%s dry_run=%s",
+        "alerts_total=%d to_fire=%d sent=%d skipped_info=%d incident=%s dry_run=%s",
         td, bool(heartbeat), bool(marker), len(alerts), len(to_fire), sent,
-        incident_path, dry_run,
+        skipped_info, incident_path, dry_run,
     )
     return {
         "trade_date": td.isoformat(),
