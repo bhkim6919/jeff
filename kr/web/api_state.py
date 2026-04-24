@@ -471,8 +471,10 @@ class ApiStateTracker:
         if self._total_requests == 0:
             return HealthStatus.BLACK, "No requests recorded"
 
-        # BLACK: no successful request in 5 minutes
-        if self._last_success_ts > 0 and (now - self._last_success_ts) > 300:
+        # BLACK: no successful request in 90 minutes
+        # WebSocket 가격 수신 중에는 HTTP REST 호출 빈도 낮음 (XVAL ~60분 주기).
+        # 300s(5분) 임계값은 WebSocket 정상 운영 시 false alarm 발생.
+        if self._last_success_ts > 0 and (now - self._last_success_ts) > 5400:
             return HealthStatus.BLACK, f"No success for {int(now - self._last_success_ts)}s"
 
         # BLACK: token not valid and no recent success

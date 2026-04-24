@@ -273,6 +273,19 @@ def run_batch(config, fast: bool = False):
     if not universe:
         logger.error("Empty universe!")
         _notify_batch_error("Empty universe — batch 중단", logger)
+        # R27: 실패 시에도 last_batch_failed_at 기록 → 다음날 state stale 방지
+        try:
+            from core.state_manager import StateManager
+            _sm = StateManager(config.STATE_DIR,
+                               trading_mode=getattr(config, "TRADING_MODE", "live"))
+            _rt = _sm._atomic_read(_sm._runtime_file) or {}
+            _rt["last_batch_failed_at"] = __import__("datetime").datetime.utcnow().isoformat()
+            _rt["last_batch_fail_reason"] = "empty_universe"
+            _sm._atomic_write(_sm._runtime_file,
+                              {"timestamp": __import__("datetime").datetime.now().isoformat(),
+                               **_rt})
+        except Exception as _e:
+            logger.warning(f"[BATCH_FAIL_MARKER] {_e}")
         return None
 
     # R4 Stage 1 (2026-04-23): SHADOW comparison with DB-direct universe.
