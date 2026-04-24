@@ -109,6 +109,21 @@
 }
 .qnav-tg-btn:hover { background: #21262d; color: #58a6ff; border-color: #58a6ff; }
 
+/* P0-2 Commit 1: Debug 진입 톱니바퀴 버튼. .qnav-tg-btn 동일 톤, hover 시 주황으로 구분. */
+.qnav-debug-btn {
+    padding: 4px 10px;
+    font-size: 16px;
+    font-family: inherit;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    background: #161b22;
+    color: #8b949e;
+    cursor: pointer;
+    transition: all 0.15s;
+    line-height: 1;
+}
+.qnav-debug-btn:hover { background: #21262d; color: #f0883e; border-color: #f0883e; }
+
 .qnav-clock {
     font-size: 13px;
     color: #8b949e;

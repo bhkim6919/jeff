@@ -751,6 +751,17 @@ def create_app() -> FastAPI:
         """Main dashboard page."""
         return templates.TemplateResponse(request, "index.html")
 
+    @application.get("/debug", response_class=HTMLResponse)
+    async def debug_page(request: Request):
+        """Debug / diagnostic page (separated from Dashboard per P0-2).
+
+        Jeff 2026-04-24: 운영 화면(Dashboard)과 진단 화면을 분리한다.
+        운영 판단에 필요한 헬스 3개(sec-control / sec-freshness / sec-ws-sync)
+        는 Dashboard 잔류, 나머지 debug 섹션은 이 페이지로 이동.
+        Entry points: nav 우측 톱니바퀴 아이콘 또는 ?debug=1 쿼리.
+        """
+        return templates.TemplateResponse(request, "debug.html")
+
     # NOTE: /api/state는 line ~1271의 get_state_snapshot()이 진짜 핸들러 (portfolio cache + auto_trading 포함).
     # 과거 이 자리에 있던 tracker-only 중복 라우트는 FastAPI 라우팅 우선순위(먼저 등록된 게 이김) 때문에
     # portfolio/auto_trading 필드를 가려서 "AUTO GATE: UNKNOWN" 이슈 유발 → 제거 (2026-04-18).

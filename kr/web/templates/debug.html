@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Q-TRON Debug</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/style.css?v=10">
+    <link rel="stylesheet" href="/static/nav.css?v=3">
+    <link rel="stylesheet" href="/static/themes.css?v=2">
+    <script src="/static/themes.js?v=2"></script>
+</head>
+<body>
+
+    <!-- ── Unified Nav ────────────────────────────────────── -->
+    <div id="qtron-nav" style="position:sticky;top:0;z-index:1000;"></div>
+    <script src="/static/nav.js?v=3"></script>
+    <script>window.__qtronNav.renderNav(document.getElementById('qtron-nav'));</script>
+
+    <!-- ── SSE Connection Bar ─────────────────────────────── -->
+    <div id="sse-bar" class="sse-bar sse-connecting">
+        <span id="sse-status">SSE 연결 중...</span>
+    </div>
+
+    <!-- ── Page Header (Debug-specific) ───────────────────── -->
+    <div style="padding:12px 20px;border-bottom:1px solid var(--border-color);
+                display:flex;justify-content:space-between;align-items:center;
+                background:var(--card-bg);">
+        <div>
+            <h2 style="margin:0;font-size:16px;color:var(--text-color);">
+                🔧 Debug &amp; Diagnostics
+            </h2>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px;">
+                진단/디버그 전용 화면 — 운영 Dashboard는
+                <a href="/" style="color:#60a5fa;">여기</a>로 복귀
+            </div>
+        </div>
+        <div>
+            <a href="/" style="padding:6px 14px;font-size:12px;font-weight:600;
+                background:rgba(96,165,250,0.15);color:#60a5fa;
+                border:1px solid #60a5fa;border-radius:4px;text-decoration:none;">
+                ← Dashboard
+            </a>
+        </div>
+    </div>
+
+    <!-- ── Main Content (Debug sections — populated in P0-2 Commit 2) ── -->
+    <main id="main">
+
+        <!--
+            P0-2 Commit 2에서 아래 13개 섹션이 kr/web/templates/index.html 에서
+            이 자리로 이동 예정:
+
+              sec-debug-toc       (자체 TOC)
+              sec-db-health       (D-DB)
+              sec-traces          (D-TRACE)
+              sec-market-ctx      (D-MCTX)
+              sec-data-events     (D-EVT)
+              sec-test-order      (D-TEST)
+              sec-sync            (D-SYNC)
+              sec-raw-json        (D-RAW)
+              sec-histogram       (D-HIST)
+              sec-logs            (D-LOG)
+              sec-diff            (D-DIFF)
+              sec-batch-log       (배치 로그 패널)
+              sec-qobs            (Qobs 패널)
+
+            Dashboard 잔류 (운영 헬스, /debug 로 이동하지 않음):
+              sec-control         (시스템 상태)
+              sec-freshness       (데이터 신선도)
+              sec-ws-sync         (WebSocket 헬스)
+        -->
+
+        <section class="card" style="margin:20px;padding:24px;">
+            <h3 class="section-title" style="margin:0 0 8px 0;">
+                Debug 페이지 스켈레톤 (P0-2 Commit 1)
+            </h3>
+            <p style="color:var(--muted);font-size:13px;line-height:1.6;margin:0;">
+                이 페이지는 P0-2 Commit 1에서 생성된 스켈레톤입니다.
+                다음 커밋에서 13개 debug 섹션이
+                <code>index.html</code>에서 이 자리로 이동합니다.
+                구조·동선은 확정되었고 (<code>docs/ui_p0_2_debug_dependency_map.md</code> 참조),
+                이전 중 <code>dashboard.js</code>의 null-check 추가가 가장 중요합니다.
+            </p>
+        </section>
+
+    </main>
+
+    <!-- ── Scripts ────────────────────────────────────────── -->
+    <script src="/static/dashboard.js?v=10" defer></script>
+    <script src="/static/analytics.js?v=2" defer></script>
+
+</body>
+</html>

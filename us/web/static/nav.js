@@ -88,6 +88,13 @@
                     <button class="qnav-tg-btn" onclick="window.__qtronNav.openTelegram()" title="Send to Telegram">
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
                     </button>
+                    <!-- P0-2 Commit 1: Debug 진입 톱니바퀴. 운영 화면과 진단 화면을 분리한다 (Jeff 2026-04-24). -->
+                    <button class="qnav-debug-btn" onclick="window.__qtronNav.openDebug()"
+                            title="Debug &amp; Diagnostics" aria-label="Debug">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                            <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94 0 .31.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+                        </svg>
+                    </button>
                     <span class="qnav-clock" id="qnav-clock">--:--:--</span>
                 </div>
                 <!-- Telegram Modal -->
@@ -410,9 +417,35 @@
         }
     }
 
+    // P0-2 Commit 1: Debug 페이지 진입 (KR/US 공통 API).
+    function openDebug() {
+        const market = getCurrentMarket();
+        if (market === 'US') {
+            window.location.href = US_BASE + '/debug';
+        } else {
+            window.location.href = KR_BASE + '/debug';
+        }
+    }
+
+    function _handleDebugQueryParam() {
+        const path = window.location.pathname;
+        if (path !== '/' && path !== '') return;
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('debug') === '1') {
+            openDebug();
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', _handleDebugQueryParam);
+    } else {
+        _handleDebugQueryParam();
+    }
+
     // Expose API
     window.__qtronNav = { switchMarket, navigateTo, getCurrentMarket, renderNav,
                           openTelegram, closeTelegram, sendTelegram, _fileChanged, _clearFile,
+                          openDebug,
                           refreshBatchBadge: () => _fetchBatchBadge(getCurrentMarket()),
                           refreshAutoGateBadge: () => _fetchAutoGateBadge(getCurrentMarket()) };
 })();
