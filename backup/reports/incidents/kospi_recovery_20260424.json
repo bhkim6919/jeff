@@ -1,0 +1,29 @@
+{
+  "incident": "KOSPI CSV/DB divergence 2026-04-24",
+  "recovered_at": "2026-04-24T09:48:12.963596Z",
+  "target_date": "2026-04-24",
+  "target_close": 6475.63,
+  "source_quality": "manual_recovery",
+  "reason": "CSV append-only from inject_kospi_close left stale 6481.33 value; DB was never upserted for 2026-04-24 because batch skipped on CSV-only last_date check. O/H/L set equal to close as degraded fallback (no trusted OHLC snapshot for this incident).",
+  "result": {
+    "csv": {
+      "status": "OK",
+      "path": "C:\\Q-TRON-32_ARCHIVE\\backtest\\data_full\\index\\KOSPI.csv",
+      "rows_before": 1794,
+      "target_rows_before": 1,
+      "rows_after": 1794,
+      "target_rows_after": 1
+    },
+    "db": {
+      "status": "OK",
+      "upserted": 1
+    },
+    "verify": {
+      "target_row": [
+        "2026-04-24",
+        6475.63
+      ],
+      "max_date": "2026-04-24"
+    }
+  }
+}

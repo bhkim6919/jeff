@@ -692,8 +692,82 @@ def _update_kospi_index(config, logger):
         today -= timedelta(days=1)
     today_str = today.strftime("%Y-%m-%d")
 
+    # DB is the canonical truth. CSV-alone "up-to-date" check is NOT sufficient
+    # (incident 2026-04-24: inject_kospi_close appended a degraded row to CSV
+    # first, batch then saw CSV last_date=today and skipped DB upsert entirely,
+    # leaving DB stale and chart broken). Cross-check DB last_date below.
+    #
+    # TODO (P1): migrate to `write_kospi_index_dual_sink(date, row)` single
+    # writer so CSV and DB cannot diverge by construction.
     if last_date is not None and str(last_date.date()) >= today_str:
-        logger.info(f"  KOSPI index up-to-date ({today_str})")
+        _db_last = None
+        _db_today_close = None
+        _csv_today_close = None
+        try:
+            from data.db_provider import DbProvider
+            _db = DbProvider()
+            _db_idx = _db.get_kospi_index()
+            if _db_idx is not None and len(_db_idx) > 0:
+                _db_last = str(pd.to_datetime(_db_idx["date"].max()).date())
+                _today_db_rows = _db_idx[
+                    _db_idx["date"].astype(str).str.startswith(today_str)
+                ]
+                if not _today_db_rows.empty:
+                    _db_today_close = float(_today_db_rows.iloc[-1]["close"])
+        except Exception as _e:
+            logger.warning(f"  KOSPI DB last_date lookup failed: {_e}")
+
+        try:
+            _today_csv_rows = existing[existing["date"].astype(str).str.startswith(today_str)]
+            if not _today_csv_rows.empty:
+                # CSV column case could be 'Close' or 'close'
+                _row = _today_csv_rows.iloc[-1]
+                _csv_today_close = float(_row.get("Close", _row.get("close", 0)))
+        except Exception:
+            pass
+
+        if _db_last is None or _db_last < today_str:
+            # CSV has today but DB is missing/stale → force upsert CSV today row
+            logger.warning(
+                f"  [KOSPI_SYNC_DIVERGE] CSV has {today_str} but DB last={_db_last} — "
+                f"forcing DB upsert from CSV (DB=truth principle)"
+            )
+            try:
+                _today_rows = existing[existing["date"].astype(str).str.startswith(today_str)]
+                # Normalize columns to lower-case schema expected by upsert_kospi_index
+                _rename = {c: c.lower() for c in _today_rows.columns}
+                _push = _today_rows.rename(columns=_rename).copy()
+                for _c in ("open", "high", "low", "close", "volume"):
+                    if _c not in _push.columns:
+                        _push[_c] = _push.get("close", 0)
+                from data.db_provider import DbProvider
+                _n = DbProvider().upsert_kospi_index(
+                    _push[["date", "open", "high", "low", "close", "volume"]]
+                )
+                logger.info(f"  [KOSPI_SYNC_RECOVER] DB upserted from CSV: {_n} row(s)")
+            except Exception as _e:
+                logger.warning(f"  [KOSPI_SYNC_RECOVER_FAIL] {_e}")
+                _alert_data("kospi_index_db",
+                            f"forced CSV→DB upsert failed: {_e}",
+                            {"today": today_str, "csv_last": str(last_date.date())})
+            return
+
+        if (
+            _db_today_close is not None
+            and _csv_today_close is not None
+            and abs(_db_today_close - _csv_today_close) > 0.01
+        ):
+            logger.warning(
+                f"  [KOSPI_SYNC_DIVERGE] CSV close={_csv_today_close} vs "
+                f"DB close={_db_today_close} for {today_str} — values differ "
+                f"(DB=truth; CSV may be stale injection). Leaving both as-is; "
+                f"investigate via incident log."
+            )
+            _alert_data("kospi_index_value_diverge",
+                        f"CSV={_csv_today_close} DB={_db_today_close}",
+                        {"today": today_str})
+
+        logger.info(f"  KOSPI index up-to-date ({today_str}, CSV+DB)")
         return
 
     from_date = (last_date + timedelta(days=1)).strftime("%Y-%m-%d") if last_date else "2019-01-01"

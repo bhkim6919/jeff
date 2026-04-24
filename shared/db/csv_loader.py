@@ -29,11 +29,13 @@ logger = logging.getLogger("qtron.csv_loader")
 TABLE_POLICIES = {
     "intraday_bars": {
         "conflict": "DO_UPDATE",
+        "conflict_cols": ["code", "bar_datetime"],
         "stale_check": True,
         "update_cols": ["open", "high", "low", "close", "volume", "status", "ingest_run_id", "run_ts"],
     },
     "micro_orderbook": {
         "conflict": "DO_UPDATE",
+        "conflict_cols": ["code", "ts"],
         "stale_check": True,
         "update_cols": [
             "price", "best_ask", "best_bid", "ask_qty_1", "bid_qty_1",
@@ -248,17 +250,24 @@ def _batch_upsert(conn, table: str, df: pd.DataFrame, policy: Dict) -> int:
     elif policy["conflict"] == "DO_UPDATE":
         update_cols = policy.get("update_cols", [])
         update_set = ", ".join(f"{c} = EXCLUDED.{c}" for c in update_cols)
+        conflict_cols = policy.get("conflict_cols") or []
+        if not conflict_cols:
+            raise ValueError(
+                f"TABLE_POLICIES[{table!r}] missing 'conflict_cols' — "
+                f"ON CONFLICT DO UPDATE requires conflict target columns"
+            )
+        conflict_target = ", ".join(conflict_cols)
 
         if policy.get("stale_check"):
             sql = (
                 f"INSERT INTO {table} ({cols_str}) VALUES ({placeholders}) "
-                f"ON CONFLICT DO UPDATE SET {update_set} "
+                f"ON CONFLICT ({conflict_target}) DO UPDATE SET {update_set} "
                 f"WHERE {table}.run_ts < EXCLUDED.run_ts"
             )
         else:
             sql = (
                 f"INSERT INTO {table} ({cols_str}) VALUES ({placeholders}) "
-                f"ON CONFLICT DO UPDATE SET {update_set}"
+                f"ON CONFLICT ({conflict_target}) DO UPDATE SET {update_set}"
             )
     else:
         sql = (
