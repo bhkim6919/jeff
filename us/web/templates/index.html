@@ -432,6 +432,9 @@
     <!-- Debug 섹션들은 별도 /debug 페이지로 분리됨 (2026-04-18) -->
 </main>
 
+<!-- Phase 3 components (load before inline renderStatus so qc.* is available) -->
+<script src="/static/components/summary.js?v=1"></script>
+
 <script>
 const BASE = '';
 
@@ -468,34 +471,15 @@ async function refresh() {
             `<span class="qnav-dot ${dotCls}"></span>`;
     }
 
-    // Portfolio
+    // Portfolio — Phase 3 (2026-04-25): delegated to qc-summary-card component.
+    // Calc/contract unchanged; see us/web/static/components/summary.js.
     const p = await apiFetch('/api/portfolio');
-    $('hero-equity').textContent = fmt(p.equity);
-    $('hero-cash').textContent = fmt(p.cash);
-    // Total P&L (since inception, base $100k)
-    const pnl = (p.equity || 0) - 100000;
-    $('hero-pnl').textContent = fmt(pnl);
-    $('hero-pnl').className = 'meta-value ' + pctClass(pnl);
-    const pnlPct = pnl / 100000 * 100;
-    $('hero-pnl-pct').textContent = (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%';
-    $('hero-pnl-pct').className = 'meta-value ' + pctClass(pnlPct);
-    // Today's P&L (vs last_equity from Alpaca)
-    const lastEq = p.last_equity || 0;
-    if (lastEq > 0) {
-        const pnlToday = (p.equity || 0) - lastEq;
-        const pnlTodayPct = (pnlToday / lastEq) * 100;
-        const sign = pnlToday >= 0 ? '+' : '';
-        $('hero-pnl-today').textContent = 'vs Prev ' + sign + fmt(pnlToday);
-        $('hero-pnl-today').className = 'meta-sub ' + pctClass(pnlToday);
-        $('hero-pnl-pct-today').textContent = 'vs Prev ' + sign + pnlTodayPct.toFixed(2) + '%';
-        $('hero-pnl-pct-today').className = 'meta-sub ' + pctClass(pnlTodayPct);
-    } else {
-        $('hero-pnl-today').textContent = 'vs Prev --';
-        $('hero-pnl-pct-today').textContent = 'vs Prev --';
+    if (window.qc && window.qc.summary && typeof window.qc.summary.render === 'function') {
+        window.qc.summary.render(
+            document.querySelector('.hero-meta'),
+            { portfolio: p, marketOpen: h.is_market_open }
+        );
     }
-    $('hero-positions').textContent = p.n_holdings || 0;
-    $('card-bp').textContent = fmt(p.buying_power);
-    $('card-market').textContent = h.is_market_open ? 'Open' : 'Closed';
 
     // Holdings
     const tbody = $('holdings-body');

@@ -269,56 +269,13 @@ function updateHero(data) {
 // ── Summary Cards ────────────────────────────────────────────
 
 function updateSummaryCards(data) {
-    // Account data may not always be in the snapshot.
-    // If it is, render it; otherwise show from freshness hints.
-    const account = data.account || {};
-
-    const holdingsEl = document.getElementById('card-holdings');
-    const cashEl = document.getElementById('card-cash');
-    const pnlEl = document.getElementById('card-pnl');
-    const totalEl = document.getElementById('card-total');
-
-    if (account.holdings_count !== undefined) {
-        holdingsEl.textContent = account.holdings_count;
-    } else {
-        // Fall back: show request count as proxy for activity
-        holdingsEl.textContent = '--';
-        holdingsEl.className = 'summary-value neutral';
-    }
-
-    if (account.cash !== undefined) {
-        cashEl.textContent = formatKRW(account.cash);
-    } else {
-        cashEl.textContent = '--';
-        cashEl.className = 'summary-value neutral';
-    }
-
-    if (account.pnl_pct !== undefined) {
-        const pct = account.pnl_pct;
-        pnlEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
-        pnlEl.className = 'summary-value ' + (pct > 0 ? 'positive' : pct < 0 ? 'negative' : 'neutral');
-        // 손익 금액도 표시
-        const pnlAmtEl = document.getElementById('card-pnl-amt');
-        if (pnlAmtEl && account.total_pnl !== undefined) {
-            const amt = account.total_pnl;
-            pnlAmtEl.textContent = (amt >= 0 ? '+' : '') + formatKRW(amt);
-            pnlAmtEl.className = 'summary-sub ' + (amt > 0 ? 'positive' : amt < 0 ? 'negative' : 'neutral');
-        }
-    } else {
-        pnlEl.textContent = '--';
-        pnlEl.className = 'summary-value neutral';
-    }
-
-    if (account.total_asset !== undefined) {
-        totalEl.textContent = formatKRW(account.total_asset);
-        // 평가금액 표시
-        const evalEl = document.getElementById('card-eval');
-        if (evalEl && account.total_eval !== undefined) {
-            evalEl.textContent = '평가 ' + formatKRW(account.total_eval);
-        }
-    } else {
-        totalEl.textContent = '--';
-        totalEl.className = 'summary-value neutral';
+    // Phase 3 (2026-04-25): delegate to qc-summary-card component.
+    // No logic change — summary.js is a byte-for-byte extraction of the
+    // previous body (git blame this commit to see the original).
+    // If the component bundle didn't load for some reason, fall back silently
+    // to avoid dashboard crash.
+    if (window.qc && window.qc.summary && typeof window.qc.summary.render === 'function') {
+        window.qc.summary.render(document.getElementById('summary-cards'), data);
     }
 }
 
