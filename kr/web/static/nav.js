@@ -154,8 +154,30 @@
             if (market === 'US') {
                 const r = await fetch('/api/rebalance/status');
                 const d = await r.json();
-                const done = d.last_batch_business_date &&
-                             d.last_batch_business_date === d.business_date;
+                // UI-P0-001 (P0-1 sync 2026-04-24 from US nav.js to KR):
+                // "완료" = 당일 장 마감(16:00 ET) 이후 실제로 배치가 돈 경우만.
+                // DST/EST 모두 정확해야 함 — Intl.DateTimeFormat 으로 ET wall-clock 비교.
+                let done = false;
+                if (d.last_batch_business_date &&
+                    d.last_batch_business_date === d.business_date &&
+                    d.snapshot_created_at) {
+                    try {
+                        const created = new Date(d.snapshot_created_at);
+                        const fmt = new Intl.DateTimeFormat('en-US', {
+                            timeZone: 'America/New_York',
+                            year: 'numeric', month: '2-digit', day: '2-digit',
+                            hour: '2-digit', minute: '2-digit', hour12: false,
+                        });
+                        const parts = Object.fromEntries(
+                            fmt.formatToParts(created).map(p => [p.type, p.value])
+                        );
+                        const createdEtDate = `${parts.year}-${parts.month}-${parts.day}`;
+                        const createdEtHour = parseInt(parts.hour, 10);
+                        done = (createdEtDate === d.business_date) && (createdEtHour >= 16);
+                    } catch (_) {
+                        done = false;
+                    }
+                }
                 _setBatchBadge(el, done, 'US');
             } else {
                 const r = await fetch('/api/batch/status');
