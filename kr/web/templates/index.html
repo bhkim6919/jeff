@@ -402,44 +402,7 @@
         <!-- ====== DB Health (Debug only) ==================== -->
         <!-- ====== Debug Mode: TOC Navigation ================ -->
         <!-- Jeff ↔ Claude 간 섹션 참조용. Claude 가 "D-XXX 클릭" 요청 시 여기서 1클릭으로 점프. -->
-        <section id="sec-debug-toc" class="section mode-debug" hidden>
-            <h3 class="section-title">
-                <span>DEBUG 네비게이션</span>
-                <span class="sec-id-badge" title="진단 ID 클릭 시 해당 섹션으로 스크롤. Claude 요청 전용 메뉴.">TOC</span>
-                <span style="margin-left:auto; font-size:11px; color:var(--text-dim, #8b949e); font-weight:normal;">
-                    Claude 가 "<code>D-XXX</code> 클릭" 요청 시 여기서 선택
-                </span>
-            </h3>
-            <div class="debug-toc-chips">
-                <a href="#sec-db-health" class="debug-toc-chip"><code>D-DB</code> <span>PostgreSQL DB</span></a>
-                <a href="#sec-control" class="debug-toc-chip"><code>D-SYS</code> <span>시스템 상태</span></a>
-                <a href="#sec-freshness" class="debug-toc-chip"><code>D-FRESH</code> <span>데이터 신선도</span></a>
-                <a href="#sec-traces" class="debug-toc-chip"><code>D-TRACE</code> <span>요청 추적</span></a>
-                <a href="#sec-market-ctx" class="debug-toc-chip debug-toc-chip-new"><code>D-MCTX</code> <span>시장 컨텍스트</span></a>
-                <a href="#sec-data-events" class="debug-toc-chip debug-toc-chip-new"><code>D-EVT</code> <span>데이터 공급 이벤트</span></a>
-                <a href="#sec-test-order" class="debug-toc-chip"><code>D-TEST</code> <span>테스트 주문</span></a>
-                <a href="#sec-ws-sync" class="debug-toc-chip"><code>D-WS</code> <span>WebSocket &amp; 타임스탬프</span></a>
-                <a href="#sec-sync" class="debug-toc-chip"><code>D-SYNC</code> <span>REST vs COM</span></a>
-                <a href="#sec-raw-json" class="debug-toc-chip"><code>D-RAW</code> <span>Raw JSON</span></a>
-                <a href="#sec-histogram" class="debug-toc-chip"><code>D-HIST</code> <span>응답시간 분포</span></a>
-                <a href="#sec-logs" class="debug-toc-chip"><code>D-LOG</code> <span>로그 스트림</span></a>
-                <a href="#sec-diff" class="debug-toc-chip"><code>D-DIFF</code> <span>상태 변경 추적</span></a>
-                <a href="#sec-batch-log" class="debug-toc-chip debug-toc-chip-new"><code>D-BATCH</code> <span>배치 로그 스트림</span></a>
-                <a href="#sec-qobs" class="debug-toc-chip debug-toc-chip-new"><code>D-QOBS</code> <span>Pipeline 스냅샷</span></a>
-            </div>
-        </section>
 
-        <section id="sec-db-health" class="section mode-debug" hidden>
-            <h3 class="section-title">
-                <span>PostgreSQL DB</span>
-                <span class="sec-id-badge" title="진단 ID: DB 저장 상태 캡처용">D-DB</span>
-                <span id="db-size" class="badge badge-ok" style="font-size:11px">--</span>
-                <button class="btn-sm" onclick="loadDbHealth()">새로고침</button>
-            </h3>
-            <div id="db-health-grid" class="freshness-grid">
-                <div class="dim">loading...</div>
-            </div>
-        </section>
 
         <section id="sec-control" class="section mode-debug" hidden>
             <h3 class="section-title">
@@ -515,122 +478,12 @@
         </section>
 
         <!-- ====== Debug Mode: Request Traces ================ -->
-        <section id="sec-traces" class="section mode-debug" hidden>
-            <h3 class="section-title">
-                <span>요청 추적 (최근 50건)</span>
-                <span class="sec-id-badge" title="진단 ID: Kiwoom REST API 호출 레벨 에러">D-TRACE</span>
-                <div class="trace-filters">
-                    <select id="trace-filter-status">
-                        <option value="error" selected>오류</option>
-                        <option value="">전체</option>
-                        <option value="ok">성공</option>
-                        <option value="timeout">타임아웃</option>
-                        <option value="retry">재시도</option>
-                    </select>
-                    <input id="trace-filter-search" type="text" placeholder="검색..." />
-                </div>
-            </h3>
-            <div class="table-wrap">
-                <table class="data-table" id="traces-table">
-                    <thead>
-                        <tr>
-                            <th>시각</th>
-                            <th>엔드포인트</th>
-                            <th>API ID</th>
-                            <th>지연</th>
-                            <th>상태</th>
-                            <th>코드</th>
-                            <th>오류</th>
-                        </tr>
-                    </thead>
-                    <tbody id="traces-body">
-                        <tr><td colspan="7" class="empty-row">데이터 없음</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
 
         <!-- ====== Debug Mode: Market Context (현재 상태) ===== -->
-        <section id="sec-market-ctx" class="section mode-debug" hidden>
-            <h3 class="section-title">
-                <span>시장 컨텍스트 (현재 상태)</span>
-                <span class="sec-id-badge" title="진단 ID: 현재 EOD의 날짜/KOSPI readiness/run_mode">D-MCTX</span>
-                <span id="mctx-mode-badge" class="mctx-badge" style="margin-left:auto">--</span>
-            </h3>
-            <div class="card-grid-2">
-                <div class="card">
-                    <div class="card-head">날짜 상태</div>
-                    <div class="card-body">
-                        <div class="kv"><span class="k">effective_trade_date</span><span id="mctx-effective" class="v mono">--</span></div>
-                        <div class="kv"><span class="k">stock_last_date</span><span id="mctx-stock" class="v mono">--</span></div>
-                        <div class="kv"><span class="k">kospi_last_date</span><span id="mctx-kospi" class="v mono">--</span></div>
-                        <div class="kv"><span class="k">index_ready</span><span id="mctx-ready" class="v">--</span></div>
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="card-head">실행 모드</div>
-                    <div class="card-body">
-                        <div class="kv"><span class="k">run_mode</span><span id="mctx-runmode" class="v">--</span></div>
-                        <div class="kv"><span class="k">last_run_date</span><span id="mctx-lastrun" class="v mono">--</span></div>
-                        <div class="kv"><span class="k">selected_source</span><span id="mctx-source" class="v mono">--</span></div>
-                        <div class="kv"><span class="k">degraded 사유</span><span id="mctx-reasons" class="v" style="font-size:11px">--</span></div>
-                    </div>
-                </div>
-            </div>
-        </section>
 
         <!-- ====== Debug Mode: Data Events (이벤트 로그) ====== -->
-        <section id="sec-data-events" class="section mode-debug" hidden>
-            <h3 class="section-title">
-                <span>데이터 공급 이벤트 (최근 50건)</span>
-                <span class="sec-id-badge" title="진단 ID: emit_event() 기록된 환경/공급 이벤트 로그">D-EVT</span>
-                <div class="trace-filters">
-                    <select id="devt-filter-level">
-                        <option value="">전체</option>
-                        <option value="WARN">WARN 이상</option>
-                        <option value="ERROR">ERROR 이상</option>
-                        <option value="CRITICAL">CRITICAL만</option>
-                    </select>
-                    <input id="devt-filter-source" type="text" placeholder="소스 검색..." />
-                </div>
-            </h3>
-            <div class="table-wrap">
-                <table class="data-table" id="devt-table">
-                    <thead>
-                        <tr>
-                            <th>시각</th>
-                            <th>소스</th>
-                            <th>레벨</th>
-                            <th>코드</th>
-                            <th>메시지</th>
-                            <th>중복</th>
-                        </tr>
-                    </thead>
-                    <tbody id="devt-body">
-                        <tr><td colspan="6" class="empty-row">데이터 없음</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
 
         <!-- ====== Debug Mode: Test Order Panel =============== -->
-        <section id="sec-test-order" class="section mode-debug" hidden>
-            <h3 class="section-title">
-                <span>테스트 주문 (REST+COM 교차검증)</span>
-                <span class="sec-id-badge" title="진단 ID: 실주문 경로 개발자 검증용">D-TEST</span>
-            </h3>
-            <div class="test-order-panel">
-                <div class="test-order-form">
-                    <input id="test-code" type="text" placeholder="종목코드 (예: 005930)" maxlength="6" class="test-input" />
-                    <input id="test-qty" type="number" value="1" min="1" max="3" class="test-input test-qty" />
-                    <span class="test-label">주</span>
-                    <button id="btn-test-buy" class="test-btn test-btn-buy">매수</button>
-                    <button id="btn-test-sell" class="test-btn test-btn-sell">매도</button>
-                </div>
-                <div id="test-result" class="test-result"></div>
-                <div id="test-history" class="test-history"></div>
-            </div>
-        </section>
 
         <!-- ====== Debug Mode: WebSocket + Timestamps ======== -->
         <section id="sec-ws-sync" class="section mode-debug" hidden>
@@ -670,108 +523,18 @@
         </section>
 
         <!-- ====== Debug Mode: REST vs COM Sync ============== -->
-        <section id="sec-sync" class="section mode-debug" hidden>
-            <h3 class="section-title">
-                <span>REST vs COM 동기화</span>
-                <span class="sec-id-badge" title="진단 ID: 포지션/현금 불일치 비교">D-SYNC</span>
-            </h3>
-            <div class="table-wrap">
-                <table class="data-table" id="sync-table">
-                    <thead>
-                        <tr>
-                            <th>필드</th>
-                            <th>REST 값</th>
-                            <th>COM 값</th>
-                            <th>일치</th>
-                            <th>차이</th>
-                            <th>REST 시각</th>
-                            <th>COM 시각</th>
-                            <th>마지막 일치</th>
-                        </tr>
-                    </thead>
-                    <tbody id="sync-body">
-                        <tr><td colspan="8" class="empty-row">동기화 데이터 없음</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
 
         <!-- ====== Debug Mode: Raw JSON Viewer ============== -->
-        <section id="sec-raw-json" class="section mode-debug" hidden>
-            <h3 class="section-title">
-                <span>Raw JSON 뷰어</span>
-                <span class="sec-id-badge" title="진단 ID: /api/state 원본 JSON">D-RAW</span>
-                <button id="btn-copy-json" class="btn-sm">복사</button>
-            </h3>
-            <pre id="raw-json" class="raw-json-box">대기 중...</pre>
-        </section>
 
         <!-- ====== Debug Mode: Latency Histogram ============ -->
-        <section id="sec-histogram" class="section mode-debug" hidden>
-            <h3 class="section-title">
-                <span>응답시간 분포</span>
-                <span class="sec-id-badge" title="진단 ID: API latency 히스토그램">D-HIST</span>
-            </h3>
-            <div id="histogram-container" class="histogram-container">
-                <!-- JS populates -->
-            </div>
-        </section>
 
         <!-- ====== Debug Mode: Log Stream =================== -->
-        <section id="sec-logs" class="section mode-debug" hidden>
-            <h3 class="section-title">
-                <span>로그 스트림</span>
-                <span class="sec-id-badge" title="진단 ID: rest_api_*.log 실시간 tail">D-LOG</span>
-                <button id="btn-refresh-logs" class="btn-sm">새로고침</button>
-            </h3>
-            <div id="log-container" class="log-container">
-                <div class="empty-row">로그 없음</div>
-            </div>
-        </section>
 
         <!-- ====== Debug Mode: State Diff =================== -->
-        <section id="sec-diff" class="section mode-debug" hidden>
-            <h3 class="section-title">
-                <span>상태 변경 추적</span>
-                <span class="sec-id-badge" title="진단 ID: /api/state snapshot 간 diff">D-DIFF</span>
-            </h3>
-            <div id="diff-container" class="diff-container">
-                <div class="empty-row">변경 사항 대기 중...</div>
-            </div>
-        </section>
 
         <!-- ====== Debug Mode: Batch Log Stream (R14) ======== -->
-        <section id="sec-batch-log" class="section mode-debug" hidden>
-            <h3 class="section-title">
-                <span>배치 로그 스트림</span>
-                <span class="sec-id-badge" title="진단 ID: gen4_batch_YYYYMMDD.log 실시간 tail. 2시간 batch 진행 관찰용">D-BATCH</span>
-                <span id="batch-log-source" class="log-tag" style="margin-left:8px;"></span>
-                <label style="margin-left:auto;font-size:12px;cursor:pointer;">
-                    <input type="checkbox" id="batch-log-autorefresh" checked>
-                    자동 새로고침 (5s)
-                </label>
-                <button id="btn-refresh-batch-log" class="btn-sm">새로고침</button>
-            </h3>
-            <div id="batch-log-container" class="log-container" style="max-height:600px;overflow:auto;font-family:monospace;font-size:11px;line-height:1.4;">
-                <div class="empty-row">대기 중...</div>
-            </div>
-        </section>
 
         <!-- ====== Debug Mode: qobs Pipeline Snapshot (R14) === -->
-        <section id="sec-qobs" class="section mode-debug" hidden>
-            <h3 class="section-title">
-                <span>Pipeline 스냅샷 (qobs)</span>
-                <span class="sec-id-badge" title="진단 ID: observe_today.ps1 동등 — heartbeat/marker/incidents/DEADMAN 일괄 조회">D-QOBS</span>
-                <label style="margin-left:auto;font-size:12px;cursor:pointer;">
-                    <input type="checkbox" id="qobs-autorefresh">
-                    자동 새로고침 (10s)
-                </label>
-                <button id="btn-refresh-qobs" class="btn-sm">새로고침</button>
-            </h3>
-            <div id="qobs-container" class="qobs-container" style="padding:8px;">
-                <div class="empty-row">대기 중...</div>
-            </div>
-        </section>
 
         <!-- ====== Analytics (Operator/Debug) =============== -->
         <section id="analytics" class="card mode-operator" hidden>

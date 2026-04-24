@@ -1220,6 +1220,8 @@ function initTraceFilters() {
 
 function updateSyncTable(syncItems) {
     const tbody = document.getElementById('sync-body');
+    // P0-2 C2: skip if target section absent (Dashboard page, sync moved to /debug).
+    if (!tbody) return;
     if (!syncItems || syncItems.length === 0) {
         tbody.innerHTML = '<tr><td colspan="8" class="empty-row">동기화 데이터 없음</td></tr>';
         return;
@@ -1273,6 +1275,8 @@ function initCopyJson() {
 // ── Latency Histogram (Debug) ────────────────────────────────
 
 async function updateLatencyHistogram() {
+    // P0-2 C2: skip if target section absent (Dashboard page, histogram moved to /debug).
+    if (!document.getElementById('histogram-container')) return;
     try {
         const resp = await fetch('/api/latency-histogram?buckets=15');
         const buckets = await resp.json();
@@ -1284,6 +1288,8 @@ async function updateLatencyHistogram() {
 
 function renderHistogram(buckets) {
     const container = document.getElementById('histogram-container');
+    // P0-2 C2: container may be missing on Dashboard (histogram moved to /debug).
+    if (!container) return;
     if (!buckets || buckets.length === 0) {
         container.innerHTML = '<div class="empty-row">지연시간 데이터 없음</div>';
         return;
@@ -1403,6 +1409,8 @@ function initBatchLogPanel() {
 }
 
 async function fetchBatchLog() {
+    // P0-2 C2: skip if target section absent (Dashboard page, batch-log moved to /debug).
+    if (!document.getElementById('batch-log-container')) return;
     try {
         const resp = await fetch('/api/debug/batch_log?lines=500');
         const data = await resp.json();
@@ -1551,6 +1559,8 @@ function initQobsPanel() {
 }
 
 async function fetchQobs() {
+    // P0-2 C2: skip if target section absent (Dashboard page, qobs moved to /debug).
+    if (!document.getElementById('qobs-container')) return;
     try {
         const resp = await fetch('/api/debug/qobs');
         const data = await resp.json();
@@ -1687,6 +1697,8 @@ function initLogRefresh() {
 }
 
 async function fetchLogs() {
+    // P0-2 C2: skip if target section absent (Dashboard page, logs moved to /debug).
+    if (!document.getElementById('log-container')) return;
     try {
         const resp = await fetch('/api/logs?max_lines=100');
         const logs = await resp.json();
@@ -1867,6 +1879,8 @@ async function loadAdvisor() {
 setTimeout(loadAdvisor, 2000);
 
 async function loadDbHealth() {
+    // P0-2 C2: skip if target section absent (Dashboard page, db-health moved to /debug).
+    if (!document.getElementById('db-health-grid')) return;
     try {
         const resp = await fetch('/api/db/health');
         const data = await resp.json();
@@ -2960,6 +2974,8 @@ function _debounce(fn, ms) {
 }
 
 async function loadMarketContext() {
+    // P0-2 C2: skip if target section absent (Dashboard page, market-ctx moved to /debug).
+    if (!document.getElementById('mctx-mode-badge')) return;
     try {
         const r = await fetch('/api/debug/market_context');
         const d = await r.json();
