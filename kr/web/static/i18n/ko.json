@@ -1,0 +1,16 @@
+{
+  "_meta": {
+    "locale": "ko",
+    "description": "Q-TRON Korean locale strings. Phase 1-D seed — populated in Phase 5.",
+    "created": "2026-04-25",
+    "status": "SEED"
+  },
+  "dash": {
+    "title": {
+      "holdings": "보유종목",
+      "profit": "수익 분석",
+      "trades": "거래 기록 (참고)",
+      "advisor": "AI Advisor"
+    }
+  }
+}
