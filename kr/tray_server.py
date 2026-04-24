@@ -217,10 +217,20 @@ class Win32TrayServer:
 
     # ── Process-truth status ────────────────────────────────────
     def _is_us_process_alive(self) -> bool:
-        """US 서버 프로세스가 실제로 살아있는지 확인."""
-        if self._us_process is None:
+        """US 서버 프로세스가 실제로 살아있는지 확인.
+
+        Tray 재연결 후 self._us_process가 None인 경우에도
+        포트 기반 헬스체크로 실제 살아있음을 감지한다.
+        """
+        if self._us_process is not None:
+            return self._us_process.poll() is None
+        # Fallback: tray 재연결 시 subprocess 참조가 없어도 포트로 확인
+        try:
+            import urllib.request as _ur
+            _ur.urlopen(f"http://localhost:{US_PORT}/api/health", timeout=2).close()
+            return True
+        except Exception:
             return False
-        return self._us_process.poll() is None
 
     def _is_us_live_alive(self) -> bool:
         """US Live 프로세스가 실제로 살아있는지 확인."""
@@ -1750,7 +1760,31 @@ class Win32TrayServer:
             # 4. snapshot_version은 batch(main.py)가 이미 저장 — tray는 읽기만
             from zoneinfo import ZoneInfo
             self._us_batch_last_done_date = datetime.now(ZoneInfo("US/Eastern")).date()
-            self._show_balloon("Q-TRON US", "Batch complete! Checking rebal...")
+            self._show_balloon("Q-TRON US", "Batch complete! Running Lab EOD...")
+
+            # 4.5. Lab Forward EOD — 배치 성공 시만 실행 (unified pipeline)
+            # 배치 실패 시 Lab EOD를 건너뜀으로써 상태 불일치 방지.
+            # standalone Lab EOD 스케줄러는 배치 완료일에만 fallback 허용.
+            try:
+                self._logger.info("[US_LAB_EOD_IN_BATCH] Starting Lab Forward EOD...")
+                _eod_r = self._us_api(
+                    "/api/lab/forward/eod", "POST", {}, timeout=180
+                )
+                if _eod_r.get("error"):
+                    self._logger.warning(
+                        f"[US_LAB_EOD_IN_BATCH] non-fatal error: {str(_eod_r.get('error'))[:120]}"
+                    )
+                else:
+                    self._us_lab_eod_last_done_date = datetime.now(
+                        ZoneInfo("US/Eastern")
+                    ).date()
+                    self._logger.info(
+                        f"[US_LAB_EOD_IN_BATCH] done: {str(_eod_r)[:120]}"
+                    )
+            except Exception as _lab_e:
+                self._logger.warning(f"[US_LAB_EOD_IN_BATCH] non-critical: {_lab_e}")
+
+            self._show_balloon("Q-TRON US", "Lab EOD done! Checking rebal...")
 
             # 5. Auto rebal 판단
             try:
@@ -2622,12 +2656,18 @@ class Win32TrayServer:
                             self._us_lab_eod_retry_until is not None
                             and et_now >= self._us_lab_eod_retry_until
                         )
+                        # batch_done_today: 오늘 배치가 완료된 경우만 standalone 허용.
+                        # 배치 미완료 시 Lab EOD는 _run_us_batch_and_rebal 내부에서만 실행됨.
+                        _us_batch_done_today = (
+                            self._us_batch_last_done_date == et_today
+                        )
                         us_can_try = (
                             not _orch_primary
                             and not us_done
                             and self._us_lab_eod_fail_count < LAB_EOD_MAX_FAILS
                             and et_now.weekday() < 5
                             and (us_is_initial or us_is_retry)
+                            and _us_batch_done_today  # 배치 성공 후에만 standalone fallback
                         )
                         if us_can_try:
                             self._logger.info(

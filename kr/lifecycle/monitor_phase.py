@@ -64,10 +64,13 @@ def run_monitor(ctx: LiveContext) -> None:
     kospi_collector.set_active_codes(["001"])
 
     if portfolio.positions:
-        provider.set_real_data_callback(collector.on_tick)
-        provider.register_real(list(portfolio.positions.keys()), fids="10;27")
-        logger.info("[Intraday] Real-time tick collection started "
-                    f"for {len(portfolio.positions)} positions + KOSPI polling")
+        try:
+            provider.set_real_data_callback(collector.on_tick)
+            provider.register_real(list(portfolio.positions.keys()), fids="10;27")
+            logger.info("[Intraday] Real-time tick collection started "
+                        f"for {len(portfolio.positions)} positions + KOSPI polling")
+        except Exception as _ws_err:
+            logger.warning(f"[WS_REGISTER_FAIL] WebSocket realtime 등록 실패 (degraded mode): {_ws_err}")
 
     # Snapshot replay data collectors (non-critical)
     swing_collector = None

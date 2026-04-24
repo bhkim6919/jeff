@@ -34,7 +34,10 @@ def run_live(config) -> None:
 
     # Phase 3: Monitor Loop
     ctx.current_phase = Phase.MONITOR.value
-    run_monitor(ctx)
+    try:
+        run_monitor(ctx)
+    except Exception as _mon_exc:
+        logger.exception(f"[MONITOR_CRASH] Unhandled exception in run_monitor: {_mon_exc}")
 
     # Phase 4: EOD
     ctx.current_phase = Phase.EOD.value

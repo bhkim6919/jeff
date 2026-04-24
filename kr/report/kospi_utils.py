@@ -34,7 +34,7 @@ def load_kospi_close(index_file: Path) -> pd.Series:
         col_date = "index" if "index" in df.columns else df.columns[0]
         col_close = "Close" if "Close" in df.columns else "close"
 
-        df[col_date] = pd.to_datetime(df[col_date]).dt.strftime("%Y-%m-%d")
+        df[col_date] = pd.to_datetime(df[col_date], format="mixed").dt.strftime("%Y-%m-%d")
         series = df.set_index(col_date)[col_close].astype(float)
         series = series[series > 0]
         _cache[cache_key] = series
