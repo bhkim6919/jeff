@@ -2557,14 +2557,16 @@ class Win32TrayServer:
                     if self._us_batch_last_done_date == _et_today:
                         pass  # 오늘 이미 완료
                     else:
-                        # server phase=BATCH_DONE 이면 실제 완료 상태 — date sync 후 skip (무한 retry 방지)
+                        # server phase=BATCH_DONE + batch_fresh=True 이면 오늘 배치 완료
+                        # batch_fresh=False (이전 날 배치)는 완료로 간주하지 않음
                         _phase_done = False
                         try:
                             _st = self._us_api("/api/rebalance/status", timeout=3)
-                            if _st.get("phase") == "BATCH_DONE":
+                            if (_st.get("phase") == "BATCH_DONE"
+                                    and _st.get("batch_fresh", False)):
                                 self._us_batch_last_done_date = _et_today
                                 self._logger.info(
-                                    f"[US_BATCH_AUTO_SYNC] phase=BATCH_DONE detected — "
+                                    f"[US_BATCH_AUTO_SYNC] phase=BATCH_DONE+fresh detected — "
                                     f"last_done_date={_et_today}"
                                 )
                                 _phase_done = True
