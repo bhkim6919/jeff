@@ -4,66 +4,122 @@
  * PG read-only. No engine/state modification.
  */
 
-// ── Equity Curve ────────────────────────────────────────────
+// ── Equity Curve (Unified: Gen4 LIVE + 9 strategies + KOSPI) ──────
+// Baseline = first Gen4 LIVE date (real-money start). All series normalized
+// to %-change from that date so 11 lines share one axis. Default-visible =
+// LIVE + KOSPI + Top-3 strategies by latest cumul_return. Remaining 6
+// strategies are togglable via checkbox table below the chart.
 let equityChart = null;
+let equityUserOverride = {};  // {datasetKey: boolVisible} — survives within session
+
+const STRATEGY_COLORS_MAP = {
+    breakout_trend:   '#60a5fa',
+    hybrid_qscore:    '#34d399',
+    liquidity_signal: '#fbbf24',
+    lowvol_momentum:  '#a78bfa',
+    mean_reversion:   '#fb923c',
+    momentum_base:    '#2dd4bf',
+    quality_factor:   '#e879f9',
+    sector_rotation:  '#f472b6',
+    vol_regime:       '#94a3b8',
+};
 
 async function loadEquityCurve() {
     const days = document.getElementById('equity-days')?.value || 90;
     try {
-        const r = await fetch(`/api/charts/equity?days=${days}`);
+        const r = await fetch(`/api/charts/equity-unified?days=${days}`);
         const d = await r.json();
-        if (!d.data || d.data.length === 0) return;
-
-        const labels = d.data.map(r => r.date);
-        const equity = d.data.map(r => r.equity);
-        const kospi = d.data.map(r => r.kospi_close);
+        if (!d.series || !d.dates || d.dates.length === 0) return;
 
         const ctx = document.getElementById('equity-chart');
         if (!ctx) return;
-
         if (equityChart) equityChart.destroy();
 
-        // Normalize to % from first day
-        const eqBase = equity[0] || 1;
-        const kBase = kospi[0] || 1;
-        const eqPct = equity.map(v => ((v / eqBase) - 1) * 100);
-        const kPct = kospi.map(v => v ? ((v / kBase) - 1) * 100 : null);
+        const labels = d.dates;
+        const strategyKeys = Object.keys(d.series).filter(
+            k => d.series[k].kind === 'strategy'
+        );
+
+        // Top-3 strategies by latest cumul_return (null-safe).
+        const finalPct = {};
+        strategyKeys.forEach(k => {
+            const pct = d.series[k].pct;
+            for (let i = pct.length - 1; i >= 0; i--) {
+                if (pct[i] != null) { finalPct[k] = pct[i]; break; }
+            }
+        });
+        const top3 = Object.keys(finalPct)
+            .sort((a, b) => finalPct[b] - finalPct[a])
+            .slice(0, 3);
+        const top3Set = new Set(top3);
+
+        function defaultVisible(key) {
+            if (key === 'live' || key === 'kospi') return true;
+            return top3Set.has(key);
+        }
+        function visibleFor(key) {
+            return (key in equityUserOverride)
+                ? equityUserOverride[key]
+                : defaultVisible(key);
+        }
+
+        const datasets = [];
+        // Gen4 LIVE — prominent
+        datasets.push({
+            key: 'live',
+            label: 'Gen4 LIVE',
+            data: d.series.live.pct,
+            borderColor: '#60a5fa',
+            backgroundColor: 'rgba(96,165,250,0.15)',
+            fill: true,
+            tension: 0.3,
+            pointRadius: 0,
+            borderWidth: 3,
+            hidden: !visibleFor('live'),
+        });
+        // KOSPI — benchmark
+        datasets.push({
+            key: 'kospi',
+            label: 'KOSPI',
+            data: d.series.kospi.pct,
+            borderColor: '#f87171',
+            borderDash: [4, 4],
+            tension: 0.3,
+            pointRadius: 0,
+            borderWidth: 2,
+            fill: false,
+            hidden: !visibleFor('kospi'),
+        });
+        // 9 strategies
+        strategyKeys.forEach(k => {
+            const isTop = top3Set.has(k);
+            datasets.push({
+                key: k,
+                label: isTop ? `🏆 ${k}` : k,
+                data: d.series[k].pct,
+                borderColor: STRATEGY_COLORS_MAP[k] || '#9ca3af',
+                tension: 0.3,
+                pointRadius: 0,
+                borderWidth: isTop ? 1.8 : 1.2,
+                borderDash: isTop ? [] : [2, 2],
+                fill: false,
+                hidden: !visibleFor(k),
+            });
+        });
 
         equityChart = new Chart(ctx, {
             type: 'line',
-            data: {
-                labels,
-                datasets: [
-                    {
-                        label: 'Portfolio',
-                        data: eqPct,
-                        borderColor: '#60a5fa',
-                        backgroundColor: 'rgba(96,165,250,0.1)',
-                        fill: true,
-                        tension: 0.3,
-                        pointRadius: 0,
-                        borderWidth: 2,
-                    },
-                    {
-                        label: 'KOSPI',
-                        data: kPct,
-                        borderColor: '#f87171',
-                        borderDash: [4, 4],
-                        tension: 0.3,
-                        pointRadius: 0,
-                        borderWidth: 1.5,
-                        fill: false,
-                    },
-                ],
-            },
+            data: { labels, datasets },
             options: {
                 responsive: true,
                 interaction: { intersect: false, mode: 'index' },
                 plugins: {
-                    legend: { labels: { color: '#9ca3af', font: { size: 11 } } },
+                    legend: { display: false },
                     tooltip: {
                         callbacks: {
-                            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(2)}%`,
+                            label: c => c.parsed.y == null
+                                ? null
+                                : `${c.dataset.label}: ${c.parsed.y.toFixed(2)}%`,
                         },
                     },
                 },
@@ -82,9 +138,48 @@ async function loadEquityCurve() {
                 },
             },
         });
+
+        renderEquityCheckboxTable(datasets, top3Set, finalPct);
     } catch (e) {
         console.warn('[Analytics] equity chart error:', e);
     }
+}
+
+function renderEquityCheckboxTable(datasets, top3Set, finalPct) {
+    const host = document.getElementById('equity-legend-table');
+    if (!host) return;
+    const rows = datasets.map((ds, idx) => {
+        const key = ds.key;
+        const isStrategy = !(key === 'live' || key === 'kospi');
+        const color = ds.borderColor;
+        const medal = top3Set.has(key) ? '🏆' : '';
+        const pctLabel = (isStrategy && finalPct[key] != null)
+            ? `${finalPct[key] >= 0 ? '+' : ''}${finalPct[key].toFixed(2)}%`
+            : '';
+        return `<label style="display:inline-flex;align-items:center;gap:6px;
+                 padding:4px 10px;margin:2px;border:1px solid var(--border-color);
+                 border-radius:6px;font-size:11px;cursor:pointer;
+                 background:var(--card-bg);">
+            <input type="checkbox" data-idx="${idx}" ${ds.hidden ? '' : 'checked'}
+                 style="accent-color:${color};">
+            <span style="display:inline-block;width:10px;height:10px;
+                 border-radius:2px;background:${color};"></span>
+            <span>${medal} ${ds.label.replace(/^🏆 /, '')}</span>
+            ${pctLabel ? `<span style="color:${finalPct[key] >= 0 ? '#34d399' : '#f87171'};
+                 margin-left:4px;">${pctLabel}</span>` : ''}
+        </label>`;
+    }).join('');
+    host.innerHTML = rows;
+    host.querySelectorAll('input[type=checkbox]').forEach(cb => {
+        cb.addEventListener('change', (ev) => {
+            const idx = parseInt(ev.target.dataset.idx, 10);
+            const visible = ev.target.checked;
+            const key = equityChart.data.datasets[idx].key;
+            equityChart.setDatasetVisibility(idx, visible);
+            equityChart.update();
+            equityUserOverride[key] = visible;
+        });
+    });
 }
 
 // ── Lab Strategy Comparison ─────────────────────────────────
@@ -445,7 +540,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Delay load to not block SSE
     setTimeout(() => {
         loadEquityCurve();
-        loadLabComparison();
         loadTradeHistory();
         loadRiskMetrics();
         loadRebalHistory();
@@ -454,7 +548,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Event listeners
     document.getElementById('equity-days')?.addEventListener('change', loadEquityCurve);
-    document.getElementById('lab-comp-days')?.addEventListener('change', loadLabComparison);
     document.getElementById('trade-code-filter')?.addEventListener('change', loadTradeHistory);
     document.getElementById('trade-side-filter')?.addEventListener('change', loadTradeHistory);
     document.getElementById('risk-days')?.addEventListener('change', loadRiskMetrics);

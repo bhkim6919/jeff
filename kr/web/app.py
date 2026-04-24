@@ -2044,6 +2044,142 @@ def create_app() -> FastAPI:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    @application.get("/api/charts/equity-unified")
+    async def get_equity_unified(days: int = Query(90, ge=7, le=730)):
+        """Unified equity curve: Gen4 LIVE + 9 strategies + KOSPI, same baseline.
+
+        Baseline = first Gen4 LIVE date (real-money start). All series are
+        normalized as %-change from that date so 11 lines share one axis.
+        Frontend picks Top-3 by latest cumul_return as default-visible along
+        with LIVE + KOSPI; remaining strategies are toggleable via checkbox.
+        """
+        from shared.db.pg_base import connection
+        import json as _json
+        from pathlib import Path as _P
+
+        try:
+            # 1. LIVE equity (primary baseline source)
+            with connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT r.date, r.equity, "
+                    "COALESCE(NULLIF(r.kospi_close, 0), k.close_price) AS kospi_close "
+                    "FROM report_equity_log r "
+                    "LEFT JOIN kospi_index k ON r.date::date = k.date "
+                    "WHERE r.mode='LIVE' ORDER BY r.date ASC"
+                )
+                live_rows = cur.fetchall()
+                cur.close()
+            live_map = {str(r[0]): float(r[1]) for r in live_rows}
+            live_kospi_map = {
+                str(r[0]): float(r[2]) for r in live_rows if r[2] is not None
+            }
+
+            if not live_rows:
+                return {"error": "no_live_data", "series": {}, "dates": []}
+
+            baseline_date = str(live_rows[0][0])
+
+            # 2. Date universe: from baseline through latest LIVE date, clipped to `days`
+            dates_sorted = sorted(live_map.keys())
+            if days and len(dates_sorted) > days:
+                dates_sorted = dates_sorted[-days:]
+            baseline_date = dates_sorted[0]
+
+            # 3. KOSPI close map over the same range
+            kospi_map: dict = {}
+            try:
+                with connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "SELECT date, close_price FROM kospi_index "
+                        "WHERE date >= %s ORDER BY date",
+                        (baseline_date,),
+                    )
+                    for r in cur.fetchall():
+                        kospi_map[str(r[0])] = float(r[1])
+                    cur.close()
+            except Exception:
+                pass
+            # Merge live_kospi_map fills (R21 already joins, but keep both as safety)
+            for d, v in live_kospi_map.items():
+                kospi_map.setdefault(d, v)
+
+            # 4. Lab 9-strategy equity from lab_live/equity.json
+            strategies = [
+                "breakout_trend", "hybrid_qscore", "liquidity_signal",
+                "lowvol_momentum", "mean_reversion", "momentum_base",
+                "quality_factor", "sector_rotation", "vol_regime",
+            ]
+            lab_map: dict = {s: {} for s in strategies}
+            try:
+                eq_path = (
+                    _P(__file__).resolve().parent.parent
+                    / "data" / "lab_live" / "equity.json"
+                )
+                eq_data = _json.loads(eq_path.read_text(encoding="utf-8"))
+                # Keep only the last row per (date, strategy) — equity.json contains
+                # historical seeds (100_000_000 resets) plus post-run commits.
+                for row in eq_data.get("rows", []):
+                    dt = row.get("date", "")
+                    if not dt or dt < baseline_date:
+                        continue
+                    for s in strategies:
+                        if s in row:
+                            try:
+                                v = float(row[s])
+                            except (TypeError, ValueError):
+                                continue
+                            if v > 0:
+                                lab_map[s][dt] = v
+            except Exception:
+                pass
+
+            # 5. Normalize all series to % from baseline_date
+            def _pct_series(values: dict, dates: list) -> list:
+                base = values.get(baseline_date)
+                if base is None:
+                    # fallback: earliest available value within range
+                    for d in dates:
+                        if values.get(d) is not None:
+                            base = values[d]
+                            break
+                out = []
+                for d in dates:
+                    v = values.get(d)
+                    if v is None or base is None or base == 0:
+                        out.append(None)
+                    else:
+                        out.append(round((v / base - 1) * 100, 3))
+                return out
+
+            series: dict = {}
+            series["live"] = {
+                "label": "Gen4 LIVE",
+                "kind": "live",
+                "pct": _pct_series(live_map, dates_sorted),
+            }
+            series["kospi"] = {
+                "label": "KOSPI",
+                "kind": "benchmark",
+                "pct": _pct_series(kospi_map, dates_sorted),
+            }
+            for s in strategies:
+                series[s] = {
+                    "label": s,
+                    "kind": "strategy",
+                    "pct": _pct_series(lab_map[s], dates_sorted),
+                }
+
+            return {
+                "days": days,
+                "baseline_date": baseline_date,
+                "dates": dates_sorted,
+                "series": series,
+            }
+        except Exception as e:
+            return {"error": str(e), "series": {}, "dates": []}
+
     @application.get("/api/charts/equity")
     async def get_equity_chart(days: int = Query(90, ge=7, le=730)):
         """Equity curve 데이터. LIVE 없으면 Lab Forward Trading 합산.
@@ -2072,12 +2208,14 @@ def create_app() -> FastAPI:
                 cols = [d[0] for d in cur.description]
                 rows = [dict(zip(cols, r)) for r in cur.fetchall()]
                 cur.close()
-            # R22 (2026-04-23): require at least 7 LIVE rows before primary path
-            # takes over — otherwise a single early row (e.g. first day of LIVE
-            # mode) would hide the richer Lab Forward fallback chart. Prior to
-            # 2026-04-22 dashboard showed 14-day continuous Lab curve; on 04-22
-            # the first LIVE row triggered primary → chart collapsed to 1 point.
-            if rows and len(rows) >= 7:
+            # R22 (2026-04-23): single LIVE row collapses chart to 1 point,
+            # so require >=2. Prior threshold of 7 was too aggressive — it
+            # kept the "Portfolio" chart silently fed by Lab Forward 9전략
+            # aggregate for days after LIVE began (incident 2026-04-24: Jeff
+            # saw Portfolio=+1.5% while real Gen4 LIVE was -0.43%). The
+            # "Equity Curve" card is intended to show real Gen4 LIVE capital
+            # vs KOSPI, so any >=2-row LIVE series wins over the paper fallback.
+            if rows and len(rows) >= 2:
                 rows.reverse()
                 return {"days": days, "data": rows, "source": "live"}
         except Exception:

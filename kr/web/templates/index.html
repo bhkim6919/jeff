@@ -792,21 +792,12 @@
                     </div>
                 </div>
                 <canvas id="equity-chart" height="200"></canvas>
+                <div id="equity-legend-table" style="margin-top:10px;font-size:11px;line-height:1.8;"></div>
             </div>
 
-            <!-- Lab Strategy Comparison -->
-            <div style="margin-bottom:24px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                    <h4 style="margin:0;font-size:14px;">Lab 9 Strategy Comparison</h4>
-                    <select id="lab-comp-days" style="font-size:12px;padding:2px 6px;background:var(--card-bg);color:var(--text-color);border:1px solid var(--border-color);border-radius:4px;">
-                        <option value="14">14D</option>
-                        <option value="30" selected>30D</option>
-                        <option value="60">60D</option>
-                    </select>
-                </div>
-                <canvas id="lab-chart" height="200"></canvas>
-                <div id="lab-risk-table" style="margin-top:8px;font-size:11px;"></div>
-            </div>
+            <!-- Lab 9 Strategy Comparison 차트는 Equity Curve 통합으로 제거됨
+                 (2026-04-24, Jeff: Gen4 LIVE + 9전략 + KOSPI 한 차트 + 체크박스 토글).
+                 risk table은 별도 위젯으로 필요 시 부활. -->
 
             <!-- Trade History -->
             <div style="margin-bottom:24px;">
