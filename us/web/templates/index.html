@@ -253,12 +253,12 @@
                 <div class="meta-item">
                     <span class="meta-label">P&L (Total)</span>
                     <span id="hero-pnl" class="meta-value">--</span>
-                    <span id="hero-pnl-today" class="meta-sub">전일 --</span>
+                    <span id="hero-pnl-today" class="meta-sub">vs Prev --</span>
                 </div>
                 <div class="meta-item">
                     <span class="meta-label">P&L % (Total)</span>
                     <span id="hero-pnl-pct" class="meta-value">--</span>
-                    <span id="hero-pnl-pct-today" class="meta-sub">전일 --</span>
+                    <span id="hero-pnl-pct-today" class="meta-sub">vs Prev --</span>
                 </div>
                 <div class="meta-item">
                     <span class="meta-label">Positions</span>
@@ -412,7 +412,7 @@
             <div class="card">
                 <div class="card-label">Estimated Tax (22%)</div>
                 <div id="tax-amount" class="card-value" style="font-size:20px;">--</div>
-                <div id="tax-note" style="color:var(--muted);font-size:11px;">250만원 공제 후</div>
+                <div id="tax-note" style="color:var(--muted);font-size:11px;">after deduction</div>
             </div>
         </div>
     </div>
@@ -485,13 +485,13 @@ async function refresh() {
         const pnlToday = (p.equity || 0) - lastEq;
         const pnlTodayPct = (pnlToday / lastEq) * 100;
         const sign = pnlToday >= 0 ? '+' : '';
-        $('hero-pnl-today').textContent = '전일 ' + sign + fmt(pnlToday);
+        $('hero-pnl-today').textContent = 'vs Prev ' + sign + fmt(pnlToday);
         $('hero-pnl-today').className = 'meta-sub ' + pctClass(pnlToday);
-        $('hero-pnl-pct-today').textContent = '전일 ' + sign + pnlTodayPct.toFixed(2) + '%';
+        $('hero-pnl-pct-today').textContent = 'vs Prev ' + sign + pnlTodayPct.toFixed(2) + '%';
         $('hero-pnl-pct-today').className = 'meta-sub ' + pctClass(pnlTodayPct);
     } else {
-        $('hero-pnl-today').textContent = '전일 --';
-        $('hero-pnl-pct-today').textContent = '전일 --';
+        $('hero-pnl-today').textContent = 'vs Prev --';
+        $('hero-pnl-pct-today').textContent = 'vs Prev --';
     }
     $('hero-positions').textContent = p.n_holdings || 0;
     $('card-bp').textContent = fmt(p.buying_power);
@@ -747,9 +747,9 @@ async function _rebalPreview() {
         // 청산 (Exits)
         const exits = d.exits || [];
         html += `<div style="background:#1a1f28;border:1px solid #30363d;border-radius:8px;padding:10px;">
-            <div style="font-size:12px;font-weight:700;color:#ef5350;margin-bottom:6px;">▼ 청산 (${exits.length})</div>`;
+            <div style="font-size:12px;font-weight:700;color:#ef5350;margin-bottom:6px;">▼ Exit (${exits.length})</div>`;
         if (exits.length === 0) {
-            html += `<div style="font-size:11px;color:var(--muted);">없음</div>`;
+            html += `<div style="font-size:11px;color:var(--muted);">None</div>`;
         } else {
             exits.forEach(s => {
                 html += `<div style="font-size:11px;padding:3px 0;border-bottom:1px solid #21262d;">
@@ -766,9 +766,9 @@ async function _rebalPreview() {
         // 신규 매수 (New entries)
         const news = d.new_entries || [];
         html += `<div style="background:#1a1f28;border:1px solid #30363d;border-radius:8px;padding:10px;">
-            <div style="font-size:12px;font-weight:700;color:#4caf50;margin-bottom:6px;">▲ 신규 (${news.length})${d.buy_allowed ? '' : ' ⛔'}</div>`;
+            <div style="font-size:12px;font-weight:700;color:#4caf50;margin-bottom:6px;">▲ New (${news.length})${d.buy_allowed ? '' : ' ⛔'}</div>`;
         if (news.length === 0) {
-            html += `<div style="font-size:11px;color:var(--muted);">없음</div>`;
+            html += `<div style="font-size:11px;color:var(--muted);">None</div>`;
         } else {
             news.forEach(s => {
                 // Find matching buy entry for amount/qty
@@ -797,9 +797,9 @@ async function _rebalPreview() {
         // 유지 (Keeps)
         const keeps = d.keeps || [];
         html += `<div style="background:#1a1f28;border:1px solid #30363d;border-radius:8px;padding:10px;">
-            <div style="font-size:12px;font-weight:700;color:#a0aec0;margin-bottom:6px;">▶ 유지 (${keeps.length})</div>`;
+            <div style="font-size:12px;font-weight:700;color:#a0aec0;margin-bottom:6px;">▶ Keep (${keeps.length})</div>`;
         if (keeps.length === 0) {
-            html += `<div style="font-size:11px;color:var(--muted);">없음</div>`;
+            html += `<div style="font-size:11px;color:var(--muted);">None</div>`;
         } else {
             // Sort by P&L desc to show winners first
             const sortedKeeps = [...keeps].sort((a, b) => (b.pnl_pct || 0) - (a.pnl_pct || 0));
@@ -820,7 +820,7 @@ async function _rebalPreview() {
         if (d.sells.length === 0 && d.buys.length === 0) {
             html += '<div style="color:var(--green);font-size:12px;text-align:center;padding:8px;">Portfolio matches target — no rebalance orders needed</div>';
         } else {
-            html += `<details style="margin-top:8px;"><summary style="font-size:11px;color:var(--muted);cursor:pointer;">주문 상세 (compute_orders) ▾</summary>
+            html += `<details style="margin-top:8px;"><summary style="font-size:11px;color:var(--muted);cursor:pointer;">Order details (compute_orders) ▾</summary>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;">`;
             html += `<div><div style="font-size:11px;color:var(--red);font-weight:700;">SELL (${d.sells.length})</div>`;
             d.sells.forEach(s => { html += `<div style="font-size:10px;color:var(--muted);">${s.symbol} x${s.qty}</div>`; });
@@ -1026,11 +1026,11 @@ setInterval(refreshFxTax, 300000);    // FX/Tax: 5분
         </div>
         <div style="text-align:right;max-width:400px;">
             <div style="font-weight:600;color:var(--text);margin-bottom:4px;">Development History</div>
-            <div>2024.03 — Gen1 (기초 구조, 키움 Open API)</div>
-            <div>2024.09 — Gen2 (Stage 1~7 파이프라인)</div>
-            <div>2025.03 — Gen3 v7 (RS Composite + 돌파, 폐기)</div>
+            <div>2024.03 — Gen1 (foundation, Kiwoom Open API)</div>
+            <div>2024.09 — Gen2 (Stage 1–7 pipeline)</div>
+            <div>2025.03 — Gen3 v7 (RS Composite + breakout, deprecated)</div>
             <div>2025.03 — Gen4 (LowVol+Mom, CAGR 17.5%)</div>
-            <div>2026.03 — Gen4 REST (KR REST API 전환)</div>
+            <div>2026.03 — Gen4 REST (KR REST API migration)</div>
             <div>2026.04 — US 1.0 (Alpaca, Regime v2, Auto Rebal)</div>
         </div>
     </div>
@@ -1046,10 +1046,10 @@ setInterval(refreshFxTax, 300000);    // FX/Tax: 5분
         <button class="qtron-theme-tab" data-theme-set="pro">Pro</button>
     </div>
     <span class="qtron-device-info" id="qtron-device-info"></span>
-    <span class="qtron-saved-indicator" id="qtron-saved-indicator">✓ 저장됨</span>
+    <span class="qtron-saved-indicator" id="qtron-saved-indicator">✓ Saved</span>
     <div class="qtron-save-toggle">
         <input type="checkbox" id="qtron-save-default" checked>
-        <label for="qtron-save-default">디바이스별 저장</label>
+        <label for="qtron-save-default">Per-device save</label>
     </div>
 </div>
 
