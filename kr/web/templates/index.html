@@ -92,7 +92,7 @@
         </section>
 
         <!-- ====== Rebalance Control Panel (Operator+) ======== -->
-        <section id="rebal-section" class="rebal-section mode-operator" hidden>
+        <section id="rebal-section" class="rebal-section">
             <!-- Status Summary (US-style compact panel) -->
             <div class="rebal-status-bar" style="grid-column:1/-1;background:var(--card-bg,#111827);border:1px solid var(--border-color,#1f2937);border-radius:10px;padding:14px 18px;margin-bottom:8px;">
                 <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
@@ -114,7 +114,7 @@
         </section>
 
         <!-- Rebalance Action + Preview (통합, Operator+) -->
-        <section id="rebal-actions" class="rebal-actions mode-operator" hidden
+        <section id="rebal-actions" class="rebal-actions"
             <div class="rebal-actions-header">
                 <span id="rebal-actions-title">Rebalance</span>
                 <span id="rebal-blocked-badge" class="badge badge-red" style="display:none">BLOCKED</span>
@@ -189,7 +189,7 @@
         </div>
 
         <!-- ====== DD Guard (Operator+) ======================== -->
-        <section id="dd-guard-section" class="dd-guard-section mode-operator" hidden>
+        <section id="dd-guard-section" class="dd-guard-section">
             <div class="dd-guard-grid">
                 <div class="dd-gauge" data-source="dd_guard">
                     <div class="dd-gauge-header">
@@ -316,7 +316,7 @@
         </section>
 
         <!-- ====== Profit Analysis (Operator+) ================ -->
-        <section id="profit-section" class="profit-section mode-operator" hidden>
+        <section id="profit-section" class="profit-section">
             <h3 class="section-title">수익 분석</h3>
             <div class="profit-tabs">
                 <button class="profit-tab active" data-period="day">일</button>
@@ -359,7 +359,7 @@
         </section>
 
         <!-- ====== Trades Timeline (Operator+) ================ -->
-        <section id="trades-section" class="trades-section mode-operator" hidden>
+        <section id="trades-section" class="trades-section">
             <h3 class="section-title">거래 기록 (참고)</h3>
             <div id="trades-timeline" class="trades-timeline">
                 <div class="holdings-empty">거래 내역 없음</div>
@@ -367,7 +367,7 @@
         </section>
 
         <!-- ====== Holdings List (Operator+) ================== -->
-        <section id="holdings-section" class="holdings-section mode-operator" hidden>
+        <section id="holdings-section" class="holdings-section">
             <div class="holdings-header">
                 <h3 class="section-title">보유종목</h3>
                 <div class="holdings-view-switch">
@@ -404,7 +404,7 @@
         <!-- Jeff ↔ Claude 간 섹션 참조용. Claude 가 "D-XXX 클릭" 요청 시 여기서 1클릭으로 점프. -->
 
 
-        <section id="sec-control" class="section mode-debug" hidden>
+        <section id="sec-control" class="section">
             <h3 class="section-title">
                 <span>시스템 상태</span>
                 <span class="sec-id-badge" title="진단 ID: Kiwoom 토큰/응답속도/요청통계/RECON 4개 서브카드 (D-SYS.TOK, D-SYS.LAT, D-SYS.REQ, D-SYS.RECON)">D-SYS</span>
@@ -467,7 +467,7 @@
         </section>
 
         <!-- ====== Data Freshness (Debug only) =============== -->
-        <section id="sec-freshness" class="section mode-debug" hidden>
+        <section id="sec-freshness" class="section">
             <h3 class="section-title">
                 <span>데이터 신선도</span>
                 <span class="sec-id-badge" title="진단 ID: account/holdings/orders/quotes/WebSocket age">D-FRESH</span>
@@ -486,7 +486,7 @@
         <!-- ====== Debug Mode: Test Order Panel =============== -->
 
         <!-- ====== Debug Mode: WebSocket + Timestamps ======== -->
-        <section id="sec-ws-sync" class="section mode-debug" hidden>
+        <section id="sec-ws-sync" class="section">
             <h3 class="section-title">
                 <span>WebSocket &amp; 타임스탬프</span>
                 <span class="sec-id-badge" title="진단 ID: 실시간 연결/타임라인">D-WS</span>
@@ -537,7 +537,7 @@
         <!-- ====== Debug Mode: qobs Pipeline Snapshot (R14) === -->
 
         <!-- ====== Analytics (Operator/Debug) =============== -->
-        <section id="analytics" class="card mode-operator" hidden>
+        <section id="analytics" class="card">
             <h3 class="card-title">Analytics</h3>
 
             <!-- Equity Curve -->

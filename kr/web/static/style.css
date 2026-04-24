@@ -1753,30 +1753,11 @@ footer {
 
 /* ── Operator/Debug: Hide verbose Basic sections ─────────── */
 
-body.mode-operator .hero,
-body.mode-debug .hero {
-    display: none;
-}
-
-body.mode-operator .summary-cards,
-body.mode-debug .summary-cards {
-    display: none;
-}
-
-/* Debug: hide Basic-only sections (regime, sector, advisor) */
-body.mode-debug .regime-section,
-body.mode-debug .sector-regime-section,
-body.mode-debug #advisor-section,
-body.mode-debug .alert-banner {
-    display: none;
-}
-
-/* Operator: hide Basic-only sections */
-body.mode-operator .regime-section,
-body.mode-operator .sector-regime-section,
-body.mode-operator #advisor-section {
-    display: none;
-}
+/* P0-2 C3 (2026-04-24): body.mode-* hiding rules removed.
+   3-mode system (Basic / Operator / Debug) retired — Dashboard is now
+   unified with all sections visible by default, and debug sections live
+   on /debug. switchMode() no longer sets any body class, so these rules
+   would never match anyway; removed to prevent confusion in future edits. */
 
 /* ── Advisor ──────────────────────────────────────────────── */
 .advisor-alerts { font-size: 13px; }

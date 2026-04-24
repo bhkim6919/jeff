@@ -7,8 +7,12 @@
 
 // ── State ────────────────────────────────────────────────────
 
+// P0-2 C3 (2026-04-24): Basic/Operator/Debug 3-mode system retired.
+// Dashboard now shows the full operator view by default; debug sections
+// live on /debug (separate page). Kept as constants for backward compat
+// until all `currentMode === ...` gates are removed in Phase 1.
 const MODE_KEY = 'qtron_monitor_mode';
-let currentMode = localStorage.getItem(MODE_KEY) || 'basic';
+const currentMode = 'operator';
 let sseSource = null;
 let sseReconnectTimer = null;
 let sseReconnectCount = 0;
@@ -24,7 +28,7 @@ const MAX_DIFF_ENTRIES = 50;
 // ── Initialization ───────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
-    initModeSwitcher();
+    // P0-2 C3: initModeSwitcher() removed — no 3-mode UI anymore.
     initClock();
     initLogRefresh();
     initBatchLogPanel();   // R14 D-BATCH
@@ -173,20 +177,19 @@ function updateDashboard(data) {
     updateIndexDisplay(data);
     updateTradesTimeline(data);
 
-    // Operator+
-    if (currentMode === 'operator' || currentMode === 'debug') {
-        updateTracesTable(data.traces);
-        updateWSCard(data.websocket);
-        updateTimestampsCard(data.timestamps);
-        updateSyncTable(data.sync);
-    }
-
-    // Debug
-    if (currentMode === 'debug') {
-        updateRawJson(data);
-        updateLatencyHistogram();
-        updateStateDiff(data);
-    }
+    // P0-2 C3: Mode gates removed — all update functions are called
+    // unconditionally. Each one has its own null-check guard (C2) that
+    // makes it a no-op when its target DOM isn't on the current page.
+    //   Dashboard has sec-ws-sync → updateWSCard/updateTimestampsCard render.
+    //   Dashboard lacks sec-traces/sec-sync/sec-raw-json/etc → those no-op.
+    //   /debug has sec-traces/sec-sync/sec-raw-json/... → they render.
+    updateTracesTable(data.traces);
+    updateWSCard(data.websocket);
+    updateTimestampsCard(data.timestamps);
+    updateSyncTable(data.sync);
+    updateRawJson(data);
+    updateLatencyHistogram();
+    updateStateDiff(data);
 }
 
 // ── Hero Status ──────────────────────────────────────────────
@@ -248,18 +251,12 @@ function updateHero(data) {
         const dotCls = statusLower === 'green' ? 'ok' : statusLower === 'red' ? 'err' : '';
         // Build once, then update
         if (!nb._initialized) {
+            // P0-2 C3: Basic/Operator/Debug toggle removed — Dashboard is
+            // now always the full operator view; Debug lives on /debug.
             nb.innerHTML =
                 `<span id="nav-svr" class="qnav-badge qnav-badge-${svr.toLowerCase()}">${svr}</span>` +
-                `<span id="nav-dot" class="qnav-dot ${dotCls}"></span>` +
-                `<div class="qnav-mode-toggle">` +
-                    `<button class="qnav-mode" data-mode="basic" onclick="switchMode('basic')">Basic</button>` +
-                    `<button class="qnav-mode" data-mode="operator" onclick="switchMode('operator')">Operator</button>` +
-                    `<button class="qnav-mode" data-mode="debug" onclick="switchMode('debug')">Debug</button>` +
-                `</div>`;
+                `<span id="nav-dot" class="qnav-dot ${dotCls}"></span>`;
             nb._initialized = true;
-            nb.querySelectorAll('.qnav-mode').forEach(b => {
-                b.classList.toggle('active', b.dataset.mode === currentMode);
-            });
         }
         // Always update badge + dot
         const navSvr = document.getElementById('nav-svr');
@@ -1732,69 +1729,27 @@ function renderLogs(logs) {
 }
 
 // ── Mode Switcher ────────────────────────────────────────────
+// P0-2 C3 (2026-04-24): initModeSwitcher() / switchMode() removed.
+// Reason: Dashboard is now unified (no Basic/Operator/Debug toggling).
+// Debug sections moved to /debug (P0-2 C1+C2). Analytics and operator
+// sections load unconditionally on DOMContentLoaded below.
 
-function initModeSwitcher() {
-    const buttons = document.querySelectorAll('.mode-btn');
-    buttons.forEach(btn => {
-        btn.addEventListener('click', () => switchMode(btn.dataset.mode));
-    });
-
-    // Restore saved mode
-    switchMode(currentMode);
-}
-
-function switchMode(mode) {
-    currentMode = mode;
-    localStorage.setItem(MODE_KEY, mode);
-
-    // Body class for CSS mode hiding
-    document.body.className = 'mode-' + mode;
-
-    // Button states (original + nav)
-    document.querySelectorAll('.mode-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.mode === mode);
-    });
-    document.querySelectorAll('.qnav-mode').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.mode === mode);
-    });
-
-    // Show/hide sections — each mode shows ONLY its own sections
-    document.querySelectorAll('.mode-operator').forEach(el => {
-        // operator OR debug 모드에서 보이는 요소 (analytics 등)
-        if (el.classList.contains('mode-debug')) {
-            el.hidden = (mode !== 'operator' && mode !== 'debug');
-        } else {
-            el.hidden = mode !== 'operator';
-        }
-    });
-    document.querySelectorAll('.mode-debug').forEach(el => {
-        if (el.classList.contains('mode-operator')) return; // 위에서 처리됨
-        el.hidden = mode !== 'debug';
-    });
-
-    // Load debug data
-    if (mode === 'debug') {
-        fetchLogs();
-        updateLatencyHistogram();
-        loadDbHealth();
+(function _loadDashboardExtensions() {
+    // Used to be called from switchMode('operator'). Now unconditional.
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', _loadExt);
+    } else {
+        _loadExt();
     }
-
-    if (mode === 'operator' || mode === 'debug') {
+    function _loadExt() {
         if (typeof loadEquityCurve === 'function') loadEquityCurve();
-        if (typeof loadLabComparison === 'function') loadLabComparison();
         if (typeof loadTradeHistory === 'function') loadTradeHistory();
         if (typeof loadRiskMetrics === 'function') loadRiskMetrics();
         if (typeof loadRebalHistory === 'function') loadRebalHistory();
         if (typeof loadAlertHistory === 'function') loadAlertHistory();
+        if (typeof loadRebalPreview === 'function') loadRebalPreview();
     }
-
-    if (mode === 'operator') {
-        loadRebalPreview();
-    }
-
-    // Re-render with current data
-    if (lastState) updateDashboard(lastState);
-}
+})();
 
 // ── Rebalance Preview ────────────────────────────────────────
 
@@ -2951,14 +2906,18 @@ function updateRegimeDisplay(data) {
 let _dataEventsTimer = null;
 
 function initDataEventsPanel() {
-    // 폴링 주기 10초 (Jeff 로드맵 P2.4)
+    // P0-2 C3: guard by target-DOM presence instead of mode. Data Events
+    // panel lives on /debug only — on Dashboard the target section is
+    // absent so loadMarketContext/loadDataEvents both no-op via their
+    // own null-check guards (C2).
+    const hasPanel = !!document.getElementById('devt-filter-level')
+                     || !!document.getElementById('mctx-mode-badge');
+    if (!hasPanel) return;
     loadMarketContext();
     loadDataEvents();
     _dataEventsTimer = setInterval(() => {
-        if (currentMode === 'debug') {
-            loadMarketContext();
-            loadDataEvents();
-        }
+        loadMarketContext();
+        loadDataEvents();
     }, 10000);
 
     // 필터 이벤트
