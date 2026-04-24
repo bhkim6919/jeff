@@ -1334,6 +1334,9 @@ function renderHistogram(buckets) {
 // ── State Diff (Debug) ───────────────────────────────────────
 
 function updateStateDiff(data) {
+    const container = document.getElementById('diff-container');
+    // P0-2 hotfix: bail if sec-diff absent on current page (Dashboard).
+    if (!container) return;
     if (!prevState) return;
 
     const diffs = computeDiff(prevState, data, '');
@@ -1347,7 +1350,6 @@ function updateStateDiff(data) {
         diffEntries = diffEntries.slice(0, MAX_DIFF_ENTRIES);
     }
 
-    const container = document.getElementById('diff-container');
     let html = '';
     for (const entry of diffEntries) {
         html += `<div class="diff-line">` +
