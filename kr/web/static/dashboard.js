@@ -1129,40 +1129,59 @@ function formatSourceName(source) {
 
 function updateWSCard(ws) {
     const connEl = document.getElementById('ws-connected');
+    // P0-2 hotfix: bail if sec-ws-sync absent on current page (/debug).
+    if (!connEl) return;
     connEl.textContent = ws.connected ? '연결됨' : '끊김';
     connEl.className = 'v ' + (ws.connected ? 'status-ok' : 'status-error');
 
-    document.getElementById('ws-last-msg').textContent = ws.last_msg || '--';
-    document.getElementById('ws-msg-count').textContent = ws.msg_count.toLocaleString();
+    const lastMsg = document.getElementById('ws-last-msg');
+    if (lastMsg) lastMsg.textContent = ws.last_msg || '--';
+    const msgCount = document.getElementById('ws-msg-count');
+    if (msgCount) msgCount.textContent = ws.msg_count.toLocaleString();
 
     const reconEl = document.getElementById('ws-reconnects');
-    reconEl.textContent = ws.reconnect_count.toString();
-    reconEl.className = 'v mono' + (ws.reconnect_count > 3 ? ' status-warn' : '');
+    if (reconEl) {
+        reconEl.textContent = ws.reconnect_count.toString();
+        reconEl.className = 'v mono' + (ws.reconnect_count > 3 ? ' status-warn' : '');
+    }
 }
 
 // ── Timestamps Card (Operator+) ──────────────────────────────
 
 function updateTimestampsCard(ts) {
-    document.getElementById('ts-first').textContent = ts.first_request || '--';
-    document.getElementById('ts-last').textContent = ts.last_request || '--';
-    document.getElementById('ts-success').textContent = ts.last_success || '--';
+    const tsFirst = document.getElementById('ts-first');
+    // P0-2 hotfix: bail if sec-ws-sync absent on current page (/debug has no
+    // ws-sync — it stays on Dashboard, option B).
+    if (!tsFirst) return;
+    tsFirst.textContent = ts.first_request || '--';
+    const tsLast = document.getElementById('ts-last');
+    if (tsLast) tsLast.textContent = ts.last_request || '--';
+    const tsSuccess = document.getElementById('ts-success');
+    if (tsSuccess) tsSuccess.textContent = ts.last_success || '--';
 
     const failEl = document.getElementById('ts-failure');
-    failEl.textContent = ts.last_failure || '--';
-    failEl.className = 'v dim' + (ts.last_failure ? ' status-warn' : '');
+    if (failEl) {
+        failEl.textContent = ts.last_failure || '--';
+        failEl.className = 'v dim' + (ts.last_failure ? ' status-warn' : '');
+    }
 }
 
 // ── Traces Table (Operator+) ─────────────────────────────────
 
 function updateTracesTable(traces) {
     const tbody = document.getElementById('traces-body');
+    // P0-2 C2/C3 hotfix: bail if section absent (Dashboard → moved to /debug).
+    if (!tbody) return;
     if (!traces || traces.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="empty-row">추적 데이터 없음</td></tr>';
         return;
     }
 
-    const statusFilter = document.getElementById('trace-filter-status').value;
-    const searchFilter = document.getElementById('trace-filter-search').value.toLowerCase();
+    // Filter elements only exist on /debug. Fall back to empty strings on Dashboard.
+    const statusEl = document.getElementById('trace-filter-status');
+    const searchEl = document.getElementById('trace-filter-search');
+    const statusFilter = statusEl ? statusEl.value : '';
+    const searchFilter = searchEl ? searchEl.value.toLowerCase() : '';
 
     let filtered = traces;
     if (statusFilter) {

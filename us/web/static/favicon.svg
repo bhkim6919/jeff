@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- 태극 문양만 — 최대 크기 (4괘 제거, 배경 둥근 흰바탕만 유지) -->
+  <rect width="64" height="64" rx="10" fill="#ffffff"/>
+  <g transform="translate(32 32)">
+    <!-- 빨강 반원 (위/좌) + 파랑 꼬리 -->
+    <path d="M -30 0 A 30 30 0 0 1 30 0 A 15 15 0 0 1 0 0 A 15 15 0 0 0 -30 0 Z" fill="#CD2E3A"/>
+    <!-- 파랑 반원 (아래/우) + 빨강 꼬리 -->
+    <path d="M -30 0 A 30 30 0 0 0 30 0 A 15 15 0 0 0 0 0 A 15 15 0 0 1 -30 0 Z" fill="#0047A0"/>
+  </g>
+</svg>
