@@ -103,7 +103,7 @@
                 <span>PostgreSQL DB</span>
                 <span class="sec-id-badge" title="진단 ID: DB 저장 상태 캡처용">D-DB</span>
                 <span id="db-size" class="badge badge-ok" style="font-size:11px">--</span>
-                <button class="btn-sm" onclick="loadDbHealth()">새로고침</button>
+                <button class="btn-sm" onclick="loadDbHealth()">Refresh</button>
             </h3>
             <div id="db-health-grid" class="freshness-grid">
                 <div class="dim">loading...</div>
@@ -254,7 +254,7 @@
             <h3 class="section-title">
                 <span>Raw JSON 뷰어</span>
                 <span class="sec-id-badge" title="진단 ID: /api/state 원본 JSON">D-RAW</span>
-                <button id="btn-copy-json" class="btn-sm">복사</button>
+                <button id="btn-copy-json" class="btn-sm">Copy</button>
             </h3>
             <pre id="raw-json" class="raw-json-box">대기 중...</pre>
         </section>
@@ -273,7 +273,7 @@
             <h3 class="section-title">
                 <span>로그 스트림</span>
                 <span class="sec-id-badge" title="진단 ID: rest_api_*.log 실시간 tail">D-LOG</span>
-                <button id="btn-refresh-logs" class="btn-sm">새로고침</button>
+                <button id="btn-refresh-logs" class="btn-sm">Refresh</button>
             </h3>
             <div id="log-container" class="log-container">
                 <div class="empty-row">로그 없음</div>
@@ -297,9 +297,9 @@
                 <span id="batch-log-source" class="log-tag" style="margin-left:8px;"></span>
                 <label style="margin-left:auto;font-size:12px;cursor:pointer;">
                     <input type="checkbox" id="batch-log-autorefresh" checked>
-                    자동 새로고침 (5s)
+                    Auto-refresh (5s)
                 </label>
-                <button id="btn-refresh-batch-log" class="btn-sm">새로고침</button>
+                <button id="btn-refresh-batch-log" class="btn-sm">Refresh</button>
             </h3>
             <div id="batch-log-container" class="log-container" style="max-height:600px;overflow:auto;font-family:monospace;font-size:11px;line-height:1.4;">
                 <div class="empty-row">대기 중...</div>
@@ -312,9 +312,9 @@
                 <span class="sec-id-badge" title="진단 ID: observe_today.ps1 동등 — heartbeat/marker/incidents/DEADMAN 일괄 조회">D-QOBS</span>
                 <label style="margin-left:auto;font-size:12px;cursor:pointer;">
                     <input type="checkbox" id="qobs-autorefresh">
-                    자동 새로고침 (10s)
+                    Auto-refresh (10s)
                 </label>
-                <button id="btn-refresh-qobs" class="btn-sm">새로고침</button>
+                <button id="btn-refresh-qobs" class="btn-sm">Refresh</button>
             </h3>
             <div id="qobs-container" class="qobs-container" style="padding:8px;">
                 <div class="empty-row">대기 중...</div>
