@@ -1,0 +1,68 @@
+{
+  "_meta": {
+    "locale": "ko",
+    "description": "Q-TRON Korean locale strings.",
+    "updated": "2026-04-25",
+    "status": "PHASE_5_LIVE"
+  },
+  "dash": {
+    "title": {
+      "holdings": "보유종목",
+      "profit": "수익 분석",
+      "trades": "거래 기록 (참고)",
+      "advisor": "AI Advisor",
+      "summary": "요약",
+      "rebal": "리밸런스",
+      "target_portfolio": "Target Portfolio",
+      "regime_today": "오늘 레짐",
+      "regime_tomorrow": "내일 예측",
+      "sector_regime": "섹터 레짐",
+      "dd_guard": "DD Guard",
+      "surge": "Surge Monitor",
+      "exchange_tax": "환율 & 세금",
+      "analytics_equity": "Analytics — Equity Curve",
+      "analytics_trades": "Analytics — 거래 내역",
+      "analytics_risk": "Analytics — 리스크 지표",
+      "analytics_rebal": "Analytics — 리밸런스 이력",
+      "analytics_alerts": "Analytics — 알림 이력",
+      "test_order": "테스트 주문 (Paper)"
+    },
+    "label": {
+      "cash": "현금",
+      "equity": "총자산",
+      "buying_power": "매수가능금액",
+      "unrealized_pnl": "평가손익",
+      "realized_pnl": "실현손익",
+      "total_pnl": "총손익",
+      "fees_taxes": "수수료+세금",
+      "vs_prev": "전일대비",
+      "server": "서버",
+      "token": "토큰",
+      "last_sync": "마지막 동기화",
+      "index": "지수",
+      "qty": "수량",
+      "avg_price": "평균가",
+      "last_price": "현재가",
+      "symbol": "종목"
+    },
+    "btn": {
+      "preview": "미리보기",
+      "execute": "실행",
+      "sell_only": "매도만",
+      "buy_only": "매수만",
+      "sell_and_buy": "매도+매수",
+      "cancel": "취소",
+      "confirm": "확인",
+      "refresh": "새로고침",
+      "copy": "복사",
+      "auto_refresh": "자동 새로고침"
+    },
+    "empty": {
+      "none": "없음",
+      "loading": "로딩 중...",
+      "no_data": "데이터 없음",
+      "no_holdings": "보유종목 없음",
+      "no_trades": "거래 없음"
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "_meta": {
+    "locale": "en",
+    "description": "Q-TRON English locale strings.",
+    "updated": "2026-04-25",
+    "status": "PHASE_5_LIVE"
+  },
+  "dash": {
+    "title": {
+      "holdings": "Holdings",
+      "profit": "Profit Analysis",
+      "trades": "Trade History (reference)",
+      "advisor": "AI Advisor",
+      "summary": "Summary",
+      "rebal": "Rebalance",
+      "target_portfolio": "Target Portfolio",
+      "regime_today": "Today's Regime",
+      "regime_tomorrow": "Tomorrow's Prediction",
+      "sector_regime": "Sector Regime",
+      "dd_guard": "DD Guard",
+      "surge": "Surge Monitor",
+      "exchange_tax": "Exchange Rate & Tax",
+      "analytics_equity": "Analytics — Equity Curve",
+      "analytics_trades": "Analytics — Trade History",
+      "analytics_risk": "Analytics — Risk Metrics",
+      "analytics_rebal": "Analytics — Rebalance History",
+      "analytics_alerts": "Analytics — Alert History",
+      "test_order": "Test Order (Paper)"
+    },
+    "label": {
+      "cash": "Cash",
+      "equity": "Equity",
+      "buying_power": "Buying Power",
+      "unrealized_pnl": "Unrealized P&L",
+      "realized_pnl": "Realized P&L",
+      "total_pnl": "Total P&L",
+      "fees_taxes": "Fees & Taxes",
+      "vs_prev": "vs Prev",
+      "server": "Server",
+      "token": "Token",
+      "last_sync": "Last Sync",
+      "index": "Index",
+      "qty": "Qty",
+      "avg_price": "Avg Price",
+      "last_price": "Last",
+      "symbol": "Symbol"
+    },
+    "btn": {
+      "preview": "Preview",
+      "execute": "Execute",
+      "sell_only": "Sell Only",
+      "buy_only": "Buy Only",
+      "sell_and_buy": "Sell + Buy",
+      "cancel": "Cancel",
+      "confirm": "Confirm",
+      "refresh": "Refresh",
+      "copy": "Copy",
+      "auto_refresh": "Auto-refresh"
+    },
+    "empty": {
+      "none": "None",
+      "loading": "Loading...",
+      "no_data": "No data",
+      "no_holdings": "No holdings",
+      "no_trades": "No trades"
+    }
+  }
+}

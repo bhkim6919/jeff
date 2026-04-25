@@ -15,6 +15,7 @@
     <script src="/static/shared/components/badges.js?v=1"></script>
     <script src="/static/shared/components/regime.kr.js?v=1"></script>
     <script src="/static/shared/components/holdings.kr.js?v=1"></script>
+        <script src="/static/shared/i18n.js?v=1"></script>
     <script src="/static/nav.js?v=3"></script>
 
     <script>window.__qtronNav.renderNav(document.getElementById('qtron-nav'));</script>
@@ -39,22 +40,22 @@
                 </div>
                 <div class="hero-meta">
                     <div class="hero-meta-item">
-                        <span class="meta-label">서버</span>
+                        <span class="meta-label" data-i18n="dash.label.server">서버</span>
                         <span id="hero-server" class="meta-value">--</span>
                     </div>
                     <div class="hero-meta-divider"></div>
                     <div class="hero-meta-item">
-                        <span class="meta-label">토큰</span>
+                        <span class="meta-label" data-i18n="dash.label.token">토큰</span>
                         <span id="hero-token" class="meta-value">--</span>
                     </div>
                     <div class="hero-meta-divider"></div>
                     <div class="hero-meta-item">
-                        <span class="meta-label">마지막 동기화</span>
+                        <span class="meta-label" data-i18n="dash.label.last_sync">마지막 동기화</span>
                         <span id="hero-sync" class="meta-value">--</span>
                     </div>
                     <div class="hero-meta-divider"></div>
                     <div class="hero-meta-item">
-                        <span class="meta-label" id="hero-index-label">지수</span>
+                        <span class="meta-label" id="hero-index-label" data-i18n="dash.label.index">지수</span>
                         <span id="hero-index" class="meta-value">--</span>
                     </div>
                 </div>
@@ -85,23 +86,23 @@
         <section id="summary-cards" class="summary-cards">
             <div class="summary-card">
                 <div class="summary-icon">&#128203;</div>
-                <div class="summary-label">보유종목</div>
+                <div class="summary-label" data-i18n="dash.title.holdings">보유종목</div>
                 <div id="card-holdings" class="summary-value">--</div>
             </div>
             <div class="summary-card">
                 <div class="summary-icon">&#128176;</div>
-                <div class="summary-label">현금</div>
+                <div class="summary-label" data-i18n="dash.label.cash">현금</div>
                 <div id="card-cash" class="summary-value">--</div>
             </div>
             <div class="summary-card">
                 <div class="summary-icon">&#128200;</div>
-                <div class="summary-label">평가손익</div>
+                <div class="summary-label" data-i18n="dash.label.unrealized_pnl">평가손익</div>
                 <div id="card-pnl" class="summary-value">--</div>
                 <div id="card-pnl-amt" class="summary-sub">--</div>
             </div>
             <div class="summary-card">
                 <div class="summary-icon">&#127974;</div>
-                <div class="summary-label">총자산</div>
+                <div class="summary-label" data-i18n="dash.label.equity">총자산</div>
                 <div id="card-total" class="summary-value">--</div>
                 <div id="card-eval" class="summary-sub">평가 --</div>
             </div>
