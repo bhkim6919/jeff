@@ -160,12 +160,115 @@
         });
     }
 
+    // ── Trade History (Phase 4-B.2) ──────────────────────────────
+    let _tradeDebounceTimer = null;
+
+    async function loadTradeHistory() {
+        const tableHost = document.getElementById('trade-table');
+        if (!tableHost) return;  // section absent on this page
+        const symbol = document.getElementById('trade-symbol-filter')?.value?.trim() || '';
+        const side = document.getElementById('trade-side-filter')?.value || '';
+
+        // Summary in parallel
+        const summaryHost = document.getElementById('trade-summary');
+        try {
+            const params = new URLSearchParams();
+            if (symbol) params.set('symbol', symbol);
+            if (side) params.set('side', side);
+            params.set('limit', '50');
+
+            const [tradesRes, summaryRes] = await Promise.all([
+                fetch('/api/trades?' + params.toString()),
+                fetch('/api/trades/summary'),
+            ]);
+            const td = await tradesRes.json();
+            const sm = await summaryRes.json();
+
+            // Summary line
+            if (summaryHost) {
+                if (sm.error) {
+                    summaryHost.innerHTML = `<span style="color:#f87171;">summary error: ${_escape(sm.error)}</span>`;
+                } else if (sm.total_count === 0) {
+                    summaryHost.textContent = 'No trades yet — US LIVE trade log empty.';
+                } else {
+                    summaryHost.textContent =
+                        `BUY ${sm.buy_count} | SELL ${sm.sell_count} | Total ${sm.total_count} | ` +
+                        `Cost $${(sm.total_cost || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` +
+                        (sm.last_date ? ` | Last ${sm.last_date.slice(0, 10)}` : '');
+                }
+            }
+
+            // Table
+            if (td.error) {
+                tableHost.innerHTML = `<div style="color:#f87171;font-size:12px;padding:8px;">trades error: ${_escape(td.error)}</div>`;
+                return;
+            }
+            const trades = td.trades || [];
+            if (trades.length === 0) {
+                tableHost.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px;">No matching trades.</div>';
+                return;
+            }
+            const rowsHtml = trades.map(t => {
+                const sideColor = t.side === 'BUY' ? 'var(--green)' : 'var(--red)';
+                const dateShort = (t.date || '').slice(0, 16).replace('T', ' ');
+                const price = (t.price != null) ? `$${Number(t.price).toFixed(2)}` : '--';
+                const cost = (t.cost != null) ? `$${Number(t.cost).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '--';
+                return `<tr>
+                    <td style="padding:4px 8px;">${_escape(dateShort)}</td>
+                    <td style="padding:4px 8px;font-weight:600;">${_escape(t.symbol || t.code || '')}</td>
+                    <td style="padding:4px 8px;color:${sideColor};font-weight:700;">${_escape(t.side || '')}</td>
+                    <td style="padding:4px 8px;text-align:right;">${t.quantity || 0}</td>
+                    <td style="padding:4px 8px;text-align:right;">${price}</td>
+                    <td style="padding:4px 8px;text-align:right;">${cost}</td>
+                    <td style="padding:4px 8px;color:var(--muted);">${_escape(t.reason || '')}</td>
+                </tr>`;
+            }).join('');
+            tableHost.innerHTML = `
+                <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                    <thead>
+                        <tr style="border-bottom:1px solid var(--border);color:var(--muted);font-size:11px;text-transform:uppercase;">
+                            <th style="text-align:left;padding:4px 8px;">Time</th>
+                            <th style="text-align:left;padding:4px 8px;">Symbol</th>
+                            <th style="text-align:left;padding:4px 8px;">Side</th>
+                            <th style="text-align:right;padding:4px 8px;">Qty</th>
+                            <th style="text-align:right;padding:4px 8px;">Price</th>
+                            <th style="text-align:right;padding:4px 8px;">Cost</th>
+                            <th style="text-align:left;padding:4px 8px;">Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rowsHtml}</tbody>
+                </table>`;
+        } catch (err) {
+            console.warn('[Analytics.US] trade history error:', err);
+            if (summaryHost) summaryHost.innerHTML = `<span style="color:#f87171;">fetch error: ${_escape(String(err))}</span>`;
+            tableHost.innerHTML = '';
+        }
+    }
+
+    function _debouncedLoadTrades() {
+        if (_tradeDebounceTimer) clearTimeout(_tradeDebounceTimer);
+        _tradeDebounceTimer = setTimeout(loadTradeHistory, 250);
+    }
+
+    function _escape(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     // ── Init ─────────────────────────────────────────────────────
     function _init() {
         // Defer initial fetch slightly to let the page settle
-        setTimeout(() => { loadEquityCurve(); }, 800);
+        setTimeout(() => {
+            loadEquityCurve();
+            loadTradeHistory();
+        }, 800);
         document.getElementById('equity-days')
             ?.addEventListener('change', loadEquityCurve);
+        document.getElementById('trade-symbol-filter')
+            ?.addEventListener('input', _debouncedLoadTrades);
+        document.getElementById('trade-side-filter')
+            ?.addEventListener('change', loadTradeHistory);
     }
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', _init);
@@ -173,7 +276,8 @@
         _init();
     }
 
-    // Expose for downstream sub-blocks (4-B.2~5 will hook in here)
+    // Expose for downstream sub-blocks (4-B.3~5 will hook in here)
     window.qcAnalytics = window.qcAnalytics || {};
     window.qcAnalytics.loadEquityCurve = loadEquityCurve;
+    window.qcAnalytics.loadTradeHistory = loadTradeHistory;
 })();

@@ -448,10 +448,11 @@
         </div>
     </div>
     </div>
-    <!-- Phase 4-B.1 (2026-04-25): Analytics group populated with Equity Curve.
-         Other 4 cards (Trade History / Risk Metrics / Rebal History / Alert
-         History) land in 4-B.2 ~ 4-B.5. -->
+    <!-- Phase 4-B (2026-04-25): Analytics group. Cards:
+         B.1 Equity Curve | B.2 Trade History | B.3 Risk Metrics
+         | B.4 Rebal History | B.5 Alert History -->
     <div class="qc-group qc-group-analytics" id="qc-group-analytics" data-qc-group="analytics">
+        <!-- B.1 Equity Curve -->
         <div class="section">
             <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
                 <span>Analytics — Equity Curve</span>
@@ -467,6 +468,25 @@
                 <div id="equity-legend-table" style="margin-top:10px;font-size:11px;line-height:1.8;">
                     <div style="color:var(--muted);font-size:12px;">Loading equity history…</div>
                 </div>
+            </div>
+        </div>
+
+        <!-- B.2 Trade History -->
+        <div class="section">
+            <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>Analytics — Trade History</span>
+                <div style="display:flex;gap:6px;align-items:center;">
+                    <input id="trade-symbol-filter" placeholder="Symbol" style="width:80px;font-size:11px;padding:2px 6px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:4px;">
+                    <select id="trade-side-filter" style="font-size:11px;padding:2px 6px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:4px;">
+                        <option value="">All</option>
+                        <option value="BUY">BUY</option>
+                        <option value="SELL">SELL</option>
+                    </select>
+                </div>
+            </div>
+            <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px;">
+                <div id="trade-summary" style="font-size:11px;color:var(--muted);margin-bottom:8px;">Loading trade summary…</div>
+                <div id="trade-table" style="max-height:320px;overflow-y:auto;"></div>
             </div>
         </div>
     </div>

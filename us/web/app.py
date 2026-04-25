@@ -854,6 +854,119 @@ def create_app() -> FastAPI:
 
     _regime_cache = {"data": None, "ts": 0}
 
+    @app.get("/api/trades")
+    async def api_trades(
+        start: str = Query("", description="YYYY-MM-DD"),
+        end: str = Query("", description="YYYY-MM-DD"),
+        symbol: str = Query("", description="ticker"),
+        side: str = Query("", description="BUY|SELL"),
+        limit: int = Query(100, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+    ):
+        """US trade history — Phase 4-B.2 (2026-04-25). Mirrors KR
+        /api/trades shape sourced from trades_us PG table.
+
+        Returns:
+            { total, limit, offset, trades: [...] }
+        Trade row shape:
+            { id, date, symbol, side, quantity, price, cost,
+              reason, mode, order_id, fill_key }
+        """
+        try:
+            from shared.db.pg_base import connection
+            with connection() as conn:
+                cur = conn.cursor()
+                where, params = ["1=1"], []
+                if start:
+                    where.append("date::date >= %s"); params.append(start)
+                if end:
+                    where.append("date::date <= %s"); params.append(end)
+                if symbol:
+                    where.append("symbol = %s"); params.append(symbol.upper())
+                if side:
+                    where.append("side = %s"); params.append(side.upper())
+                w = " AND ".join(where)
+                cur.execute(f"SELECT COUNT(*) FROM trades_us WHERE {w}", params)
+                total = cur.fetchone()[0]
+                if total == 0:
+                    cur.close()
+                    return {"total": 0, "limit": limit, "offset": offset, "trades": []}
+                cur.execute(
+                    f"SELECT id, date, symbol, side, quantity, price, cost, "
+                    f"reason, mode, order_id, fill_key "
+                    f"FROM trades_us WHERE {w} "
+                    f"ORDER BY date DESC, id DESC "
+                    f"LIMIT %s OFFSET %s",
+                    params + [limit, offset],
+                )
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(zip(cols, r))
+                    # Normalize date to ISO string + add code alias for KR-style consumers
+                    if row.get("date"):
+                        row["date"] = row["date"].isoformat()
+                    row["code"] = row.get("symbol")
+                    rows.append(row)
+                cur.close()
+                return {
+                    "total": total, "limit": limit, "offset": offset,
+                    "trades": rows,
+                }
+        except Exception as e:
+            return {"error": str(e), "trades": [], "total": 0}
+
+    @app.get("/api/trades/summary")
+    async def api_trades_summary(
+        start: str = Query("", description="YYYY-MM-DD"),
+        end: str = Query("", description="YYYY-MM-DD"),
+    ):
+        """US trade summary statistics — Phase 4-B.2.
+
+        Returns counts and aggregates over the filter window:
+            { buy_count, sell_count, total_count, total_quantity,
+              total_cost, first_date, last_date }
+        """
+        try:
+            from shared.db.pg_base import connection
+            with connection() as conn:
+                cur = conn.cursor()
+                where, params = ["1=1"], []
+                if start:
+                    where.append("date::date >= %s"); params.append(start)
+                if end:
+                    where.append("date::date <= %s"); params.append(end)
+                w = " AND ".join(where)
+                cur.execute(
+                    f"SELECT "
+                    f"  COUNT(*) FILTER (WHERE side='BUY'), "
+                    f"  COUNT(*) FILTER (WHERE side='SELL'), "
+                    f"  COUNT(*), "
+                    f"  COALESCE(SUM(quantity), 0), "
+                    f"  COALESCE(SUM(cost), 0), "
+                    f"  MIN(date), MAX(date) "
+                    f"FROM trades_us WHERE {w}",
+                    params,
+                )
+                r = cur.fetchone() or (0, 0, 0, 0, 0.0, None, None)
+                cur.close()
+                return {
+                    "buy_count": int(r[0] or 0),
+                    "sell_count": int(r[1] or 0),
+                    "total_count": int(r[2] or 0),
+                    "total_quantity": int(r[3] or 0),
+                    "total_cost": float(r[4] or 0),
+                    "first_date": r[5].isoformat() if r[5] else None,
+                    "last_date": r[6].isoformat() if r[6] else None,
+                }
+        except Exception as e:
+            return {
+                "buy_count": 0, "sell_count": 0, "total_count": 0,
+                "total_quantity": 0, "total_cost": 0.0,
+                "first_date": None, "last_date": None,
+                "error": str(e),
+            }
+
     @app.get("/api/charts/equity-unified")
     async def get_equity_unified(days: int = Query(90, ge=7, le=730)):
         """US unified equity curve — Phase 4-C (2026-04-25): mirror of
