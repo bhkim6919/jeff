@@ -128,6 +128,18 @@ def create_app() -> FastAPI:
         """US 전용 독립 DEBUG 페이지 (12개 진단 패널)."""
         return templates.TemplateResponse(request, "debug.html")
 
+    @app.get("/surge", response_class=HTMLResponse)
+    async def surge_page(request: Request):
+        """US Surge Monitor (Phase 2-E 2026-04-25).
+
+        US side bootstrapped as a standalone page so the Extensions card
+        on the Dashboard has somewhere to land. Backend simulator port
+        from kr/web/surge/* is deferred — this page renders a clear
+        Coming-Soon notice plus a cross-server link to the working KR
+        Surge at :8080/surge.
+        """
+        return templates.TemplateResponse(request, "surge.html")
+
     # ── API: Health ──────────────────────────────────────
 
     @app.get("/api/health")

@@ -3524,10 +3524,15 @@ def create_app() -> FastAPI:
     _surge_instance: dict = {"sim": None}
 
     @application.get("/surge")
-    async def surge_page():
-        """Surge redirect to Lab (Surge Sim tab)."""
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url="/lab", status_code=302)
+    async def surge_page(request: Request):
+        """KR Surge Monitor (Phase 2-E 2026-04-25 — restored standalone page).
+
+        Previously redirected to /lab. With Phase 2-E adding a Surge
+        Monitor card to the Dashboard Extensions group, the page lives
+        on its own URL again so the cross-link from US Dashboard
+        (:8081) can reach it directly.
+        """
+        return templates.TemplateResponse(request, "surge.html")
 
     @application.get("/api/surge/params")
     async def surge_params():
