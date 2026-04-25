@@ -157,40 +157,16 @@
     async function _fetchBatchBadge(market) {
         const el = document.getElementById('nav-batch-badge');
         if (!el) return;
+        // Phase 3 (2026-04-25): delegate compute + render to qc-badges.
         try {
-            if (market === 'US') {
-                const r = await fetch('/api/rebalance/status');
-                const d = await r.json();
-                // UI-P0-001: "완료" = 당일 장 마감(16:00 ET) 이후 실제로 배치가 돈 경우만.
-                // DST/EST 모두 정확해야 함 — Intl.DateTimeFormat 으로 ET wall-clock 비교.
-                let done = false;
-                if (d.last_batch_business_date &&
-                    d.last_batch_business_date === d.business_date &&
-                    d.snapshot_created_at) {
-                    try {
-                        const created = new Date(d.snapshot_created_at);
-                        // created 시점의 ET wall-clock을 뽑아서 date 및 hour 비교
-                        const fmt = new Intl.DateTimeFormat('en-US', {
-                            timeZone: 'America/New_York',
-                            year: 'numeric', month: '2-digit', day: '2-digit',
-                            hour: '2-digit', minute: '2-digit', hour12: false,
-                        });
-                        const parts = Object.fromEntries(
-                            fmt.formatToParts(created).map(p => [p.type, p.value])
-                        );
-                        const createdEtDate = `${parts.year}-${parts.month}-${parts.day}`;
-                        const createdEtHour = parseInt(parts.hour, 10);
-                        // business_date가 created의 ET 날짜와 같고, ET hour >= 16 이어야 완료.
-                        done = (createdEtDate === d.business_date) && (createdEtHour >= 16);
-                    } catch (_) {
-                        done = false;
-                    }
-                }
-                _setBatchBadge(el, done, 'US');
-            } else {
-                const r = await fetch('/api/batch/status');
-                const d = await r.json();
-                _setBatchBadge(el, !!d.kr_done, 'KR');
+            const url = market === 'US' ? '/api/rebalance/status' : '/api/batch/status';
+            const r = await fetch(url);
+            const d = await r.json();
+            const done = (window.qc && window.qc.badges)
+                ? window.qc.badges.computeBatchDone(d, market)
+                : false;
+            if (window.qc && window.qc.badges) {
+                window.qc.badges.setBatch(el, done, market);
             }
         } catch (_) {}
     }
@@ -208,6 +184,7 @@
     async function _fetchAutoGateBadge(market) {
         const el = document.getElementById('nav-auto-gate-badge');
         if (!el) return;
+        // Phase 3 (2026-04-25): rendering delegated to qc-badges component.
         try {
             let auto = null, health = null;
             if (market === 'US') {
@@ -221,7 +198,9 @@
                 auto = d.auto_trading || null;
                 health = d.strategy_health || null;
             }
-            _setAutoGateBadge(el, auto, health, market);
+            if (window.qc && window.qc.badges) {
+                window.qc.badges.setAutoGate(el, auto, health, market);
+            }
         } catch (e) {
             el.textContent = 'AUTO GATE: NO DATA';
             el.className = 'qnav-gate-badge gate-unknown';
@@ -229,70 +208,8 @@
             el.style.display = 'inline-flex';
         }
     }
-
-    function _setAutoGateBadge(el, auto, health, market) {
-        if (!auto) {
-            el.textContent = 'AUTO GATE: UNKNOWN';
-            el.className = 'qnav-gate-badge gate-unknown';
-            el.title = 'auto_trading field missing from API response';
-            el.style.display = 'inline-flex';
-            return;
-        }
-        const mode = (auto.mode || 'advisory').toLowerCase();
-        const enabled = auto.enabled === true;
-        const top = auto.highest_priority_blocker || '';
-        const blockers = Array.isArray(auto.blockers) ? auto.blockers : [];
-        const computed = auto.computed_at || '';
-        const healthStatus = (health && health.status) || auto.strategy_health || 'UNKNOWN';
-        const warmup = !!(health && health.warmup_active);
-
-        let stale = false;
-        if (computed) {
-            const t = Date.parse(computed);
-            if (!isNaN(t) && (Date.now() - t) > 5 * 60 * 1000) stale = true;
-        } else {
-            stale = true;
-        }
-
-        let label, cls;
-        if (mode === 'enforcing' && !enabled) {
-            label = 'AUTO GATE: BLOCKED';
-            cls = 'gate-blocked';
-        } else if (mode === 'enforcing' && enabled) {
-            label = 'AUTO GATE: ENFORCING';
-            cls = 'gate-enforcing';
-        } else {
-            label = enabled ? 'AUTO GATE: ADVISORY (OK)' : 'AUTO GATE: ADVISORY';
-            cls = 'gate-advisory';
-        }
-        if (stale) label += ' · STALE';
-
-        el.textContent = top ? `${label} · ${top}` : label;
-        el.className = 'qnav-gate-badge ' + cls + (stale ? ' gate-stale' : '');
-        const tip = [
-            `Market: ${market}`,
-            `Mode: ${auto.mode || 'advisory'}`,
-            `Enabled: ${enabled}`,
-            `Top blocker: ${top || '(none)'}`,
-            `Blockers: ${blockers.length ? blockers.join(', ') : '(none)'}`,
-            `Health: ${healthStatus}${warmup ? ' (warm-up)' : ''}`,
-            `Risk: ${auto.risk_level || 'NORMAL'}`,
-            `Buy scale: ${auto.buy_scale != null ? auto.buy_scale : '-'}`,
-            `Last eval: ${computed || '(unknown)'}${stale ? ' [STALE]' : ''}`,
-        ].join('\n');
-        el.title = tip;
-        el.style.display = 'inline-flex';
-    }
-
-    function _setBatchBadge(el, done, market) {
-        if (done) {
-            el.textContent = `BATCH ✓`;
-            el.title = `${market} 오늘 배치 완료`;
-            el.style.display = 'inline-flex';
-        } else {
-            el.style.display = 'none';
-        }
-    }
+    // _setAutoGateBadge / _setBatchBadge moved to components/badges.js
+    // (Phase 3 qc-badges extraction). Kept fetch + transport here.
 
     // ── Telegram Modal Functions ──
     let _tgPastedBlob = null;  // clipboard image blob
