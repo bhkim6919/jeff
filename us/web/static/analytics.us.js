@@ -310,6 +310,94 @@
         }
     }
 
+    // ── Rebalance History (Phase 4-B.4) ──────────────────────────
+    async function loadRebalHistory() {
+        const host = document.getElementById('rebal-history');
+        if (!host) return;
+        try {
+            const r = await fetch('/api/rebalance/history?limit=20');
+            const d = await r.json();
+            if (d.error) {
+                host.innerHTML = `<div style="color:#f87171;font-size:12px;padding:8px;">rebal history error: ${_escape(d.error)}</div>`;
+                return;
+            }
+            const list = d.rebalances || [];
+            if (list.length === 0) {
+                host.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px;">No rebalance days yet — needs both BUY and SELL fills on the same day in trades_us.</div>';
+                return;
+            }
+            const rowsHtml = list.map(r => `
+                <tr>
+                    <td style="padding:6px 8px;">${_escape(r.date || '')}</td>
+                    <td style="padding:6px 8px;text-align:right;color:var(--green);font-weight:600;">${r.buys || 0}</td>
+                    <td style="padding:6px 8px;text-align:right;color:var(--red);font-weight:600;">${r.sells || 0}</td>
+                    <td style="padding:6px 8px;text-align:right;">${r.total || 0}</td>
+                    <td style="padding:6px 8px;text-align:right;">$${(r.total_cost || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                </tr>
+            `).join('');
+            host.innerHTML = `
+                <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                    <thead>
+                        <tr style="border-bottom:1px solid var(--border);color:var(--muted);font-size:11px;text-transform:uppercase;">
+                            <th style="text-align:left;padding:6px 8px;">Date</th>
+                            <th style="text-align:right;padding:6px 8px;">Buys</th>
+                            <th style="text-align:right;padding:6px 8px;">Sells</th>
+                            <th style="text-align:right;padding:6px 8px;">Total</th>
+                            <th style="text-align:right;padding:6px 8px;">Cost</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rowsHtml}</tbody>
+                </table>`;
+        } catch (err) {
+            console.warn('[Analytics.US] rebal history error:', err);
+            host.innerHTML = `<div style="color:#f87171;font-size:12px;padding:8px;">fetch error: ${_escape(String(err))}</div>`;
+        }
+    }
+
+    // ── Alert History (Phase 4-B.5) ──────────────────────────────
+    async function loadAlertHistory() {
+        const host = document.getElementById('alert-history');
+        if (!host) return;
+        try {
+            const r = await fetch('/api/alerts/history?limit=50');
+            const d = await r.json();
+            if (d.error) {
+                host.innerHTML = `<div style="color:#f87171;font-size:12px;padding:8px;">alert history error: ${_escape(d.error)}</div>`;
+                return;
+            }
+            const list = d.alerts || [];
+            if (list.length === 0) {
+                host.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px;">No alerts logged in dashboard_alert_state.</div>';
+                return;
+            }
+            const rowsHtml = list.map(a => {
+                const suppColor = a.suppressed ? '#f87171' : 'var(--muted)';
+                const lastSent = (a.last_sent || '').slice(0, 16).replace('T', ' ');
+                return `<tr>
+                    <td style="padding:6px 8px;font-family:monospace;font-size:11px;">${_escape(a.alert_key || '')}</td>
+                    <td style="padding:6px 8px;text-align:right;">${a.send_count || 0}</td>
+                    <td style="padding:6px 8px;color:${suppColor};">${a.suppressed ? 'YES' : 'no'}</td>
+                    <td style="padding:6px 8px;color:var(--muted);font-size:11px;">${_escape(lastSent)}</td>
+                </tr>`;
+            }).join('');
+            host.innerHTML = `
+                <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                    <thead>
+                        <tr style="border-bottom:1px solid var(--border);color:var(--muted);font-size:11px;text-transform:uppercase;">
+                            <th style="text-align:left;padding:6px 8px;">Key</th>
+                            <th style="text-align:right;padding:6px 8px;">Sends</th>
+                            <th style="text-align:left;padding:6px 8px;">Suppressed</th>
+                            <th style="text-align:left;padding:6px 8px;">Last Sent</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rowsHtml}</tbody>
+                </table>`;
+        } catch (err) {
+            console.warn('[Analytics.US] alert history error:', err);
+            host.innerHTML = `<div style="color:#f87171;font-size:12px;padding:8px;">fetch error: ${_escape(String(err))}</div>`;
+        }
+    }
+
     // ── Init ─────────────────────────────────────────────────────
     function _init() {
         // Defer initial fetch slightly to let the page settle
@@ -317,6 +405,8 @@
             loadEquityCurve();
             loadTradeHistory();
             loadRiskMetrics();
+            loadRebalHistory();
+            loadAlertHistory();
         }, 800);
         document.getElementById('equity-days')
             ?.addEventListener('change', loadEquityCurve);
@@ -338,4 +428,6 @@
     window.qcAnalytics.loadEquityCurve = loadEquityCurve;
     window.qcAnalytics.loadTradeHistory = loadTradeHistory;
     window.qcAnalytics.loadRiskMetrics = loadRiskMetrics;
+    window.qcAnalytics.loadRebalHistory = loadRebalHistory;
+    window.qcAnalytics.loadAlertHistory = loadAlertHistory;
 })();

@@ -854,6 +854,86 @@ def create_app() -> FastAPI:
 
     _regime_cache = {"data": None, "ts": 0}
 
+    @app.get("/api/rebalance/history")
+    async def api_rebalance_history(limit: int = Query(10, ge=1, le=50)):
+        """US rebalance history — Phase 4-B.4 (2026-04-25). Mirrors KR
+        /api/rebalance/history shape. A "rebalance day" = a date with
+        both BUY and SELL fills in trades_us.
+
+        Returns:
+            { "rebalances": [
+                { date, buys, sells, total, total_cost,
+                  closed, close_wins, avg_pnl, avg_hold }, ...
+              ] }
+        """
+        try:
+            from shared.db.pg_base import connection
+            with connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT date::date, "
+                    "  COUNT(*) FILTER (WHERE side='BUY') AS buys, "
+                    "  COUNT(*) FILTER (WHERE side='SELL') AS sells, "
+                    "  COUNT(*) AS total, "
+                    "  COALESCE(SUM(cost), 0) AS total_cost "
+                    "FROM trades_us "
+                    "GROUP BY date::date "
+                    "HAVING COUNT(*) FILTER (WHERE side='BUY') > 0 "
+                    "   AND COUNT(*) FILTER (WHERE side='SELL') > 0 "
+                    "ORDER BY date::date DESC LIMIT %s",
+                    (limit,),
+                )
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(zip(cols, r))
+                    if row.get("date"):
+                        row["date"] = str(row["date"])
+                    row["total_cost"] = round(float(row.get("total_cost") or 0), 2)
+                    # Close-side stats not yet tracked on US (no report_close_log_us)
+                    row["closed"] = 0
+                    row["close_wins"] = 0
+                    row["avg_pnl"] = 0
+                    row["avg_hold"] = 0
+                    rows.append(row)
+                cur.close()
+                return {"rebalances": rows}
+        except Exception as e:
+            return {"error": str(e), "rebalances": []}
+
+    @app.get("/api/alerts/history")
+    async def api_alerts_history(limit: int = Query(50, ge=1, le=200)):
+        """US alerts history — Phase 4-B.5 (2026-04-25). Same shared
+        dashboard_alert_state table KR uses. Mirrors KR /api/alerts/history
+        shape exactly.
+
+        Returns:
+            { "alerts": [
+                { alert_key, last_sent, send_count, suppressed, updated_at }, ...
+              ], "total": N }
+        """
+        try:
+            from shared.db.pg_base import connection
+            with connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT alert_key, last_sent, send_count, suppressed, updated_at "
+                    "FROM dashboard_alert_state "
+                    "ORDER BY updated_at DESC NULLS LAST "
+                    "LIMIT %s",
+                    (limit,),
+                )
+                cols = [d[0] for d in cur.description]
+                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+                cur.close()
+            for r in rows:
+                for k in ("last_sent", "updated_at"):
+                    if r.get(k):
+                        r[k] = str(r[k])
+            return {"alerts": rows, "total": len(rows)}
+        except Exception as e:
+            return {"error": str(e), "alerts": []}
+
     @app.get("/api/risk/metrics")
     async def api_risk_metrics(days: int = Query(60, ge=7, le=730)):
         """US risk metrics — Phase 4-B.3 (2026-04-25). Sharpe / Sortino /
