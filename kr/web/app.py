@@ -1550,6 +1550,63 @@ def create_app() -> FastAPI:
         except Exception as e:
             return {"error": str(e)}
 
+    @application.get("/api/holdings")
+    async def api_holdings():
+        """KR holdings — Phase 4-A.2 (2026-04-25): unified shape per
+        docs/ui_data_contract_20260424.md §1. Same fields as US side.
+
+        Returns:
+            { "positions": [
+                { symbol, qty, avg_price, last_price, market_value,
+                  unrealized_pnl, unrealized_pnl_pct, data_quality },
+                ...
+            ], "data_quality": "OK" | "DEGRADED" | "STALE" }
+
+        Source: same _portfolio_cache used by SSE — provides REST
+        access to the same engine truth without changing the SSE flow.
+        """
+        try:
+            cache = dict(_portfolio_cache)
+            data = cache.get("data") or {}
+            holdings = data.get("holdings") or []
+            ts = cache.get("ts")
+            age_sec = (time.time() - ts) if ts else None
+            quality = "OK"
+            if age_sec is None:
+                quality = "STALE"
+            elif age_sec > 300:  # 5 minutes
+                quality = "STALE"
+
+            positions = []
+            for h in holdings:
+                qty = int(h.get("qty", 0) or 0)
+                avg_price = float(h.get("avg_price", 0) or 0)
+                last_price = float(h.get("cur_price", 0) or 0)
+                market_value = float(h.get("eval_amt", 0) or (last_price * qty))
+                unrealized_pnl = float(h.get("pnl", 0) or 0)
+                # P0-3 §1.3: unrealized_pnl_pct = (last/avg - 1) * 100
+                if avg_price > 0:
+                    unrealized_pnl_pct = (last_price / avg_price - 1.0) * 100.0
+                else:
+                    unrealized_pnl_pct = float(h.get("pnl_rate", 0) or 0)
+                positions.append({
+                    "symbol": h.get("code", ""),
+                    "qty": qty,
+                    "avg_price": avg_price,
+                    "last_price": last_price,
+                    "market_value": market_value,
+                    "unrealized_pnl": unrealized_pnl,
+                    "unrealized_pnl_pct": round(unrealized_pnl_pct, 4),
+                    "data_quality": quality,
+                })
+            return {
+                "positions": positions,
+                "data_quality": quality,
+                "cache_age_sec": round(age_sec, 1) if age_sec is not None else None,
+            }
+        except Exception as e:
+            return {"positions": [], "data_quality": "STALE", "error": str(e)}
+
     @application.get("/api/batch/status")
     async def batch_status():
         """KR batch status. Phase 4-A.1 (2026-04-25): unified shape per

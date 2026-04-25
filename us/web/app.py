@@ -1401,6 +1401,68 @@ def create_app() -> FastAPI:
         except Exception:
             return 0, today_bd, True, today_bd, bd_source
 
+    @app.get("/api/holdings")
+    async def api_holdings():
+        """US holdings — Phase 4-A.2 (2026-04-25): unified shape per
+        docs/ui_data_contract_20260424.md §1. Same fields as KR side.
+
+        Returns:
+            { "positions": [
+                { symbol, qty, avg_price, last_price, market_value,
+                  unrealized_pnl, unrealized_pnl_pct, data_quality },
+                ...
+            ], "data_quality": "OK" | "DEGRADED" | "STALE" }
+
+        Source: provider.query_account_holdings (same source as
+        /api/portfolio). /api/portfolio remains for richer-payload
+        consumers; this endpoint is the unified contract target.
+        """
+        try:
+            now = _time_module.time()
+            quality = "OK"
+            holdings = None
+            # Reuse portfolio cache when fresh (same TTL semantics).
+            if (_portfolio_cache_us["data"]
+                and now - _portfolio_cache_us["ts"] < PORTFOLIO_CACHE_TTL_US):
+                holdings = _portfolio_cache_us["data"].get("holdings") or []
+                age_sec = now - _portfolio_cache_us["ts"]
+            else:
+                p = _get_provider()
+                holdings = await asyncio.to_thread(p.query_account_holdings)
+                age_sec = 0.0
+
+            if age_sec > 300:
+                quality = "STALE"
+
+            positions = []
+            for h in (holdings or []):
+                qty = int(h.get("qty", 0) or 0)
+                avg_price = float(h.get("avg_price", 0) or 0)
+                last_price = float(h.get("cur_price", 0) or 0)
+                market_value = float(h.get("market_value", 0) or (last_price * qty))
+                unrealized_pnl = float(h.get("pnl", 0) or 0)
+                if avg_price > 0:
+                    unrealized_pnl_pct = (last_price / avg_price - 1.0) * 100.0
+                else:
+                    unrealized_pnl_pct = float(h.get("pnl_pct", 0) or 0)
+                positions.append({
+                    "symbol": h.get("code") or h.get("symbol", ""),
+                    "qty": qty,
+                    "avg_price": avg_price,
+                    "last_price": last_price,
+                    "market_value": market_value,
+                    "unrealized_pnl": unrealized_pnl,
+                    "unrealized_pnl_pct": round(unrealized_pnl_pct, 4),
+                    "data_quality": quality,
+                })
+            return {
+                "positions": positions,
+                "data_quality": quality,
+                "cache_age_sec": round(age_sec, 1),
+            }
+        except Exception as e:
+            return {"positions": [], "data_quality": "STALE", "error": str(e)}
+
     @app.get("/api/batch/status")
     async def batch_status():
         """US batch status. Phase 4-A.1 (2026-04-25): unified shape per
