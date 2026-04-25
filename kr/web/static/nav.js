@@ -161,7 +161,10 @@
         // No logic change — qc.badges.computeBatchDone is byte-for-byte the
         // previous inline P0-1 logic; setBatch is the previous _setBatchBadge.
         try {
-            const url = market === 'US' ? '/api/rebalance/status' : '/api/batch/status';
+            // Phase 4-A.1: both markets now expose /api/batch/status with
+            // the same shape. /api/rebalance/status remains on US for
+            // richer-payload consumers.
+            const url = '/api/batch/status';
             const r = await fetch(url);
             const d = await r.json();
             const done = (window.qc && window.qc.badges)

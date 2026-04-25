@@ -1401,6 +1401,40 @@ def create_app() -> FastAPI:
         except Exception:
             return 0, today_bd, True, today_bd, bd_source
 
+    @app.get("/api/batch/status")
+    async def batch_status():
+        """US batch status. Phase 4-A.1 (2026-04-25): unified shape per
+        docs/ui_data_contract_20260424.md §5 — matches KR contract:
+            batch_done, business_date, snapshot_created_at, snapshot_version
+
+        Sourced from the same rebalance state as /api/rebalance/status
+        which remains unchanged for richer-payload consumers.
+        """
+        try:
+            from core.state_manager import get_business_date_et
+            sm = _get_state_mgr()
+            rs = sm.get_rebal_state()
+            p = _get_provider()
+            today_bd = get_business_date_et(p)
+            last_bd = rs.get("last_batch_business_date", "")
+            done = bool(last_bd and last_bd == today_bd)
+            return {
+                "batch_done": done,
+                "business_date": today_bd,
+                "snapshot_created_at": rs.get("snapshot_created_at", ""),
+                "snapshot_version": rs.get("snapshot_version", ""),
+                # Legacy alias for tools that grep this name
+                "last_batch_business_date": last_bd,
+            }
+        except Exception as e:
+            return {
+                "batch_done": False,
+                "business_date": "",
+                "snapshot_created_at": "",
+                "snapshot_version": "",
+                "error": str(e),
+            }
+
     @app.get("/api/rebalance/status")
     async def rebalance_status():
         """Consolidated rebal status for dashboard + tray_server."""

@@ -26,33 +26,48 @@
     window.qc = window.qc || {};
 
     function computeBatchDone(d, market) {
-        if (market === 'US') {
-            // UI-P0-001: 당일 장 마감(16:00 ET) 이후 실제로 배치가 돈 경우만.
-            // DST/EST 모두 정확해야 함 — Intl.DateTimeFormat 으로 ET wall-clock 비교.
-            if (!d || !d.last_batch_business_date ||
-                d.last_batch_business_date !== d.business_date ||
-                !d.snapshot_created_at) {
-                return false;
-            }
-            try {
-                const created = new Date(d.snapshot_created_at);
-                const fmt = new Intl.DateTimeFormat('en-US', {
-                    timeZone: 'America/New_York',
-                    year: 'numeric', month: '2-digit', day: '2-digit',
-                    hour: '2-digit', minute: '2-digit', hour12: false,
-                });
-                const parts = Object.fromEntries(
-                    fmt.formatToParts(created).map(p => [p.type, p.value])
-                );
-                const createdEtDate = `${parts.year}-${parts.month}-${parts.day}`;
-                const createdEtHour = parseInt(parts.hour, 10);
-                return (createdEtDate === d.business_date) && (createdEtHour >= 16);
-            } catch (_) {
-                return false;
-            }
+        // Phase 4-A.1 (2026-04-25): unified contract — both markets'
+        // /api/batch/status now returns {batch_done, business_date,
+        // snapshot_created_at, snapshot_version}. Legacy fallbacks
+        // (kr_done for KR, last_batch_business_date for US) stay for
+        // bridge period.
+        if (!d) return false;
+
+        // KR fallback (server already commits the policy decision).
+        if (market === 'KR') {
+            if (typeof d.batch_done === 'boolean') return d.batch_done;
+            return !!d.kr_done;  // legacy
         }
-        // KR: server-side kr_done flag from /api/batch/status.
-        return !!(d && d.kr_done);
+
+        // US: UI-P0-001 — must validate ET wall-clock 16:00 cutoff client-side.
+        // Prefer unified fields; fall back to old shape for /api/rebalance/status.
+        const businessDate = d.business_date || '';
+        const lastBatchDate = d.last_batch_business_date || businessDate;
+        const snapshotCreated = d.snapshot_created_at || '';
+
+        if (typeof d.batch_done === 'boolean' && !d.batch_done) {
+            // Server already says no — trust it
+            return false;
+        }
+        if (!businessDate || !snapshotCreated || lastBatchDate !== businessDate) {
+            return false;
+        }
+        try {
+            const created = new Date(snapshotCreated);
+            const fmt = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/New_York',
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', hour12: false,
+            });
+            const parts = Object.fromEntries(
+                fmt.formatToParts(created).map(p => [p.type, p.value])
+            );
+            const createdEtDate = `${parts.year}-${parts.month}-${parts.day}`;
+            const createdEtHour = parseInt(parts.hour, 10);
+            return (createdEtDate === businessDate) && (createdEtHour >= 16);
+        } catch (_) {
+            return false;
+        }
     }
 
     function setBatch(el, done, market) {

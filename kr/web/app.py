@@ -1552,17 +1552,60 @@ def create_app() -> FastAPI:
 
     @application.get("/api/batch/status")
     async def batch_status():
-        """오늘 KST 기준 KR batch 완료 여부 (target_portfolio 파일 존재 확인)."""
+        """KR batch status. Phase 4-A.1 (2026-04-25): unified shape per
+        docs/ui_data_contract_20260424.md §5 — same fields as US side
+        so qc-badges can use one contract:
+            batch_done, business_date, snapshot_created_at, snapshot_version
+
+        Backward-compat: kr_done / kr_date kept as aliases so any
+        legacy consumer keeps working through the migration.
+        """
         try:
-            from datetime import datetime as _dt
+            from datetime import datetime as _dt, timezone as _tz
             from zoneinfo import ZoneInfo
-            kst_today = _dt.now(ZoneInfo("Asia/Seoul")).strftime("%Y%m%d")
+            kst_now = _dt.now(ZoneInfo("Asia/Seoul"))
+            kst_today_compact = kst_now.strftime("%Y%m%d")
+            kst_today_iso = kst_now.strftime("%Y-%m-%d")
             signals_dir = Path(__file__).resolve().parent.parent / "data" / "signals"
-            target_file = signals_dir / f"target_portfolio_{kst_today}.json"
+            target_file = signals_dir / f"target_portfolio_{kst_today_compact}.json"
             done = target_file.exists()
-            return {"kr_done": done, "kr_date": kst_today if done else None}
+
+            snapshot_created_at = ""
+            snapshot_version = ""
+            if done:
+                # mtime → ISO 8601 in UTC (matches US's snapshot_created_at format)
+                mtime = target_file.stat().st_mtime
+                snapshot_created_at = _dt.fromtimestamp(mtime, tz=_tz.utc).isoformat()
+                # Try to read snapshot_version from file (head.json carries it; fall back to filename)
+                try:
+                    import json as _json
+                    head_file = Path(__file__).resolve().parent.parent / "data" / "lab_live" / "head.json"
+                    if head_file.exists():
+                        head_data = _json.loads(head_file.read_text(encoding="utf-8"))
+                        snapshot_version = head_data.get("snapshot_version", "") or ""
+                except Exception:
+                    pass
+
+            return {
+                # Unified shape (Phase 4-A.1)
+                "batch_done": done,
+                "business_date": kst_today_iso,
+                "snapshot_created_at": snapshot_created_at,
+                "snapshot_version": snapshot_version,
+                # Legacy aliases (kept for backward compat)
+                "kr_done": done,
+                "kr_date": kst_today_compact if done else None,
+            }
         except Exception as e:
-            return {"kr_done": False, "kr_date": None, "error": str(e)}
+            return {
+                "batch_done": False,
+                "business_date": "",
+                "snapshot_created_at": "",
+                "snapshot_version": "",
+                "kr_done": False,
+                "kr_date": None,
+                "error": str(e),
+            }
 
     @application.get("/api/state")
     async def get_state_snapshot():

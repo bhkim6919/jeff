@@ -159,7 +159,10 @@
         if (!el) return;
         // Phase 3 (2026-04-25): delegate compute + render to qc-badges.
         try {
-            const url = market === 'US' ? '/api/rebalance/status' : '/api/batch/status';
+            // Phase 4-A.1: both markets now expose /api/batch/status with
+            // the same shape. /api/rebalance/status remains on US for
+            // richer-payload consumers.
+            const url = '/api/batch/status';
             const r = await fetch(url);
             const d = await r.json();
             const done = (window.qc && window.qc.badges)
