@@ -1550,6 +1550,88 @@ def create_app() -> FastAPI:
         except Exception as e:
             return {"error": str(e)}
 
+    @application.get("/api/summary")
+    async def api_summary():
+        """KR account summary — Phase 4-A.3 (2026-04-25): unified shape
+        per docs/ui_data_contract_20260424.md §2. Same fields as US side.
+
+        Returns:
+            { equity, cash, buying_power, unrealized_pnl,
+              realized_pnl_today, realized_pnl_total, total_pnl,
+              fees_taxes_today, equity_prev, data_quality }
+
+        Source:
+        - equity / cash / unrealized_pnl: same _portfolio_cache as SSE
+        - realized_pnl_today + fees_taxes_today: report_trades aggregation
+        - realized_pnl_total + equity_prev: report_equity_log
+        """
+        try:
+            cache = dict(_portfolio_cache)
+            data = cache.get("data") or {}
+            ts = cache.get("ts")
+            age_sec = (time.time() - ts) if ts else None
+            quality = "STALE" if age_sec is None or age_sec > 300 else "OK"
+
+            equity = float(data.get("total_asset", 0) or 0)
+            cash = float(data.get("cash", 0) or 0)
+            unrealized_pnl = sum(
+                float(h.get("pnl", 0) or 0)
+                for h in (data.get("holdings") or [])
+            )
+
+            # Realized P&L + fees: KR report_trades schema (id/date/code/
+            # side/quantity/price/cost/slippage_pct/mode) doesn't carry
+            # realized_pnl or fee/tax columns directly. Treat as null →
+            # caller renders as "--" rather than misleading 0.
+            realized_pnl_today = None
+            realized_pnl_total = None
+            fees_taxes_today = None
+            equity_prev = None
+            try:
+                from datetime import date as _date
+                from shared.db.pg_base import connection as _pg_conn
+                today_str = _date.today().isoformat()
+                with _pg_conn() as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "SELECT equity FROM report_equity_log "
+                        "WHERE date::text < %s ORDER BY date DESC LIMIT 1",
+                        (today_str,),
+                    )
+                    r = cur.fetchone()
+                    if r:
+                        equity_prev = float(r[0] or 0)
+                    cur.close()
+            except Exception:
+                quality = "DEGRADED"
+
+            # total_pnl falls back to unrealized only when realized_total
+            # is not derivable (current KR state — proper realized
+            # tracking arrives in a later sub-block).
+            total_pnl = unrealized_pnl if realized_pnl_total is None else (unrealized_pnl + realized_pnl_total)
+
+            return {
+                "equity": equity,
+                "cash": cash,
+                "buying_power": cash,  # KR has no margin — buying_power = cash
+                "unrealized_pnl": unrealized_pnl,
+                "realized_pnl_today": realized_pnl_today,
+                "realized_pnl_total": realized_pnl_total,
+                "total_pnl": total_pnl,
+                "fees_taxes_today": fees_taxes_today,
+                "equity_prev": equity_prev,
+                "data_quality": quality,
+                "cache_age_sec": round(age_sec, 1) if age_sec is not None else None,
+            }
+        except Exception as e:
+            return {
+                "equity": 0, "cash": 0, "buying_power": 0,
+                "unrealized_pnl": 0, "realized_pnl_today": 0,
+                "realized_pnl_total": 0, "total_pnl": 0,
+                "fees_taxes_today": 0, "equity_prev": None,
+                "data_quality": "STALE", "error": str(e),
+            }
+
     @application.get("/api/holdings")
     async def api_holdings():
         """KR holdings — Phase 4-A.2 (2026-04-25): unified shape per

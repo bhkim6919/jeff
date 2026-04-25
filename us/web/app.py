@@ -1401,6 +1401,84 @@ def create_app() -> FastAPI:
         except Exception:
             return 0, today_bd, True, today_bd, bd_source
 
+    @app.get("/api/summary")
+    async def api_summary():
+        """US account summary — Phase 4-A.3 (2026-04-25): unified shape
+        per docs/ui_data_contract_20260424.md §2. Same fields as KR side.
+
+        Returns:
+            { equity, cash, buying_power, unrealized_pnl,
+              realized_pnl_today, realized_pnl_total, total_pnl,
+              fees_taxes_today, equity_prev, data_quality }
+
+        Source:
+        - equity / cash / buying_power: provider.query_account_summary
+          (same source as /api/portfolio)
+        - unrealized_pnl: sum of holdings.pnl
+        - equity_prev: Alpaca account.last_equity (T-1 close)
+        - realized_pnl_total: derived from (equity - 100000) base
+          (US /api/portfolio convention — total return since inception)
+        """
+        try:
+            now = _time_module.time()
+            quality = "OK"
+            # Reuse cache when fresh
+            if (_portfolio_cache_us["data"]
+                and now - _portfolio_cache_us["ts"] < PORTFOLIO_CACHE_TTL_US):
+                pdata = _portfolio_cache_us["data"]
+                holdings = pdata.get("holdings") or []
+                age_sec = now - _portfolio_cache_us["ts"]
+            else:
+                p = _get_provider()
+                acct = await asyncio.to_thread(p.query_account_summary)
+                holdings = await asyncio.to_thread(p.query_account_holdings)
+                pdata = {
+                    "equity": acct.get("equity", 0),
+                    "last_equity": acct.get("last_equity", 0),
+                    "cash": acct.get("cash", 0),
+                    "buying_power": acct.get("buying_power", 0),
+                    "holdings": holdings,
+                }
+                age_sec = 0.0
+
+            if age_sec > 300:
+                quality = "STALE"
+
+            equity = float(pdata.get("equity", 0) or 0)
+            cash = float(pdata.get("cash", 0) or 0)
+            buying_power = float(pdata.get("buying_power", 0) or 0)
+            equity_prev = pdata.get("last_equity")
+            equity_prev = float(equity_prev) if equity_prev else None
+            unrealized_pnl = sum(
+                float(h.get("pnl", 0) or 0) for h in holdings
+            )
+            # US convention: total return since $100k inception base.
+            # Phase 4 follow-up: when realized vs unrealized split is
+            # exposed by tracker, fill realized_pnl_total properly.
+            realized_pnl_total = (equity - 100000.0) - unrealized_pnl
+
+            return {
+                "equity": equity,
+                "cash": cash,
+                "buying_power": buying_power,
+                "unrealized_pnl": unrealized_pnl,
+                "realized_pnl_today": None,  # TODO: tracker integration
+                "realized_pnl_total": realized_pnl_total,
+                "total_pnl": equity - 100000.0,
+                "fees_taxes_today": None,  # TODO: order log aggregation
+                "equity_prev": equity_prev,
+                "data_quality": quality,
+                "cache_age_sec": round(age_sec, 1),
+            }
+        except Exception as e:
+            return {
+                "equity": 0, "cash": 0, "buying_power": 0,
+                "unrealized_pnl": 0, "realized_pnl_today": None,
+                "realized_pnl_total": None, "total_pnl": 0,
+                "fees_taxes_today": None, "equity_prev": None,
+                "data_quality": "STALE", "error": str(e),
+            }
+
     @app.get("/api/holdings")
     async def api_holdings():
         """US holdings — Phase 4-A.2 (2026-04-25): unified shape per
