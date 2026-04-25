@@ -738,6 +738,12 @@ def create_app() -> FastAPI:
 
     # Static files
     STATIC_DIR.mkdir(parents=True, exist_ok=True)
+    # Phase 4-D (2026-04-25): mount shared static directory at /static/shared.
+    # Holds KR/US-shared frontend components (qc-* family). Mount /static/shared
+    # BEFORE /static so the more specific prefix takes precedence.
+    _SHARED_STATIC = (Path(__file__).resolve().parent.parent.parent / "shared" / "web" / "static")
+    if _SHARED_STATIC.exists():
+        application.mount("/static/shared", StaticFiles(directory=str(_SHARED_STATIC)), name="static_shared")
     application.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     # Templates
