@@ -436,6 +436,7 @@
 
 <!-- Phase 3 components (load before inline renderStatus so qc.* is available) -->
 <script src="/static/components/summary.js?v=1"></script>
+<script src="/static/components/regime.js?v=1"></script>
 
 <script>
 const BASE = '';
@@ -550,83 +551,16 @@ async function testSell() {
 // Clock handled by nav.js
 
 // ── Regime ──────────────────────────────────────
-const REGIME_COLORS = {1:'#F04452',2:'#FF991F',3:'#FFD600',4:'#36B37E',5:'#00C853'};
+// Phase 3 (2026-04-25): REGIME_COLORS / regimeToBarPct / renderAxis moved
+// to us/web/static/components/regime.js (qc-regime-card component).
 
-function regimeToBarPct(level, score) {
-    const base = ((level - 1) / 4) * 100;
-    const adjust = (score || 0) * 10;
-    return Math.max(2, Math.min(98, base + adjust));
-}
-
-function renderAxis(id, score, avail) {
-    const el = document.getElementById(id);
-    const valEl = document.getElementById(id + '-val');
-    if (!el) return;
-    if (!avail) {
-        el.style.width = '0%';
-        el.style.left = '50%';
-        valEl.textContent = 'N/A';
-        valEl.style.color = 'var(--muted)';
-        return;
-    }
-    // score: -1 to +1 → bar from center
-    const pct = Math.abs(score) * 50;
-    if (score >= 0) {
-        el.style.left = '50%';
-        el.style.width = pct + '%';
-        el.style.background = 'var(--green)';
-    } else {
-        el.style.left = (50 - pct) + '%';
-        el.style.width = pct + '%';
-        el.style.background = 'var(--red)';
-    }
-    valEl.textContent = (score >= 0 ? '+' : '') + score.toFixed(2);
-    valEl.style.color = score >= 0 ? 'var(--green)' : 'var(--red)';
-}
 
 async function refreshRegime() {
+    // Phase 3 (2026-04-25): delegate to qc-regime-card component.
     try {
         const r = await apiFetch('/api/regime/current');
-        if (r.error) return;
-
-        // Today
-        const today = r.today || {};
-        if (today.available) {
-            const pct = regimeToBarPct(today.actual_regime, today.spy_change_pct / 3);
-            $('regime-today-marker').style.left = pct + '%';
-            $('regime-today-label').textContent = today.actual_label;
-            $('regime-today-label').style.color = REGIME_COLORS[today.actual_regime] || 'var(--text)';
-            $('regime-today-detail').textContent = `SPY ${today.spy_price} (${today.spy_change_pct >= 0 ? '+' : ''}${today.spy_change_pct}%) | Breadth ${(today.breadth_ratio*100).toFixed(0)}%`;
-        }
-
-        // Prediction
-        const pred = r.prediction || {};
-        const ppct = regimeToBarPct(pred.predicted_regime || 3, pred.composite_score);
-        $('regime-pred-marker').style.left = ppct + '%';
-        $('regime-pred-label').textContent = pred.predicted_label || '--';
-        $('regime-pred-label').style.color = REGIME_COLORS[pred.predicted_regime] || 'var(--text)';
-        const confEl = $('regime-pred-conf');
-        confEl.textContent = `${pred.confidence_flag || '--'} (${((pred.available_weight||0)*100).toFixed(0)}%)`;
-        confEl.className = 'badge ' + (pred.confidence_flag === 'FULL' ? 'badge-open' : pred.confidence_flag === 'PARTIAL' ? 'badge-paper' : 'badge-closed');
-
-        // Axes
-        renderAxis('ax-index', pred.index_score, pred.index_avail);
-        renderAxis('ax-vol', pred.vol_score, pred.vol_avail);
-        renderAxis('ax-sector', pred.sector_score, pred.sector_avail);
-        renderAxis('ax-fx', pred.fx_score, pred.fx_avail);
-
-        // Sectors with on-demand tooltip (like KR theme_regime)
-        const sectors = r.sectors || [];
-        if (sectors.length > 0) {
-            $('sector-grid').innerHTML = sectors.map(s => {
-                const color = s.change_pct >= 1 ? 'var(--green)' : s.change_pct >= 0 ? '#36B37E' : s.change_pct >= -1 ? '#FF991F' : 'var(--red)';
-                return `<div class="sector-chip" onmouseenter="_sectorHover(this,'${s.name}')" onmouseleave="_sectorOut(this)">
-                    <div class="sector-name">${s.name}</div>
-                    <div class="sector-change" style="color:${color}">${s.change_pct >= 0 ? '+' : ''}${s.change_pct.toFixed(2)}%</div>
-                    <div class="sector-regime" style="color:${color}">${s.regime}</div>
-                    <div class="sr-tooltip" style="display:none"></div>
-                </div>`;
-            }).join('');
+        if (window.qc && window.qc.regime && typeof window.qc.regime.render === 'function') {
+            window.qc.regime.render(document.getElementById('regime-section'), r);
         }
     } catch(e) { console.error('Regime error:', e); }
 }
