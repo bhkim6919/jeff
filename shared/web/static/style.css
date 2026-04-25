@@ -125,3 +125,63 @@
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.6; }
 }
+
+/* ─── Theme variants (Phase 6 hotfix — themes.js consumer) ─────
+   `dark` is the default token block above; the variants below
+   override only the tokens that actually change per theme. Each
+   selector matches what shared/themes.js writes onto <html>. */
+
+html[data-theme="light"] {
+    --qc-bg-page:        #f7f8fa;
+    --qc-bg-card:        #ffffff;
+    --qc-bg-card-hover:  #eef2f7;
+    --qc-bg-elevated:    #e5e7eb;
+    --qc-border:         #d1d5db;
+    --qc-border-strong:  #9ca3af;
+    --qc-text:           #111827;
+    --qc-text-secondary: #4b5563;
+    --qc-muted:          #6b7280;
+}
+
+html[data-theme="pastel"] {
+    --qc-bg-page:        #14181f;
+    --qc-bg-card:        #1c2230;
+    --qc-bg-card-hover:  #232b3c;
+    --qc-bg-elevated:    #2b3346;
+    --qc-border:         #2b3346;
+    --qc-border-strong:  #3a4256;
+    --qc-text:           #e5e7eb;
+    --qc-text-secondary: #c0c5d3;
+    --qc-muted:          #8e94a3;
+    --qc-accent:         #7aa2ff;
+    --qc-success:        #6dd6a5;
+    --qc-warning:        #f7c682;
+    --qc-danger:         #f4868a;
+}
+
+html[data-theme="pro"] {
+    --qc-bg-page:        #050810;
+    --qc-bg-card:        #0a0f1a;
+    --qc-bg-card-hover:  #11192a;
+    --qc-bg-elevated:    #1a2540;
+    --qc-border:         #1a2540;
+    --qc-border-strong:  #3b82f6;
+    --qc-text:           #f3f4f6;
+    --qc-text-secondary: #a5b4cc;
+    --qc-muted:          #6b7280;
+    --qc-accent:         #58a6ff;
+}
+
+/* ─── Theme tab footer (used by both markets) ──────────────── */
+.qtron-theme-tab {
+    cursor: pointer;
+}
+.qtron-theme-tab.active {
+    background: var(--qc-accent, #3b82f6);
+    color: #fff;
+    border-color: var(--qc-accent, #3b82f6);
+}
+.qtron-saved-indicator {
+    transition: opacity 0.2s ease;
+    opacity: 0.5;
+}
