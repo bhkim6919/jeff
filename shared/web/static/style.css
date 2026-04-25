@@ -1,0 +1,127 @@
+/**
+ * shared/web/static/style.css — Q-TRON cross-market base styles (Phase 6)
+ * =====================================================================
+ * Loaded by BOTH KR (:8080) and US (:8081) Dashboards via the
+ * /static/shared mount registered in 4-D. Contains rules that are
+ * truly market-neutral:
+ *
+ *   - CSS custom properties (theme tokens)
+ *   - .qc-group wrapper (Phase 2-A)
+ *   - Common badge / card / section / table primitives
+ *   - Common animation keyframes
+ *
+ * Per-market style files (kr/web/static/style.css, US inline <style>)
+ * remain authoritative for everything else and override these defaults
+ * via cascade ordering. To extend the shared layer, copy a rule here
+ * AFTER verifying both markets agree on the contract.
+ */
+
+/* ─── Theme tokens ─────────────────────────────────────────── */
+:root {
+    /* Background */
+    --qc-bg-page:        #0a0e17;
+    --qc-bg-card:        #111827;
+    --qc-bg-card-hover:  #1a2435;
+    --qc-bg-elevated:    #1f2937;
+
+    /* Border */
+    --qc-border:         #1f2937;
+    --qc-border-strong:  #30363d;
+
+    /* Text */
+    --qc-text:           #e5e7eb;
+    --qc-text-secondary: #9ca3af;
+    --qc-muted:          #6b7280;
+
+    /* Semantic */
+    --qc-accent:         #3b82f6;
+    --qc-accent-hover:   #2563eb;
+    --qc-success:        #10b981;
+    --qc-warning:        #f59e0b;
+    --qc-danger:         #ef4444;
+    --qc-info:           #60a5fa;
+
+    /* KR convention preserved (수익=red, 손실=blue).
+       US convention preserved (gain=green, loss=red).
+       Per-market overrides handle .gain/.loss color assignment. */
+    --qc-radius-sm:      4px;
+    --qc-radius-md:      6px;
+    --qc-radius-lg:      8px;
+    --qc-radius-card:    12px;
+
+    --qc-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+               'Helvetica Neue', Arial, 'Noto Sans KR', sans-serif;
+}
+
+/* ─── Phase 2-A: IA group wrappers ───────────────────────────
+   Sections live inside .qc-group containers (Core / Market /
+   Extensions / Analytics). [hidden] keeps empty wrappers from
+   taking layout space. */
+.qc-group {
+    display: block;
+}
+.qc-group[hidden] {
+    display: none;
+}
+
+/* ─── Generic primitives ─────────────────────────────────────
+   Per-market <style> blocks may already define `.section`,
+   `.card`, `.badge` — the shared rules below ONLY apply when
+   per-market doesn't override. Safe additive base. */
+
+.qc-card {
+    background: var(--qc-bg-card);
+    border: 1px solid var(--qc-border);
+    border-radius: var(--qc-radius-lg);
+    padding: 16px;
+}
+
+.qc-section {
+    margin-bottom: 24px;
+}
+
+.qc-section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--qc-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 12px;
+}
+
+.qc-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: var(--qc-radius-sm);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.qc-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.qc-table th {
+    text-align: left;
+    padding: 8px 12px;
+    font-size: 11px;
+    color: var(--qc-muted);
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--qc-border);
+}
+.qc-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--qc-border);
+    font-variant-numeric: tabular-nums;
+}
+.qc-table tr:hover {
+    background: rgba(59, 130, 246, 0.05);
+}
+
+/* ─── Animation keyframes (used by status LEDs etc.) ───────── */
+@keyframes qc-pulse-led {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.6; }
+}
