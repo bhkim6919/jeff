@@ -1550,6 +1550,42 @@ def create_app() -> FastAPI:
         except Exception as e:
             return {"error": str(e)}
 
+    @application.get("/api/regime/current")
+    async def api_regime_current():
+        """KR regime — Phase 4-A.4 (2026-04-25): unified shape per
+        docs/ui_data_contract_20260424.md §4. Same fields as US
+        /api/regime/current.
+
+        Returns:
+            { "today":    { actual_regime, actual_label, scores, ... },
+              "tomorrow": { predicted_regime, predicted_label, ... },
+              "data_quality": "OK" | "DEGRADED" }
+
+        Source: tracker.snapshot() — same data fed into SSE (data.regime_actual
+        / data.regime_prediction). Provides REST access without changing
+        the SSE flow that dashboard.js currently consumes.
+        """
+        try:
+            snap = tracker.snapshot() or {}
+            today = snap.get("regime_actual") or {}
+            tomorrow = snap.get("regime_prediction") or {}
+            quality = "OK"
+            if today.get("unavailable") or tomorrow.get("unavailable"):
+                quality = "DEGRADED"
+            return {
+                "today": today,
+                "tomorrow": tomorrow,
+                "regime_prediction": tomorrow,  # SSE-style alias for components
+                "data_quality": quality,
+            }
+        except Exception as e:
+            return {
+                "today": {},
+                "tomorrow": {},
+                "data_quality": "DEGRADED",
+                "error": str(e),
+            }
+
     @application.get("/api/summary")
     async def api_summary():
         """KR account summary — Phase 4-A.3 (2026-04-25): unified shape

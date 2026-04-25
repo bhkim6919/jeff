@@ -942,9 +942,14 @@ def create_app() -> FastAPI:
             except Exception as e:
                 logger.warning(f"[REGIME] Holdings enrichment failed: {e}")
 
+            # Phase 4-A.4 (2026-04-25): expose `tomorrow` as the unified
+            # field name per docs/ui_data_contract_20260424.md §4.
+            # `prediction` retained as legacy alias for current consumers
+            # (us regime.us.js component, etc.).
             result = {
                 "today": today,
-                "prediction": prediction,
+                "tomorrow": prediction,
+                "prediction": prediction,  # legacy alias
                 "sectors": sectors,
                 "breadth": market_data.get("breadth", {}),
                 "colors": REGIME_COLORS,
