@@ -256,12 +256,67 @@
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
+    // ── Risk Metrics (Phase 4-B.3) ───────────────────────────────
+    async function loadRiskMetrics() {
+        const cardsHost = document.getElementById('risk-cards');
+        if (!cardsHost) return;
+        const periodHost = document.getElementById('risk-period');
+        const days = document.getElementById('risk-days')?.value || 60;
+        try {
+            const r = await fetch(`/api/risk/metrics?days=${days}`);
+            const m = await r.json();
+            if (m.error) {
+                if (periodHost) {
+                    periodHost.innerHTML = m.error === 'insufficient data'
+                        ? '<span style="color:var(--muted);">Not enough US LIVE history yet — needs ≥7 daily equity rows.</span>'
+                        : `<span style="color:#f87171;">risk error: ${_escape(m.error)}</span>`;
+                }
+                cardsHost.innerHTML = '';
+                return;
+            }
+            if (periodHost) {
+                periodHost.textContent = `${m.period}  •  ${m.days} trading days`;
+            }
+            // Each card: label + value with color tone for sign-aware metrics.
+            const fmt = (v, suf) => (v == null ? '--' : v.toLocaleString('en-US', {maximumFractionDigits: 2}) + (suf || ''));
+            const colorize = (v) => {
+                if (v == null) return 'var(--muted)';
+                if (v > 0) return 'var(--green)';
+                if (v < 0) return 'var(--red)';
+                return 'var(--text)';
+            };
+            const cards = [
+                { label: 'Sharpe',         value: fmt(m.sharpe),                 color: colorize(m.sharpe),                tip: 'Risk-adjusted return (annualized).' },
+                { label: 'Sortino',        value: fmt(m.sortino),                color: colorize(m.sortino),               tip: 'Downside-only risk-adjusted return.' },
+                { label: 'MDD',            value: fmt(m.mdd, '%'),               color: '#f87171',                          tip: 'Maximum drawdown over the window.' },
+                { label: 'CAGR',           value: fmt(m.cagr, '%'),              color: colorize(m.cagr),                   tip: 'Compound annual growth rate.' },
+                { label: 'Cum. Return',    value: fmt(m.cum_return, '%'),        color: colorize(m.cum_return),             tip: 'Equity total return over the window.' },
+                { label: 'Win Rate',       value: fmt(m.win_rate, '%'),          color: 'var(--text)',                      tip: '% of days with positive return.' },
+                { label: 'Volatility',     value: fmt(m.volatility, '%'),        color: 'var(--text)',                      tip: 'Annualized stdev of daily returns.' },
+                { label: 'Best Day',       value: fmt(m.best_day, '%'),          color: 'var(--green)',                     tip: 'Largest single-day gain.' },
+                { label: 'Worst Day',      value: fmt(m.worst_day, '%'),         color: '#f87171',                          tip: 'Largest single-day loss.' },
+                { label: 'Avg Daily',      value: fmt(m.avg_daily, '%'),         color: colorize(m.avg_daily),              tip: 'Mean daily return (raw, not annualized).' },
+                { label: 'SPY Return',     value: fmt(m.spy_return, '%'),        color: colorize(m.spy_return),             tip: 'Benchmark cumulative over same window.' },
+            ];
+            cardsHost.innerHTML = cards.map(c => `
+                <div title="${_escape(c.tip)}" style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px;">
+                    <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;">${_escape(c.label)}</div>
+                    <div style="font-size:16px;font-weight:700;color:${c.color};margin-top:4px;font-variant-numeric:tabular-nums;">${_escape(c.value)}</div>
+                </div>
+            `).join('');
+        } catch (err) {
+            console.warn('[Analytics.US] risk metrics error:', err);
+            if (periodHost) periodHost.innerHTML = `<span style="color:#f87171;">fetch error: ${_escape(String(err))}</span>`;
+        }
+    }
+
     // ── Init ─────────────────────────────────────────────────────
     function _init() {
         // Defer initial fetch slightly to let the page settle
         setTimeout(() => {
             loadEquityCurve();
             loadTradeHistory();
+            loadRiskMetrics();
         }, 800);
         document.getElementById('equity-days')
             ?.addEventListener('change', loadEquityCurve);
@@ -269,6 +324,8 @@
             ?.addEventListener('input', _debouncedLoadTrades);
         document.getElementById('trade-side-filter')
             ?.addEventListener('change', loadTradeHistory);
+        document.getElementById('risk-days')
+            ?.addEventListener('change', loadRiskMetrics);
     }
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', _init);
@@ -280,4 +337,5 @@
     window.qcAnalytics = window.qcAnalytics || {};
     window.qcAnalytics.loadEquityCurve = loadEquityCurve;
     window.qcAnalytics.loadTradeHistory = loadTradeHistory;
+    window.qcAnalytics.loadRiskMetrics = loadRiskMetrics;
 })();

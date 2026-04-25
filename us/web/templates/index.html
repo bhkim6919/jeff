@@ -489,6 +489,24 @@
                 <div id="trade-table" style="max-height:320px;overflow-y:auto;"></div>
             </div>
         </div>
+
+        <!-- B.3 Risk Metrics -->
+        <div class="section">
+            <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>Analytics — Risk Metrics</span>
+                <select id="risk-days" style="font-size:12px;padding:2px 6px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:4px;">
+                    <option value="30">30D</option>
+                    <option value="60" selected>60D</option>
+                    <option value="90">90D</option>
+                    <option value="180">180D</option>
+                    <option value="365">1Y</option>
+                </select>
+            </div>
+            <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px;">
+                <div id="risk-period" style="font-size:11px;color:var(--muted);margin-bottom:10px;">Loading risk metrics…</div>
+                <div id="risk-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;"></div>
+            </div>
+        </div>
     </div>
 
 

@@ -854,6 +854,103 @@ def create_app() -> FastAPI:
 
     _regime_cache = {"data": None, "ts": 0}
 
+    @app.get("/api/risk/metrics")
+    async def api_risk_metrics(days: int = Query(60, ge=7, le=730)):
+        """US risk metrics — Phase 4-B.3 (2026-04-25). Sharpe / Sortino /
+        MDD / CAGR / Win Rate computed from equity_history_us. Mirrors
+        KR /api/risk/metrics shape with `spy_return` replacing
+        `kospi_return` as the benchmark.
+
+        Returns:
+            { days, period, sharpe, sortino, mdd, cagr, cum_return,
+              win_rate, best_day, worst_day, avg_daily, volatility,
+              spy_return }
+        """
+        try:
+            from shared.db.pg_base import connection
+            with connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT date, equity, spy_close FROM equity_history_us "
+                    "ORDER BY date DESC LIMIT %s",
+                    (days,),
+                )
+                rows = list(cur.fetchall())
+                cur.close()
+            # Reverse to chronological for sequential calc
+            rows.reverse()
+
+            if len(rows) < 2:
+                return {"error": "insufficient data", "count": len(rows)}
+
+            dates = [str(r[0]) for r in rows]
+            equities = [float(r[1]) for r in rows if r[1] is not None]
+            spy_closes = [float(r[2]) for r in rows if r[2] is not None]
+
+            if len(equities) < 2:
+                return {"error": "insufficient equity rows", "count": len(equities)}
+
+            # Compute daily returns (chronological)
+            returns = []
+            for i in range(1, len(equities)):
+                prev_eq = equities[i - 1]
+                if prev_eq > 0:
+                    returns.append((equities[i] / prev_eq) - 1.0)
+            if len(returns) < 2:
+                return {"error": "insufficient return series", "count": len(returns)}
+
+            mean_r = sum(returns) / len(returns)
+            std_r = (sum((r - mean_r) ** 2 for r in returns) / (len(returns) - 1)) ** 0.5
+            sharpe = (mean_r / std_r * (252 ** 0.5)) if std_r > 0 else 0
+
+            neg_returns = [r for r in returns if r < 0]
+            if neg_returns:
+                down_dev = (sum(r ** 2 for r in neg_returns) / len(neg_returns)) ** 0.5
+                sortino = (mean_r / down_dev * (252 ** 0.5)) if down_dev > 0 else 0
+            else:
+                sortino = 0
+
+            peak = equities[0]
+            max_dd = 0
+            for eq in equities:
+                if eq > peak:
+                    peak = eq
+                dd = (eq - peak) / peak if peak > 0 else 0
+                if dd < max_dd:
+                    max_dd = dd
+
+            cum_return = equities[-1] / equities[0] - 1 if equities[0] > 0 else 0
+            years = len(equities) / 252
+            total_return = equities[-1] / equities[0] if equities[0] > 0 else 1.0
+            cagr = (total_return ** (1 / years) - 1) if years > 0 else 0
+
+            wins = sum(1 for r in returns if r > 0)
+            win_rate = wins / len(returns) * 100 if returns else 0
+            best_day = max(returns)
+            worst_day = min(returns)
+
+            spy_return = None
+            if len(spy_closes) >= 2 and spy_closes[0] > 0:
+                spy_return = round((spy_closes[-1] / spy_closes[0] - 1) * 100, 2)
+
+            return {
+                "days": len(returns),
+                "period": f"{dates[0]} ~ {dates[-1]}",
+                "sharpe": round(sharpe, 2),
+                "sortino": round(sortino, 2),
+                "mdd": round(max_dd * 100, 2),
+                "cagr": round(cagr * 100, 2),
+                "cum_return": round(cum_return * 100, 2),
+                "win_rate": round(win_rate, 1),
+                "best_day": round(best_day * 100, 2),
+                "worst_day": round(worst_day * 100, 2),
+                "avg_daily": round(mean_r * 100, 4),
+                "volatility": round(std_r * (252 ** 0.5) * 100, 2),
+                "spy_return": spy_return,
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
     @app.get("/api/trades")
     async def api_trades(
         start: str = Query("", description="YYYY-MM-DD"),
