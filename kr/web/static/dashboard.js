@@ -980,6 +980,8 @@ function updateHoldingsList(data) {
 
 function updateAlertBanner(data) {
     const banner = document.getElementById('alert-banner');
+    // P0-2 hotfix: bail on /debug (no alert-banner element).
+    if (!banner) return;
     const icon = document.getElementById('alert-icon');
     const text = document.getElementById('alert-text');
     const health = data.health;
