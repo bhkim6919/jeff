@@ -133,14 +133,13 @@
             </div>
         </section>
 
-        <!-- Rebalance Action + Preview (통합, Operator+) -->
-        <section id="rebal-actions" class="rebal-actions"
-            <div class="rebal-actions-header">
-                <span id="rebal-actions-title">Rebalance</span>
-                <span id="rebal-blocked-badge" class="badge badge-red" style="display:none">BLOCKED</span>
-            </div>
-
-            <!-- 리밸런스 프리뷰 (신규/제외/유지) — 여기로 통합 -->
+        <!-- ====== Target Portfolio (Phase 2-B 분리, IA §2.2 Core) ===== -->
+        <!-- 이전: #rebal-actions 내부에 통합. 분리 후 별도 섹션으로 이전.
+             모든 element ID (rp-target-date, rp-new-entries, rp-exits,
+             rp-unchanged, rp-optimal, btn-rp-refresh) 그대로 유지 →
+             loadRebalPreview() 등 JS 호출자 호환. -->
+        <section id="target-portfolio-section" class="section">
+            <h3 class="section-title">Target Portfolio</h3>
             <div id="rebal-preview-compare" style="margin-bottom:12px;">
                 <div id="rebal-preview-header" class="rebal-preview-header" style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
                     <span id="rp-target-date" style="font-size:12px;color:#a0aec0;">Target: --</span>
@@ -165,6 +164,14 @@
                         <div id="rp-optimal" class="rp-optimal">향후 구현 예정 (과거 패턴 분석 기반 추천)</div>
                     </div>
                 </div>
+            </div>
+        </section>
+
+        <!-- Rebalance Action + Preview (통합, Operator+) -->
+        <section id="rebal-actions" class="rebal-actions"
+            <div class="rebal-actions-header">
+                <span id="rebal-actions-title">Rebalance</span>
+                <span id="rebal-blocked-badge" class="badge badge-red" style="display:none">BLOCKED</span>
             </div>
 
             <!-- 실행 버튼 -->
