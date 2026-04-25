@@ -854,6 +854,103 @@ def create_app() -> FastAPI:
 
     _regime_cache = {"data": None, "ts": 0}
 
+    @app.get("/api/charts/equity-unified")
+    async def get_equity_unified(days: int = Query(90, ge=7, le=730)):
+        """US unified equity curve — Phase 4-C (2026-04-25): mirror of
+        kr/web/app.py /api/charts/equity-unified contract so the future
+        US Analytics card (Phase 4-B) can render the same Equity Curve
+        chart shipped in the KR Dashboard.
+
+        Series shape (same as KR):
+            { "live":  { label, kind, pct: [...] },
+              "spy":   { label: "SPY", kind: "benchmark", pct: [...] } }
+
+        US has no Lab 9-strategy framework, so only `live` + `spy`
+        series ship. Frontend (Phase 4-B port) handles missing strategy
+        keys gracefully.
+
+        Source:
+        - LIVE equity: equity_history_us (date, equity)
+        - SPY benchmark: equity_history_us.spy_close column (recorded
+          daily by EOD job).
+
+        When the table is empty (current state — daily commits land
+        once US live mode is on for a few days), returns error sentinel
+        which the chart component shows as "not enough data yet".
+        """
+        try:
+            from shared.db.pg_base import connection
+            with connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT date, equity, spy_close FROM equity_history_us "
+                    "ORDER BY date ASC"
+                )
+                live_rows = cur.fetchall()
+                cur.close()
+            if not live_rows:
+                return {
+                    "error": "no_us_live_data",
+                    "days": days,
+                    "baseline_date": None,
+                    "dates": [],
+                    "series": {},
+                    "data_quality": "DEGRADED",
+                }
+            live_map = {str(r[0]): float(r[1]) for r in live_rows}
+            spy_map = {
+                str(r[0]): float(r[2]) for r in live_rows if r[2] is not None
+            }
+
+            dates_sorted = sorted(live_map.keys())
+            if days and len(dates_sorted) > days:
+                dates_sorted = dates_sorted[-days:]
+            baseline_date = dates_sorted[0]
+
+            def _pct_series(values: dict, dates: list) -> list:
+                base = values.get(baseline_date)
+                if base is None:
+                    for d in dates:
+                        if values.get(d) is not None:
+                            base = values[d]
+                            break
+                out = []
+                for d in dates:
+                    v = values.get(d)
+                    if v is None or base is None or base == 0:
+                        out.append(None)
+                    else:
+                        out.append(round((v / base - 1) * 100, 3))
+                return out
+
+            series = {
+                "live": {
+                    "label": "Gen4 LIVE",
+                    "kind": "live",
+                    "pct": _pct_series(live_map, dates_sorted),
+                },
+                "spy": {
+                    "label": "SPY",
+                    "kind": "benchmark",
+                    "pct": _pct_series(spy_map, dates_sorted),
+                },
+            }
+            return {
+                "days": days,
+                "baseline_date": baseline_date,
+                "dates": dates_sorted,
+                "series": series,
+                "data_quality": "OK",
+            }
+        except Exception as e:
+            return {
+                "error": str(e),
+                "days": days,
+                "series": {},
+                "dates": [],
+                "data_quality": "DEGRADED",
+            }
+
     @app.get("/api/regime/current")
     async def regime_current():
         """Today's actual + tomorrow's prediction + sectors."""
