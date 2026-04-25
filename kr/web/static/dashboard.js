@@ -195,44 +195,52 @@ function updateDashboard(data) {
 // ── Hero Status ──────────────────────────────────────────────
 
 function updateHero(data) {
-    const dot = document.getElementById('health-dot');
-    const label = document.getElementById('health-label');
-    const reason = document.getElementById('health-reason');
     const health = data.health;
-
     const statusLower = health.status.toLowerCase();
-    dot.className = 'health-dot health-' + statusLower;
 
-    const statusLabels = {
-        green: '시스템 정상',
-        yellow: '주의 필요',
-        red: '오류 발생',
-        black: '연결 안됨',
-    };
-    label.textContent = statusLabels[statusLower] || health.status;
-    reason.textContent = health.reason;
+    // Hero block (Dashboard only — absent on /debug). Guard at first
+    // element so /debug doesn't crash on dot.className = ...
+    const dot = document.getElementById('health-dot');
+    if (dot) {
+        const label = document.getElementById('health-label');
+        const reason = document.getElementById('health-reason');
+        dot.className = 'health-dot health-' + statusLower;
 
-    // Hero meta
-    const serverEl = document.getElementById('hero-server');
-    serverEl.textContent = data.server.type;
+        const statusLabels = {
+            green: '시스템 정상',
+            yellow: '주의 필요',
+            red: '오류 발생',
+            black: '연결 안됨',
+        };
+        if (label) label.textContent = statusLabels[statusLower] || health.status;
+        if (reason) reason.textContent = health.reason;
 
-    const tokenEl = document.getElementById('hero-token');
-    if (data.token.valid && data.token.remaining_sec > 0) {
-        tokenEl.textContent = data.token.remaining_str + ' 남음';
-        tokenEl.className = 'meta-value' + (data.token.remaining_sec < 600 ? ' status-warn' : '');
-    } else {
-        tokenEl.textContent = '만료됨';
-        tokenEl.className = 'meta-value status-error';
+        // Hero meta
+        const serverEl = document.getElementById('hero-server');
+        if (serverEl) serverEl.textContent = data.server.type;
+
+        const tokenEl = document.getElementById('hero-token');
+        if (tokenEl) {
+            if (data.token.valid && data.token.remaining_sec > 0) {
+                tokenEl.textContent = data.token.remaining_str + ' 남음';
+                tokenEl.className = 'meta-value' + (data.token.remaining_sec < 600 ? ' status-warn' : '');
+            } else {
+                tokenEl.textContent = '만료됨';
+                tokenEl.className = 'meta-value status-error';
+            }
+        }
+
+        const syncEl = document.getElementById('hero-sync');
+        if (syncEl) {
+            if (data.timestamps.last_request) {
+                syncEl.textContent = data.timestamps.last_request;
+            } else {
+                syncEl.textContent = '대기 중';
+            }
+        }
     }
 
-    const syncEl = document.getElementById('hero-sync');
-    if (data.timestamps.last_request) {
-        syncEl.textContent = data.timestamps.last_request;
-    } else {
-        syncEl.textContent = '대기 중';
-    }
-
-    // Server badge + LED → nav bar
+    // Server badge + LED → nav bar (these may live on both pages, keep separate guards).
     const badge = document.getElementById('server-badge');
     if (badge) {
         badge.textContent = data.server.type;
@@ -244,7 +252,7 @@ function updateHero(data) {
         led.className = 'status-led ' + ledClass;
     }
 
-    // Nav badges (REAL + dot + mode switch)
+    // Nav badges (REAL + dot) — present on both Dashboard and /debug.
     const nb = document.getElementById('qnav-badges');
     if (nb) {
         const svr = data.server?.type || '--';
