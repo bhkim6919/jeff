@@ -1016,13 +1016,17 @@ function initAlertClose() {
 function updateControlCards(data) {
     // Token
     const tokenStatusEl = document.getElementById('token-status');
+    // P0-2 hotfix: bail if sec-control absent on current page (/debug).
+    // sec-control STAYS on Dashboard per option B, so /debug should no-op here.
+    if (!tokenStatusEl) return;
     tokenStatusEl.textContent = data.token.valid ? '유효' : '만료';
     tokenStatusEl.className = 'v ' + (data.token.valid ? 'status-ok' : 'status-error');
 
     setText('token-remaining', data.token.remaining_str,
         data.token.remaining_sec > 3600 ? '' :
         data.token.remaining_sec > 600 ? 'status-warn' : 'status-error');
-    document.getElementById('token-refresh').textContent = data.token.last_refresh;
+    const refreshEl = document.getElementById('token-refresh');
+    if (refreshEl) refreshEl.textContent = data.token.last_refresh;
 
     // Latency
     setText('lat-last', data.latency.last_ms + ' ms', latencyClass(data.latency.last_ms));
@@ -1051,6 +1055,8 @@ function latencyClass(ms) {
 
 function updateFreshnessGrid(freshness) {
     const grid = document.getElementById('freshness-grid');
+    // P0-2 hotfix: bail if section absent on current page (/debug).
+    if (!grid) return;
     if (!freshness) return;
 
     let html = '';
@@ -2100,6 +2106,8 @@ function updateDDGuard(data) {
     if (!dd) return;
 
     const dailyVal = document.getElementById('dd-daily-value');
+    // P0-2 hotfix: bail if dd-guard-section absent (/debug).
+    if (!dailyVal) return;
     const dailyFill = document.getElementById('dd-daily-fill');
     const monthlyVal = document.getElementById('dd-monthly-value');
     const monthlyFill = document.getElementById('dd-monthly-fill');
@@ -2166,6 +2174,8 @@ function ddColor(val) {
 
 function updateHeroBadges(data) {
     const buyBadge = document.getElementById('buy-status-badge');
+    // P0-2 hotfix: bail if hero badges absent (/debug).
+    if (!buyBadge) return;
     const riskBadge = document.getElementById('system-risk-badge');
     const emergBadge = document.getElementById('emergency-badge');
 
@@ -2216,6 +2226,8 @@ function updateIndexDisplay(data) {
     if (!idx) return;
     const label = document.getElementById('hero-index-label');
     const value = document.getElementById('hero-index');
+    // P0-2 hotfix: bail if hero index display absent (/debug).
+    if (!value) return;
     if (idx.error || !idx.price) {
         value.textContent = '--';
         value.className = 'meta-value';
@@ -2693,6 +2705,8 @@ function updateReconCard(data) {
     if (!recon) return;
 
     const statusEl = document.getElementById('recon-status');
+    // P0-2 hotfix: bail if recon-card absent (/debug).
+    if (!statusEl) return;
     const lastEl = document.getElementById('recon-last-run');
     const ageEl = document.getElementById('recon-age');
     const badgesEl = document.getElementById('recon-badges');
