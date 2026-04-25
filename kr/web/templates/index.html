@@ -27,6 +27,24 @@
     <!-- ── Main Content ───────────────────────────────────── -->
     <main id="main">
 
+        <!--
+            Phase 2-A (2026-04-25): IA group wrappers.
+            Empty initially — existing sections still render in their
+            legacy positions below. Sections will be moved into these
+            containers in subsequent sub-blocks:
+              2-B: KR Target Portfolio split → qc-group-core
+              2-C: KR section reorder → moves Holdings/Rebal into Core,
+                   DD Guard/Advisor into Extensions, Profit/Trades into
+                   Analytics, Regime/Sector into Market
+              2-D: US micro reorder
+              2-E: Surge Monitor card → qc-group-ext
+            See docs/ui_unification_ia_20260424.md §2.2 for target layout.
+        -->
+        <div class="qc-group qc-group-core"      id="qc-group-core"      data-qc-group="core"      hidden></div>
+        <div class="qc-group qc-group-market"    id="qc-group-market"    data-qc-group="market"    hidden></div>
+        <div class="qc-group qc-group-ext"       id="qc-group-ext"       data-qc-group="ext"       hidden></div>
+        <div class="qc-group qc-group-analytics" id="qc-group-analytics" data-qc-group="analytics" hidden></div>
+
         <!-- ====== Hero Status (Basic+) ===================== -->
         <section id="hero" class="hero">
             <div class="hero-inner">

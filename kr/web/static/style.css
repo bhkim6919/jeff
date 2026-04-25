@@ -907,6 +907,19 @@ main {
     margin-bottom: 24px;
 }
 
+/* ─── Phase 2-A: IA group wrappers ───────────────────────────
+   Sections will be moved into these containers in 2-B/C/D/E.
+   `hidden` attribute keeps them invisible while empty (initial state).
+   When populated, [hidden] is dropped and the group renders normally.
+   No visible spacing/border yet — that's added in 2-C when sections
+   actually live inside. */
+.qc-group {
+    display: block;
+}
+.qc-group[hidden] {
+    display: none;
+}
+
 .section-title {
     font-size: 14px;
     font-weight: 700;
