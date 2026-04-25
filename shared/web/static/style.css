@@ -131,55 +131,76 @@
    override only the tokens that actually change per theme. Each
    selector matches what shared/themes.js writes onto <html>. */
 
+/* Theme variants override BOTH variable naming schemes simultaneously:
+   - Q-TRON shared tokens (--qc-*)
+   - KR style.css legacy tokens (--bg-page, --bg-card, --text, --border, etc.)
+   - US inline <style> tokens (--bg, --card, --border, --text, --muted, etc.)
+   This way `<html data-theme="light">` actually re-paints both markets'
+   existing UIs without requiring a CSS-variable rename. */
+
 html[data-theme="light"] {
-    --qc-bg-page:        #f7f8fa;
-    --qc-bg-card:        #ffffff;
-    --qc-bg-card-hover:  #eef2f7;
-    --qc-bg-elevated:    #e5e7eb;
-    --qc-border:         #d1d5db;
-    --qc-border-strong:  #9ca3af;
-    --qc-text:           #111827;
-    --qc-text-secondary: #4b5563;
-    --qc-muted:          #6b7280;
+    /* shared */
+    --qc-bg-page: #f7f8fa; --qc-bg-card: #ffffff; --qc-bg-card-hover: #eef2f7;
+    --qc-border: #d1d5db; --qc-text: #111827; --qc-text-secondary: #4b5563;
+    --qc-muted: #6b7280;
+    /* KR legacy */
+    --bg-page: #f7f8fa; --bg-card: #ffffff; --bg-card-hover: #eef2f7;
+    --bg-header: #ffffff; --bg-input: #ffffff; --bg-hover: #eef2f7;
+    --border: #d1d5db; --border-light: #e5e7eb;
+    --text: #111827; --text-primary: #111827; --text-secondary: #4b5563;
+    --text-muted: #6b7280; --text-dim: #9ca3af;
+    /* US inline */
+    --bg: #f7f8fa; --card: #ffffff; --muted: #6b7280;
 }
 
 html[data-theme="pastel"] {
-    --qc-bg-page:        #14181f;
-    --qc-bg-card:        #1c2230;
-    --qc-bg-card-hover:  #232b3c;
-    --qc-bg-elevated:    #2b3346;
-    --qc-border:         #2b3346;
-    --qc-border-strong:  #3a4256;
-    --qc-text:           #e5e7eb;
-    --qc-text-secondary: #c0c5d3;
-    --qc-muted:          #8e94a3;
-    --qc-accent:         #7aa2ff;
-    --qc-success:        #6dd6a5;
-    --qc-warning:        #f7c682;
-    --qc-danger:         #f4868a;
+    --qc-bg-page: #1a1f2c; --qc-bg-card: #232a3a; --qc-bg-card-hover: #2c3447;
+    --qc-text: #e5e7eb; --qc-muted: #aab1c0; --qc-accent: #7aa2ff;
+    --bg-page: #1a1f2c; --bg-card: #232a3a; --bg-card-hover: #2c3447;
+    --bg-header: #232a3a; --bg-input: #1a1f2c; --bg-hover: #2c3447;
+    --border: #2c3447; --border-light: #232a3a;
+    --text: #e5e7eb; --text-primary: #e5e7eb; --text-secondary: #c0c5d3;
+    --text-muted: #aab1c0; --text-dim: #6b7280;
+    --accent: #7aa2ff;
+    --bg: #1a1f2c; --card: #232a3a; --muted: #aab1c0;
 }
 
 html[data-theme="pro"] {
-    --qc-bg-page:        #050810;
-    --qc-bg-card:        #0a0f1a;
-    --qc-bg-card-hover:  #11192a;
-    --qc-bg-elevated:    #1a2540;
-    --qc-border:         #1a2540;
-    --qc-border-strong:  #3b82f6;
-    --qc-text:           #f3f4f6;
-    --qc-text-secondary: #a5b4cc;
-    --qc-muted:          #6b7280;
-    --qc-accent:         #58a6ff;
+    --qc-bg-page: #050810; --qc-bg-card: #0a0f1a; --qc-bg-card-hover: #11192a;
+    --qc-text: #f3f4f6; --qc-accent: #58a6ff;
+    --bg-page: #050810; --bg-card: #0a0f1a; --bg-card-hover: #11192a;
+    --bg-header: #0a0f1a; --bg-input: #050810; --bg-hover: #11192a;
+    --border: #1a2540; --border-light: #11192a;
+    --text: #f3f4f6; --text-primary: #f3f4f6; --text-secondary: #a5b4cc;
+    --text-muted: #6b7280; --text-dim: #4b5563;
+    --accent: #58a6ff;
+    --bg: #050810; --card: #0a0f1a; --muted: #6b7280;
 }
+
+/* dark theme = default token block at :root + KR :root in style.css.
+   No override needed; data-theme="dark" resets to authored values. */
 
 /* ─── Theme tab footer (used by both markets) ──────────────── */
 .qtron-theme-tab {
     cursor: pointer;
+    padding: 4px 12px;
+    margin: 0 2px;
+    font-size: 11px;
+    font-weight: 600;
+    background: transparent;
+    color: var(--text-secondary, var(--qc-text-secondary, #9ca3af));
+    border: 1px solid var(--border, var(--qc-border, #30363d));
+    border-radius: var(--qc-radius-sm, 4px);
+    transition: all 0.15s ease;
+}
+.qtron-theme-tab:hover {
+    background: var(--bg-hover, var(--qc-bg-card-hover, rgba(88,166,255,0.08)));
+    color: var(--text, var(--qc-text, #e5e7eb));
 }
 .qtron-theme-tab.active {
-    background: var(--qc-accent, #3b82f6);
-    color: #fff;
-    border-color: var(--qc-accent, #3b82f6);
+    background: var(--accent, var(--qc-accent, #3b82f6));
+    color: #ffffff;
+    border-color: var(--accent, var(--qc-accent, #3b82f6));
 }
 .qtron-saved-indicator {
     transition: opacity 0.2s ease;
