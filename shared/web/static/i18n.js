@@ -5,8 +5,8 @@
  * text from a locale resource bundle. Toggle via window.qcI18n.set('en'|'ko').
  *
  * Resource files (loaded once, cached):
- *   /static/shared/i18n/ko.json
- *   /static/shared/i18n/en.json
+ *   /shared/i18n/ko.json
+ *   /shared/i18n/en.json
  *
  * Attribute conventions
  *   data-i18n="dash.title.holdings"        — replace textContent
@@ -36,7 +36,7 @@
     async function _loadLocale(loc) {
         if (_cache[loc]) return _cache[loc];
         try {
-            const r = await fetch(`/static/shared/i18n/${loc}.json`);
+            const r = await fetch(`/shared/i18n/${loc}.json`);
             const d = await r.json();
             _cache[loc] = d;
             return d;

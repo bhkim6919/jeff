@@ -98,14 +98,15 @@ def create_app() -> FastAPI:
     )
 
     if STATIC_DIR.exists():
-        # Phase 4-D (2026-04-25): mount shared static at /static/shared
-        # before /static so the more specific URL prefix wins. Holds qc-*
-        # components used by both KR (:8080) and US (:8081) Dashboards.
+        app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+        # Phase 4-D / hotfix (2026-04-25): shared static under top-level /shared
+        # prefix to avoid being shadowed by /static catch-all. (Starlette's /static
+        # mount captures every /static/* request regardless of nested-mount
+        # registration order; using a distinct prefix is the only reliable fix.)
         from pathlib import Path as _SP
         _SHARED_STATIC = (_SP(__file__).resolve().parent.parent.parent / "shared" / "web" / "static")
         if _SHARED_STATIC.exists():
-            app.mount("/static/shared", StaticFiles(directory=str(_SHARED_STATIC)), name="static_shared")
-        app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+            app.mount("/shared", StaticFiles(directory=str(_SHARED_STATIC)), name="static_shared")
 
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 

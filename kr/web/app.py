@@ -738,13 +738,15 @@ def create_app() -> FastAPI:
 
     # Static files
     STATIC_DIR.mkdir(parents=True, exist_ok=True)
-    # Phase 4-D (2026-04-25): mount shared static directory at /static/shared.
-    # Holds KR/US-shared frontend components (qc-* family). Mount /static/shared
-    # BEFORE /static so the more specific prefix takes precedence.
+    application.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    # Phase 4-D / hotfix (2026-04-25): shared static under DISTINCT URL prefix
+    # /shared/ — NOT /static/shared/. Starlette's /static mount catches every
+    # /static/* request, so a nested /static/shared mount is shadowed regardless
+    # of registration order. Using a separate top-level prefix sidesteps the
+    # shadowing entirely.
     _SHARED_STATIC = (Path(__file__).resolve().parent.parent.parent / "shared" / "web" / "static")
     if _SHARED_STATIC.exists():
-        application.mount("/static/shared", StaticFiles(directory=str(_SHARED_STATIC)), name="static_shared")
-    application.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+        application.mount("/shared", StaticFiles(directory=str(_SHARED_STATIC)), name="static_shared")
 
     # Templates
     TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)

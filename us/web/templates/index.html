@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Q-TRON US 1.0</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="stylesheet" href="/static/shared/style.css?v=1">
+    <link rel="stylesheet" href="/shared/style.css?v=1">
     <style>
         :root {
             --bg: #0a0e17; --card: #111827; --border: #1f2937;
@@ -231,9 +231,9 @@
 
 <link rel="stylesheet" href="/static/nav.css?v=3">
 <div id="qtron-nav" style="position:sticky;top:0;z-index:1000;"></div>
-<script src="/static/shared/components/badges.js?v=1"></script>
-<script src="/static/shared/i18n.js?v=1"></script>
-<script src="/static/shared/themes.js?v=1"></script>
+<script src="/shared/components/badges.js?v=1"></script>
+<script src="/shared/i18n.js?v=1"></script>
+<script src="/shared/themes.js?v=1"></script>
 <script src="/static/nav.js?v=3"></script>
 
 <script>window.__qtronNav.renderNav(document.getElementById('qtron-nav'));</script>
@@ -549,9 +549,9 @@
 </main>
 
 <!-- Phase 3 components (load before inline renderStatus so qc.* is available) -->
-<script src="/static/shared/components/summary.us.js?v=1"></script>
-<script src="/static/shared/components/regime.us.js?v=1"></script>
-<script src="/static/shared/components/holdings.us.js?v=1"></script>
+<script src="/shared/components/summary.us.js?v=1"></script>
+<script src="/shared/components/regime.us.js?v=1"></script>
+<script src="/shared/components/holdings.us.js?v=1"></script>
 
 <script>
 const BASE = '';
@@ -590,7 +590,7 @@ async function refresh() {
     }
 
     // Portfolio — Phase 3 (2026-04-25): delegated to qc-summary-card component.
-    // Calc/contract unchanged; see us/web/static/shared/components/summary.us.js.
+    // Calc/contract unchanged; see us/web/shared/components/summary.us.js.
     const p = await apiFetch('/api/portfolio');
     if (window.qc && window.qc.summary && typeof window.qc.summary.render === 'function') {
         window.qc.summary.render(
@@ -659,7 +659,7 @@ async function testSell() {
 
 // ── Regime ──────────────────────────────────────
 // Phase 3 (2026-04-25): REGIME_COLORS / regimeToBarPct / renderAxis moved
-// to us/web/static/shared/components/regime.us.js (qc-regime-card component).
+// to us/web/shared/components/regime.us.js (qc-regime-card component).
 
 
 async function refreshRegime() {
