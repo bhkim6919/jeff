@@ -7,12 +7,12 @@
 
 // ── State ────────────────────────────────────────────────────
 
-// P0-2 C3 (2026-04-24): Basic/Operator/Debug 3-mode system retired.
-// Dashboard now shows the full operator view by default; debug sections
-// live on /debug (separate page). Kept as constants for backward compat
-// until all `currentMode === ...` gates are removed in Phase 1.
-const MODE_KEY = 'qtron_monitor_mode';
-const currentMode = 'operator';
+// Phase 2-F (2026-04-25): MODE_KEY / currentMode constants removed.
+// They were the last residue of the Basic/Operator/Debug 3-mode system
+// retired in P0-2 C3 — kept temporarily as forward-compat seeds, but
+// nothing references them anymore (verified via grep over the whole
+// file). The localStorage key `qtron_monitor_mode` is left untouched
+// in browsers; it's harmless cookie data.
 let sseSource = null;
 let sseReconnectTimer = null;
 let sseReconnectCount = 0;
@@ -155,7 +155,7 @@ function markDisconnected() {
 // ── Main Dashboard Update ────────────────────────────────────
 
 function updateDashboard(data) {
-    // Always update (Basic+)
+    // Always update
     updateHero(data);
     updateSummaryCards(data);
     storeAccountData(data);
@@ -1056,7 +1056,7 @@ function formatSourceName(source) {
     return nameMap[source] || source.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
-// ── WebSocket Card (Operator+) ───────────────────────────────
+// ── WebSocket Card ───────────────────────────────
 
 function updateWSCard(ws) {
     const connEl = document.getElementById('ws-connected');
@@ -1077,7 +1077,7 @@ function updateWSCard(ws) {
     }
 }
 
-// ── Timestamps Card (Operator+) ──────────────────────────────
+// ── Timestamps Card ──────────────────────────────
 
 function updateTimestampsCard(ts) {
     const tsFirst = document.getElementById('ts-first');
@@ -1097,7 +1097,7 @@ function updateTimestampsCard(ts) {
     }
 }
 
-// ── Traces Table (Operator+) ─────────────────────────────────
+// ── Traces Table ─────────────────────────────────
 
 function updateTracesTable(traces) {
     const tbody = document.getElementById('traces-body');
@@ -1163,7 +1163,7 @@ function initTraceFilters() {
     if (inp) inp.addEventListener('input', () => { if (lastState) updateTracesTable(lastState.traces); });
 }
 
-// ── Sync Table (Operator+) ───────────────────────────────────
+// ── Sync Table ───────────────────────────────────
 
 function updateSyncTable(syncItems) {
     const tbody = document.getElementById('sync-body');

@@ -150,29 +150,11 @@ header {
     gap: 2px;
 }
 
-.mode-btn {
-    padding: 5px 14px;
-    border: none;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--text-dim);
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    font-family: var(--font);
-}
-
-.mode-btn:hover {
-    color: var(--text-secondary);
-    background: var(--bg-hover);
-}
-
-.mode-btn.active {
-    background: var(--accent);
-    color: #fff;
-    box-shadow: 0 1px 4px rgba(88, 166, 255, 0.3);
-}
+/* Phase 2-F (2026-04-25): .mode-btn rules removed.
+   Belonged to the Basic/Operator/Debug 3-mode switcher retired in
+   P0-2 C3. No HTML carries class="mode-btn" anymore — verified via
+   grep. .rebal-mode-btn (Manual/Auto rebal toggle) is a different
+   class and remains active in style.css below. */
 
 /* ── SSE Bar ───────────────────────────────────────────────── */
 
@@ -1440,10 +1422,7 @@ footer {
     .summary-cards { grid-template-columns: 1fr 1fr; gap: 8px; }
     .freshness-grid { grid-template-columns: 1fr; }
 
-    .mode-btn {
-        padding: 4px 10px;
-        font-size: 11px;
-    }
+    /* .mode-btn responsive rule removed Phase 2-F (deprecated 3-mode switcher). */
 
     .hero-title { font-size: 18px; }
     .health-dot { width: 36px; height: 36px; }
