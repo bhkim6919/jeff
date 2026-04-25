@@ -27,24 +27,6 @@
     <!-- ── Main Content ───────────────────────────────────── -->
     <main id="main">
 
-        <!--
-            Phase 2-A (2026-04-25): IA group wrappers.
-            Empty initially — existing sections still render in their
-            legacy positions below. Sections will be moved into these
-            containers in subsequent sub-blocks:
-              2-B: KR Target Portfolio split → qc-group-core
-              2-C: KR section reorder → moves Holdings/Rebal into Core,
-                   DD Guard/Advisor into Extensions, Profit/Trades into
-                   Analytics, Regime/Sector into Market
-              2-D: US micro reorder
-              2-E: Surge Monitor card → qc-group-ext
-            See docs/ui_unification_ia_20260424.md §2.2 for target layout.
-        -->
-        <div class="qc-group qc-group-core"      id="qc-group-core"      data-qc-group="core"      hidden></div>
-        <div class="qc-group qc-group-market"    id="qc-group-market"    data-qc-group="market"    hidden></div>
-        <div class="qc-group qc-group-ext"       id="qc-group-ext"       data-qc-group="ext"       hidden></div>
-        <div class="qc-group qc-group-analytics" id="qc-group-analytics" data-qc-group="analytics" hidden></div>
-
         <!-- ====== Hero Status (Basic+) ===================== -->
         <section id="hero" class="hero">
             <div class="hero-inner">
@@ -85,6 +67,20 @@
             </div>
         </section>
 
+        <!--
+            Phase 2-A (2026-04-25): IA group wrappers.
+            Empty initially — existing sections still render in their
+            legacy positions below. Sections will be moved into these
+            containers in subsequent sub-blocks:
+              2-B: KR Target Portfolio split → qc-group-core
+              2-C: KR section reorder → moves Holdings/Rebal into Core,
+                   DD Guard/Advisor into Extensions, Profit/Trades into
+                   Analytics, Regime/Sector into Market
+              2-D: US micro reorder
+              2-E: Surge Monitor card → qc-group-ext
+            See docs/ui_unification_ia_20260424.md §2.2 for target layout.
+        -->
+        <div class="qc-group qc-group-core" id="qc-group-core" data-qc-group="core">
         <!-- ====== Summary Cards (Basic+) =================== -->
         <section id="summary-cards" class="summary-cards">
             <div class="summary-card">
@@ -111,6 +107,29 @@
             </div>
         </section>
 
+        <!-- ====== Holdings List (Operator+) ================== -->
+        <section id="holdings-section" class="holdings-section">
+            <div class="holdings-header">
+                <h3 class="section-title" data-i18n="dash.title.holdings">보유종목</h3>
+                <div class="holdings-view-switch">
+                    <button class="view-btn active" data-view="list" id="view-list-btn">종목</button>
+                    <button class="view-btn" data-view="sector" id="view-sector-btn">섹터</button>
+                </div>
+            </div>
+            <!-- Donut Chart -->
+            <div id="donut-container" class="donut-container">
+                <div id="donut-chart" class="donut-chart"></div>
+                <div id="donut-legend" class="donut-legend"></div>
+            </div>
+
+            <!-- Sector View -->
+            <div id="sector-view" class="sector-view" style="display:none">
+            </div>
+            <div id="holdings-list" class="holdings-list">
+                <div class="holdings-empty">데이터 로딩 중...</div>
+            </div>
+        </section>
+
         <!-- ====== Rebalance Control Panel (Operator+) ======== -->
         <section id="rebal-section" class="rebal-section">
             <!-- Status Summary (US-style compact panel) -->
@@ -133,11 +152,6 @@
             </div>
         </section>
 
-        <!-- ====== Target Portfolio (Phase 2-B 분리, IA §2.2 Core) ===== -->
-        <!-- 이전: #rebal-actions 내부에 통합. 분리 후 별도 섹션으로 이전.
-             모든 element ID (rp-target-date, rp-new-entries, rp-exits,
-             rp-unchanged, rp-optimal, btn-rp-refresh) 그대로 유지 →
-             loadRebalPreview() 등 JS 호출자 호환. -->
         <section id="target-portfolio-section" class="section">
             <h3 class="section-title">Target Portfolio</h3>
             <div id="rebal-preview-compare" style="margin-bottom:12px;">
@@ -214,47 +228,8 @@
                 </div>
             </div>
         </div>
-
-        <!-- ====== DD Guard (Operator+) ======================== -->
-        <section id="dd-guard-section" class="dd-guard-section">
-            <div class="dd-guard-grid">
-                <div class="dd-gauge" data-source="dd_guard">
-                    <div class="dd-gauge-header">
-                        <span class="dd-gauge-label">일간 DD</span>
-                        <span id="dd-daily-value" class="dd-gauge-value">--</span>
-                    </div>
-                    <div class="dd-gauge-bar">
-                        <div id="dd-daily-fill" class="dd-gauge-fill"></div>
-                        <div class="dd-threshold" style="left:16.7%"></div>
-                        <div class="dd-threshold" style="left:33.3%"></div>
-                        <div class="dd-threshold" style="left:50%"></div>
-                        <div class="dd-threshold" style="left:66.7%"></div>
-                        <div class="dd-threshold" style="left:83.3%"></div>
-                    </div>
-                </div>
-                <div class="dd-gauge" data-source="dd_guard">
-                    <div class="dd-gauge-header">
-                        <span class="dd-gauge-label">월간 DD</span>
-                        <span id="dd-monthly-value" class="dd-gauge-value">--</span>
-                    </div>
-                    <div class="dd-gauge-bar">
-                        <div id="dd-monthly-fill" class="dd-gauge-fill"></div>
-                        <div class="dd-threshold" style="left:16.7%"></div>
-                        <div class="dd-threshold" style="left:33.3%"></div>
-                        <div class="dd-threshold" style="left:50%"></div>
-                        <div class="dd-threshold" style="left:66.7%"></div>
-                        <div class="dd-threshold" style="left:83.3%"></div>
-                    </div>
-                </div>
-                <div class="dd-permission">
-                    <div class="dd-perm-label">BUY STATUS (추정)</div>
-                    <div id="dd-permission-badge" class="dd-perm-badge perm-unknown">--</div>
-                    <div id="dd-config-version" class="dd-config-ver"></div>
-                </div>
-            </div>
-            <div id="dd-badges" class="dd-source-badges"></div>
-        </section>
-
+        </div>
+        <div class="qc-group qc-group-market" id="qc-group-market" data-qc-group="market">
         <!-- ====== Regime (Basic+) ============================== -->
         <section id="regime-section" class="regime-section">
             <!-- 오늘 레짐 + 내일 예측: 그라데이션 바 -->
@@ -329,6 +304,47 @@
                 <div class="dim" style="text-align:center;padding:12px">loading...</div>
             </div>
         </section>
+        </div>
+        <div class="qc-group qc-group-ext" id="qc-group-ext" data-qc-group="ext">
+        <!-- ====== DD Guard (Operator+) ======================== -->
+        <section id="dd-guard-section" class="dd-guard-section">
+            <div class="dd-guard-grid">
+                <div class="dd-gauge" data-source="dd_guard">
+                    <div class="dd-gauge-header">
+                        <span class="dd-gauge-label">일간 DD</span>
+                        <span id="dd-daily-value" class="dd-gauge-value">--</span>
+                    </div>
+                    <div class="dd-gauge-bar">
+                        <div id="dd-daily-fill" class="dd-gauge-fill"></div>
+                        <div class="dd-threshold" style="left:16.7%"></div>
+                        <div class="dd-threshold" style="left:33.3%"></div>
+                        <div class="dd-threshold" style="left:50%"></div>
+                        <div class="dd-threshold" style="left:66.7%"></div>
+                        <div class="dd-threshold" style="left:83.3%"></div>
+                    </div>
+                </div>
+                <div class="dd-gauge" data-source="dd_guard">
+                    <div class="dd-gauge-header">
+                        <span class="dd-gauge-label">월간 DD</span>
+                        <span id="dd-monthly-value" class="dd-gauge-value">--</span>
+                    </div>
+                    <div class="dd-gauge-bar">
+                        <div id="dd-monthly-fill" class="dd-gauge-fill"></div>
+                        <div class="dd-threshold" style="left:16.7%"></div>
+                        <div class="dd-threshold" style="left:33.3%"></div>
+                        <div class="dd-threshold" style="left:50%"></div>
+                        <div class="dd-threshold" style="left:66.7%"></div>
+                        <div class="dd-threshold" style="left:83.3%"></div>
+                    </div>
+                </div>
+                <div class="dd-permission">
+                    <div class="dd-perm-label">BUY STATUS (추정)</div>
+                    <div id="dd-permission-badge" class="dd-perm-badge perm-unknown">--</div>
+                    <div id="dd-config-version" class="dd-config-ver"></div>
+                </div>
+            </div>
+            <div id="dd-badges" class="dd-source-badges"></div>
+        </section>
 
         <!-- ====== Advisor (Basic) ============================== -->
         <section id="advisor-section" class="section">
@@ -341,7 +357,8 @@
             </div>
             <div id="advisor-recs" class="advisor-recs" style="display:none"></div>
         </section>
-
+        </div>
+        <div class="qc-group qc-group-analytics" id="qc-group-analytics" data-qc-group="analytics">
         <!-- ====== Profit Analysis (Operator+) ================ -->
         <section id="profit-section" class="profit-section">
             <h3 class="section-title" data-i18n="dash.title.profit">수익 분석</h3>
@@ -393,28 +410,87 @@
             </div>
         </section>
 
-        <!-- ====== Holdings List (Operator+) ================== -->
-        <section id="holdings-section" class="holdings-section">
-            <div class="holdings-header">
-                <h3 class="section-title" data-i18n="dash.title.holdings">보유종목</h3>
-                <div class="holdings-view-switch">
-                    <button class="view-btn active" data-view="list" id="view-list-btn">종목</button>
-                    <button class="view-btn" data-view="sector" id="view-sector-btn">섹터</button>
+        <!-- ====== Analytics (Operator/Debug) =============== -->
+        <section id="analytics" class="card">
+            <h3 class="card-title">Analytics</h3>
+
+            <!-- Equity Curve -->
+            <div style="margin-bottom:24px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <h4 style="margin:0;font-size:14px;">Equity Curve</h4>
+                    <div>
+                        <select id="equity-days" style="font-size:12px;padding:2px 6px;background:var(--card-bg);color:var(--text-color);border:1px solid var(--border-color);border-radius:4px;">
+                            <option value="30">30D</option>
+                            <option value="90" selected>90D</option>
+                            <option value="180">180D</option>
+                            <option value="365">1Y</option>
+                        </select>
+                        <a href="/api/export/equity" download style="margin-left:8px;font-size:11px;color:#60a5fa;">CSV</a>
+                    </div>
                 </div>
-            </div>
-            <!-- Donut Chart -->
-            <div id="donut-container" class="donut-container">
-                <div id="donut-chart" class="donut-chart"></div>
-                <div id="donut-legend" class="donut-legend"></div>
+                <canvas id="equity-chart" height="200"></canvas>
+                <div id="equity-legend-table" style="margin-top:10px;font-size:11px;line-height:1.8;"></div>
             </div>
 
-            <!-- Sector View -->
-            <div id="sector-view" class="sector-view" style="display:none">
+            <!-- Lab 9 Strategy Comparison 차트는 Equity Curve 통합으로 제거됨
+                 (2026-04-24, Jeff: Gen4 LIVE + 9전략 + KOSPI 한 차트 + 체크박스 토글).
+                 risk table은 별도 위젯으로 필요 시 부활. -->
+
+            <!-- Trade History -->
+            <div style="margin-bottom:24px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <h4 style="margin:0;font-size:14px;">Trade History</h4>
+                    <div>
+                        <input id="trade-code-filter" placeholder="종목코드" style="width:80px;font-size:11px;padding:2px 6px;background:var(--card-bg);color:var(--text-color);border:1px solid var(--border-color);border-radius:4px;">
+                        <select id="trade-side-filter" style="font-size:11px;padding:2px 6px;background:var(--card-bg);color:var(--text-color);border:1px solid var(--border-color);border-radius:4px;">
+                            <option value="">전체</option>
+                            <option value="BUY">BUY</option>
+                            <option value="SELL">SELL</option>
+                        </select>
+                        <a id="trade-export-link" href="/api/export/trades" download style="margin-left:8px;font-size:11px;color:#60a5fa;">CSV</a>
+                    </div>
+                </div>
+                <div id="trade-summary" style="font-size:11px;color:#9ca3af;margin-bottom:6px;"></div>
+                <div id="trade-table" style="max-height:300px;overflow-y:auto;"></div>
             </div>
-            <div id="holdings-list" class="holdings-list">
-                <div class="holdings-empty">데이터 로딩 중...</div>
+
+            <!-- Risk Metrics -->
+            <div style="margin-bottom:24px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <h4 style="margin:0;font-size:14px;">Risk Metrics</h4>
+                    <select id="risk-days" style="font-size:12px;padding:2px 6px;background:var(--card-bg);color:var(--text-color);border:1px solid var(--border-color);border-radius:4px;">
+                        <option value="30">30D</option>
+                        <option value="60" selected>60D</option>
+                        <option value="90">90D</option>
+                        <option value="180">180D</option>
+                        <option value="365">1Y</option>
+                    </select>
+                </div>
+                <div id="risk-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;"></div>
+                <div id="risk-empty" style="color:#6b7280;font-size:12px;"></div>
+            </div>
+
+            <!-- Rebalance History -->
+            <div style="margin-bottom:24px;">
+                <h4 style="margin:0 0 8px;font-size:14px;">Rebalance History</h4>
+                <div id="rebal-history" style="max-height:250px;overflow-y:auto;"></div>
+            </div>
+
+            <!-- Alert History -->
+            <div style="margin-bottom:24px;">
+                <h4 style="margin:0 0 8px;font-size:14px;">Alert History</h4>
+                <div id="alert-history" style="max-height:200px;overflow-y:auto;"></div>
             </div>
         </section>
+        </div>
+
+
+        <!-- ====== Target Portfolio (Phase 2-B 분리, IA §2.2 Core) ===== -->
+        <!-- 이전: #rebal-actions 내부에 통합. 분리 후 별도 섹션으로 이전.
+             모든 element ID (rp-target-date, rp-new-entries, rp-exits,
+             rp-unchanged, rp-optimal, btn-rp-refresh) 그대로 유지 →
+             loadRebalPreview() 등 JS 호출자 호환. -->
+
 
         <!-- 리밸런스 프리뷰: 위 rebal-actions에 통합됨 -->
 
@@ -562,78 +638,6 @@
 
         <!-- ====== Debug Mode: qobs Pipeline Snapshot (R14) === -->
 
-        <!-- ====== Analytics (Operator/Debug) =============== -->
-        <section id="analytics" class="card">
-            <h3 class="card-title">Analytics</h3>
-
-            <!-- Equity Curve -->
-            <div style="margin-bottom:24px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                    <h4 style="margin:0;font-size:14px;">Equity Curve</h4>
-                    <div>
-                        <select id="equity-days" style="font-size:12px;padding:2px 6px;background:var(--card-bg);color:var(--text-color);border:1px solid var(--border-color);border-radius:4px;">
-                            <option value="30">30D</option>
-                            <option value="90" selected>90D</option>
-                            <option value="180">180D</option>
-                            <option value="365">1Y</option>
-                        </select>
-                        <a href="/api/export/equity" download style="margin-left:8px;font-size:11px;color:#60a5fa;">CSV</a>
-                    </div>
-                </div>
-                <canvas id="equity-chart" height="200"></canvas>
-                <div id="equity-legend-table" style="margin-top:10px;font-size:11px;line-height:1.8;"></div>
-            </div>
-
-            <!-- Lab 9 Strategy Comparison 차트는 Equity Curve 통합으로 제거됨
-                 (2026-04-24, Jeff: Gen4 LIVE + 9전략 + KOSPI 한 차트 + 체크박스 토글).
-                 risk table은 별도 위젯으로 필요 시 부활. -->
-
-            <!-- Trade History -->
-            <div style="margin-bottom:24px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                    <h4 style="margin:0;font-size:14px;">Trade History</h4>
-                    <div>
-                        <input id="trade-code-filter" placeholder="종목코드" style="width:80px;font-size:11px;padding:2px 6px;background:var(--card-bg);color:var(--text-color);border:1px solid var(--border-color);border-radius:4px;">
-                        <select id="trade-side-filter" style="font-size:11px;padding:2px 6px;background:var(--card-bg);color:var(--text-color);border:1px solid var(--border-color);border-radius:4px;">
-                            <option value="">전체</option>
-                            <option value="BUY">BUY</option>
-                            <option value="SELL">SELL</option>
-                        </select>
-                        <a id="trade-export-link" href="/api/export/trades" download style="margin-left:8px;font-size:11px;color:#60a5fa;">CSV</a>
-                    </div>
-                </div>
-                <div id="trade-summary" style="font-size:11px;color:#9ca3af;margin-bottom:6px;"></div>
-                <div id="trade-table" style="max-height:300px;overflow-y:auto;"></div>
-            </div>
-
-            <!-- Risk Metrics -->
-            <div style="margin-bottom:24px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                    <h4 style="margin:0;font-size:14px;">Risk Metrics</h4>
-                    <select id="risk-days" style="font-size:12px;padding:2px 6px;background:var(--card-bg);color:var(--text-color);border:1px solid var(--border-color);border-radius:4px;">
-                        <option value="30">30D</option>
-                        <option value="60" selected>60D</option>
-                        <option value="90">90D</option>
-                        <option value="180">180D</option>
-                        <option value="365">1Y</option>
-                    </select>
-                </div>
-                <div id="risk-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;"></div>
-                <div id="risk-empty" style="color:#6b7280;font-size:12px;"></div>
-            </div>
-
-            <!-- Rebalance History -->
-            <div style="margin-bottom:24px;">
-                <h4 style="margin:0 0 8px;font-size:14px;">Rebalance History</h4>
-                <div id="rebal-history" style="max-height:250px;overflow-y:auto;"></div>
-            </div>
-
-            <!-- Alert History -->
-            <div style="margin-bottom:24px;">
-                <h4 style="margin:0 0 8px;font-size:14px;">Alert History</h4>
-                <div id="alert-history" style="max-height:200px;overflow-y:auto;"></div>
-            </div>
-        </section>
 
     </main>
 
