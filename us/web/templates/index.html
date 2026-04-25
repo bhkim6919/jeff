@@ -448,7 +448,28 @@
         </div>
     </div>
     </div>
-    <div class="qc-group qc-group-analytics" id="qc-group-analytics" data-qc-group="analytics" hidden></div>
+    <!-- Phase 4-B.1 (2026-04-25): Analytics group populated with Equity Curve.
+         Other 4 cards (Trade History / Risk Metrics / Rebal History / Alert
+         History) land in 4-B.2 ~ 4-B.5. -->
+    <div class="qc-group qc-group-analytics" id="qc-group-analytics" data-qc-group="analytics">
+        <div class="section">
+            <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>Analytics — Equity Curve</span>
+                <select id="equity-days" style="font-size:12px;padding:2px 6px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:4px;">
+                    <option value="30">30D</option>
+                    <option value="90" selected>90D</option>
+                    <option value="180">180D</option>
+                    <option value="365">1Y</option>
+                </select>
+            </div>
+            <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px;">
+                <canvas id="equity-chart" height="200"></canvas>
+                <div id="equity-legend-table" style="margin-top:10px;font-size:11px;line-height:1.8;">
+                    <div style="color:var(--muted);font-size:12px;">Loading equity history…</div>
+                </div>
+            </div>
+        </div>
+    </div>
 
 
     <!-- Test Orders -->
@@ -997,6 +1018,12 @@ setInterval(refreshFxTax, 300000);    // FX/Tax: 5분
         <label for="qtron-save-default">Per-device save</label>
     </div>
 </div>
+
+<!-- Phase 4-B.1 (2026-04-25): Analytics — Chart.js + analytics.us.js
+     Loaded at end of body so the qc-group-analytics #equity-chart canvas
+     and #equity-legend-table div exist when the script runs. -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js" defer></script>
+<script src="/static/analytics.us.js?v=1" defer></script>
 
 </body>
 </html>
