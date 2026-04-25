@@ -742,60 +742,18 @@ function updateProfitComparisons(data) {
 
 // ── Holdings List (토스 스타일) ──────────────────────
 function updateHoldingsList(data) {
-    const container = document.getElementById('holdings-list');
-    if (!container) return;
-
-    const account = data.account || {};
-    const holdings = account.holdings || [];
-
-    if (holdings.length === 0) {
-        container.innerHTML = '<div class="holdings-empty">보유종목 없음</div>';
-        return;
+    // Phase 3 (2026-04-25): delegate to qc-holdings-table component.
+    // formatKRW is injected so the component stays decoupled from the
+    // dashboard.js helper (used by other functions too).
+    if (window.qc && window.qc.holdings && typeof window.qc.holdings.render === 'function') {
+        window.qc.holdings.render(
+            document.getElementById('holdings-list'),
+            data,
+            { formatKRW: formatKRW }
+        );
     }
-
-    let html = '<div class="mini-cards-grid">';
-    for (const h of holdings) {
-        const code = h.code || '';
-        const name = h.name || code;
-        const qty = h.qty || 0;
-        const curPrice = h.cur_price || 0;
-        const evalAmt = h.eval_amt || (curPrice * qty);
-        const pnl = parseInt(h.pnl) || 0;
-        const pnlRate = parseFloat(h.pnl_rate || '0');
-        const isPositive = pnl > 0;
-        const isNegative = pnl < 0;
-        const colorClass = isPositive ? 'positive' : isNegative ? 'negative' : 'neutral';
-        const sign = isPositive ? '+' : '';
-        const barColor = isPositive ? '#F04452' : isNegative ? '#3182F6' : 'var(--border)';
-        const barWidth = Math.min(Math.abs(pnlRate) * 5, 100);
-
-        // 전일대비 등락률
-        const dayChg = h.day_change_pct;
-        const dayReason = h.day_change_reason;
-        const dayChgStr = dayChg != null
-            ? `${dayChg >= 0 ? '+' : ''}${dayChg.toFixed(1)}%`
-            : 'N/A';
-        const dayColor = dayChg > 0 ? '#F04452' : dayChg < 0 ? '#3182F6' : 'var(--text-dim)';
-        const dayTitle = dayReason ? `reason: ${dayReason}` : '전일종가 대비';
-
-        html += `
-        <div class="mini-card" data-code="${code}">
-            <div class="mini-top">
-                <span class="mini-name">${name}</span>
-                <span class="mini-pnl ${colorClass}">${sign}${pnlRate.toFixed(1)}%</span>
-            </div>
-            <div class="mini-day-chg" style="color:${dayColor}" title="${dayTitle}">전일 ${dayChgStr}</div>
-            <div class="mini-bar"><div class="mini-bar-fill" style="width:${barWidth}%;background:${barColor}"></div></div>
-            <div class="mini-bottom">
-                <span class="mini-eval">${formatKRW(evalAmt)}</span>
-                <span class="mini-qty">${qty}주</span>
-            </div>
-        </div>`;
-    }
-    html += '</div>';
-    container.innerHTML = html;
-
-    // ── 분봉 hover 바인딩 ──────────────────────────────────
+    // Re-bind hover chart after DOM is rebuilt. The IIFE owns its own
+    // singleton state, so we just re-attach to the freshly rendered cards.
     bindMiniCardHoverChart();
 }
 

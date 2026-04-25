@@ -437,6 +437,7 @@
 <!-- Phase 3 components (load before inline renderStatus so qc.* is available) -->
 <script src="/static/components/summary.js?v=1"></script>
 <script src="/static/components/regime.js?v=1"></script>
+<script src="/static/components/holdings.js?v=1"></script>
 
 <script>
 const BASE = '';
@@ -484,21 +485,13 @@ async function refresh() {
         );
     }
 
-    // Holdings
-    const tbody = $('holdings-body');
-    if (p.holdings && p.holdings.length > 0) {
-        tbody.innerHTML = p.holdings.map(h => `
-            <tr>
-                <td><b>${h.code}</b></td>
-                <td>${h.qty}</td>
-                <td>${fmt(h.avg_price)}</td>
-                <td>${fmt(h.cur_price)}</td>
-                <td class="${pctClass(h.pnl)}">${fmt(h.pnl)}</td>
-                <td class="${pctClass(h.pnl_pct)}">${h.pnl_pct?.toFixed(1) || '--'}%</td>
-            </tr>
-        `).join('');
-    } else {
-        tbody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;">No positions</td></tr>';
+    // Holdings — Phase 3 (2026-04-25): delegated to qc-holdings-table.
+    if (window.qc && window.qc.holdings && typeof window.qc.holdings.render === 'function') {
+        window.qc.holdings.render(
+            document.getElementById('holdings-body'),
+            { holdings: p.holdings || [] },
+            { fmt: fmt, pctClass: pctClass }
+        );
     }
 
     // Target
