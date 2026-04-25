@@ -238,20 +238,6 @@
 <!-- Badges moved to nav bar -->
 
 <main>
-    <!-- Status-bar removed: info moved to nav bar (PAPER/CLOSED/LED/SPY) + badges below -->
-
-    <!--
-        Phase 2-A (2026-04-25): IA group wrappers.
-        Empty initially — existing sections still render in their
-        legacy positions below. Sections will be moved into these
-        containers in subsequent sub-blocks (2-D US micro reorder,
-        2-E Surge Monitor card).
-        See docs/ui_unification_ia_20260424.md §2.2 for target layout.
-    -->
-    <div class="qc-group qc-group-core"      id="qc-group-core"      data-qc-group="core"      hidden></div>
-    <div class="qc-group qc-group-market"    id="qc-group-market"    data-qc-group="market"    hidden></div>
-    <div class="qc-group qc-group-ext"       id="qc-group-ext"       data-qc-group="ext"       hidden></div>
-    <div class="qc-group qc-group-analytics" id="qc-group-analytics" data-qc-group="analytics" hidden></div>
 
     <!-- Hero -->
     <div class="hero">
@@ -287,7 +273,17 @@
             </div>
         </div>
     </div>
+    <!-- Status-bar removed: info moved to nav bar (PAPER/CLOSED/LED/SPY) + badges below -->
 
+    <!--
+        Phase 2-A (2026-04-25): IA group wrappers.
+        Empty initially — existing sections still render in their
+        legacy positions below. Sections will be moved into these
+        containers in subsequent sub-blocks (2-D US micro reorder,
+        2-E Surge Monitor card).
+        See docs/ui_unification_ia_20260424.md §2.2 for target layout.
+    -->
+    <div class="qc-group qc-group-core" id="qc-group-core" data-qc-group="core">
     <!-- Summary Cards -->
     <div class="cards">
         <div class="card">
@@ -328,12 +324,45 @@
         </table>
     </div>
 
+    <!-- Rebalance -->
+    <div class="section">
+        <div class="section-title">Rebalance</div>
+        <!-- Rebal Status Panel -->
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <span style="font-size:11px;color:var(--muted);">Mode:</span>
+                <button id="rebal-mode-btn" onclick="_toggleRebalMode()" style="padding:3px 14px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;">MANUAL</button>
+                <span style="font-size:11px;color:var(--muted);">Phase:</span>
+                <span id="rebal-phase" class="badge badge-closed" style="font-size:11px;">IDLE</span>
+                <span id="rebal-dday" style="font-size:16px;font-weight:700;color:var(--yellow);">D-?</span>
+                <span id="rebal-next" style="font-size:11px;color:var(--muted);"></span>
+            </div>
+            <div style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap;font-size:11px;">
+                <span>Batch: <span id="rebal-batch-status" style="color:var(--muted);">--</span></span>
+                <span>Execute: <span id="rebal-exec-status" style="color:var(--muted);">--</span></span>
+                <span>Last: <span id="rebal-last-exec" style="color:var(--muted);">--</span></span>
+            </div>
+            <div id="rebal-block-reasons" style="margin-top:6px;font-size:10px;color:var(--red);display:none;"></div>
+        </div>
+        <!-- Rebal Orders Panel -->
+        <div id="rebal-panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;">
+            <div id="rebal-preview" style="color:var(--muted);font-size:12px;">Click Preview to check rebalance orders</div>
+            <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+                <button onclick="_rebalPreview()" style="padding:6px 16px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-size:12px;cursor:pointer;">Preview</button>
+                <button onclick="_rebalExecute('sell_only')" id="btn-rebal-sell" style="padding:6px 16px;background:#c62828;border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;display:none;">Sell Only</button>
+                <button onclick="_rebalExecute('buy_only')" id="btn-rebal-buy" style="padding:6px 16px;background:#2e7d32;border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;display:none;">Buy Only</button>
+                <button onclick="_rebalExecute('sell_and_buy')" id="btn-rebal-all" style="padding:6px 16px;background:#1565c0;border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;display:none;">Sell + Buy</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Target Portfolio -->
     <div class="section">
         <div class="section-title">Target Portfolio (Latest Batch)</div>
         <div id="target-list" style="color:var(--muted);">Loading...</div>
     </div>
-
+    </div>
+    <div class="qc-group qc-group-market" id="qc-group-market" data-qc-group="market">
     <!-- Regime Section -->
     <div class="section" id="regime-section">
         <div class="section-title">Market Regime</div>
@@ -378,39 +407,8 @@
             <div style="color:var(--muted);">Loading...</div>
         </div>
     </div>
-
-    <!-- Rebalance -->
-    <div class="section">
-        <div class="section-title">Rebalance</div>
-        <!-- Rebal Status Panel -->
-        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px;">
-            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-                <span style="font-size:11px;color:var(--muted);">Mode:</span>
-                <button id="rebal-mode-btn" onclick="_toggleRebalMode()" style="padding:3px 14px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;">MANUAL</button>
-                <span style="font-size:11px;color:var(--muted);">Phase:</span>
-                <span id="rebal-phase" class="badge badge-closed" style="font-size:11px;">IDLE</span>
-                <span id="rebal-dday" style="font-size:16px;font-weight:700;color:var(--yellow);">D-?</span>
-                <span id="rebal-next" style="font-size:11px;color:var(--muted);"></span>
-            </div>
-            <div style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap;font-size:11px;">
-                <span>Batch: <span id="rebal-batch-status" style="color:var(--muted);">--</span></span>
-                <span>Execute: <span id="rebal-exec-status" style="color:var(--muted);">--</span></span>
-                <span>Last: <span id="rebal-last-exec" style="color:var(--muted);">--</span></span>
-            </div>
-            <div id="rebal-block-reasons" style="margin-top:6px;font-size:10px;color:var(--red);display:none;"></div>
-        </div>
-        <!-- Rebal Orders Panel -->
-        <div id="rebal-panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;">
-            <div id="rebal-preview" style="color:var(--muted);font-size:12px;">Click Preview to check rebalance orders</div>
-            <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
-                <button onclick="_rebalPreview()" style="padding:6px 16px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-size:12px;cursor:pointer;">Preview</button>
-                <button onclick="_rebalExecute('sell_only')" id="btn-rebal-sell" style="padding:6px 16px;background:#c62828;border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;display:none;">Sell Only</button>
-                <button onclick="_rebalExecute('buy_only')" id="btn-rebal-buy" style="padding:6px 16px;background:#2e7d32;border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;display:none;">Buy Only</button>
-                <button onclick="_rebalExecute('sell_and_buy')" id="btn-rebal-all" style="padding:6px 16px;background:#1565c0;border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;display:none;">Sell + Buy</button>
-            </div>
-        </div>
     </div>
-
+    <div class="qc-group qc-group-ext" id="qc-group-ext" data-qc-group="ext">
     <!-- Exchange Rate & Tax -->
     <div class="section">
         <div class="section-title">Exchange Rate & Tax</div>
@@ -431,6 +429,9 @@
             </div>
         </div>
     </div>
+    </div>
+    <div class="qc-group qc-group-analytics" id="qc-group-analytics" data-qc-group="analytics" hidden></div>
+
 
     <!-- Test Orders -->
     <div class="test-panel">
