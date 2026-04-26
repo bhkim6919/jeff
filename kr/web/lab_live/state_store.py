@@ -476,16 +476,51 @@ def _assemble_result(
             "positions": sd.get("positions", {}),
             "pending_buys": sd.get("pending_buys", []),
             "last_rebal_idx": sd.get("last_rebal_idx", -999),
-            "equity_history": sd.get("equity_history", []),
+            "equity_history": _dedupe_by_date(sd.get("equity_history", [])),
         }
     return {
         "lanes": lanes,
         "trades": trades_data.get("trades", []) if trades_data else [],
-        "equity_rows": equity_data.get("rows", []) if equity_data else [],
+        "equity_rows": _dedupe_by_date(equity_data.get("rows", []) if equity_data else []),
         "version_seq": version_seq,
         "last_run_date": head.get("last_run_date", "") if head else "",
         "snapshot_version": head.get("snapshot_version", "") if head else "",
     }
+
+
+def _dedupe_by_date(rows):
+    """Last-write-wins dedup of equity rows by `date` field, ascending order.
+
+    Pre-2026-04-26 EOD writers appended same-date rows on every re-run
+    (engine.py upsert fix landed in the same commit that added this).
+    Loading old data through this helper collapses those duplicates so
+    downstream analytics see one row per trade_date. Logs a warning on
+    first observation per process so the corruption is visible.
+    """
+    if not rows:
+        return rows
+    seen_dates = []
+    out_by_date = {}
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        d = r.get("date") or ""
+        if not d:
+            continue
+        if d not in out_by_date:
+            seen_dates.append(d)
+        out_by_date[d] = r  # last-write-wins
+    if len(rows) != len(out_by_date):
+        try:
+            import logging
+            logging.getLogger("gen4.web.lab_live").warning(
+                f"[equity_history_dedupe] collapsed {len(rows)} rows → "
+                f"{len(out_by_date)} unique dates (legacy duplicate-date data)"
+            )
+        except Exception:
+            pass
+    seen_dates.sort()
+    return [out_by_date[d] for d in seen_dates]
 
 
 # ═══════════════════════════════════════════════════════════════════

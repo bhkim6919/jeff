@@ -2740,7 +2740,16 @@ def create_app() -> FastAPI:
 
     @application.get("/api/risk/metrics")
     async def get_risk_metrics(days: int = Query(60, ge=7, le=730)):
-        """Sharpe, MDD, Sortino 등 리스크 지표 (LIVE → Lab fallback)."""
+        """Sharpe, MDD, Sortino 등 리스크 지표 (LIVE → Lab fallback).
+
+        Returns ``status: "INVALID"`` instead of bogus numbers when:
+          - effective unique trade-day count < MIN_DAYS_FOR_RISK (20)
+          - source equity.json has > MAX_DUP_RATIO (10%) duplicate-date rows
+        UI must check status before rendering Sharpe/Sortino/CAGR.
+        """
+        MIN_DAYS_FOR_RISK = 20
+        MAX_DUP_RATIO = 0.10
+
         rows = []
         try:
             from shared.db.pg_base import connection
@@ -2758,6 +2767,8 @@ def create_app() -> FastAPI:
             pass
 
         # Lab fallback: equity.json → 합산 equity → daily return 계산
+        dup_ratio = 0.0
+        raw_row_count = 0
         if len(rows) < 2:
             try:
                 import json as _json, math
@@ -2768,13 +2779,18 @@ def create_app() -> FastAPI:
                             "lowvol_momentum", "mean_reversion", "momentum_base",
                             "quality_factor", "sector_rotation", "vol_regime"]
                 seen = {}
+                raw_dates = []
                 for row in eq_data.get("rows", []):
                     dt = row.get("date", "")
                     if not dt:
                         continue
+                    raw_dates.append(dt)
                     total = sum(float(row.get(s, 0)) for s in a_strats if s in row)
                     if total > 0:
                         seen[dt] = total
+                raw_row_count = len(raw_dates)
+                if raw_row_count > 0:
+                    dup_ratio = 1.0 - (len(set(raw_dates)) / raw_row_count)
                 # KOSPI
                 kospi_map = {}
                 try:
@@ -2799,8 +2815,38 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
 
+        # Defensive guards — return a structured INVALID payload that the
+        # UI can show as "Insufficient / Corrupted data" rather than
+        # numbers that would mislead an operator into thinking the
+        # strategy is failing when really the data pipeline is broken.
+        if dup_ratio > MAX_DUP_RATIO:
+            return {
+                "status": "INVALID",
+                "reason": "CORRUPTED_SOURCE",
+                "detail": (
+                    f"equity.json {raw_row_count} rows / "
+                    f"{int(dup_ratio*100)}% duplicate-date — "
+                    "EOD writer fix in engine.py landed 2026-04-26; "
+                    "quarantine the legacy file and let new EODs rebuild"
+                ),
+                "days": len(rows),
+                "raw_row_count": raw_row_count,
+                "dup_ratio": round(dup_ratio, 4),
+            }
+        if len(rows) < MIN_DAYS_FOR_RISK:
+            return {
+                "status": "INVALID",
+                "reason": "INSUFFICIENT_DATA",
+                "detail": (
+                    f"only {len(rows)} unique trade days available; "
+                    f"need ≥ {MIN_DAYS_FOR_RISK} for stable risk metrics"
+                ),
+                "days": len(rows),
+                "min_days_required": MIN_DAYS_FOR_RISK,
+            }
         if len(rows) < 2:
-            return {"error": "insufficient data", "count": len(rows)}
+            return {"status": "INVALID", "reason": "INSUFFICIENT_DATA",
+                    "count": len(rows)}
 
         try:
             import math
@@ -2849,6 +2895,7 @@ def create_app() -> FastAPI:
                 kospi_return = round((kospi[-1] / kospi[0] - 1) * 100, 2)
 
             return {
+                "status": "OK",
                 "days": len(returns),
                 "period": f"{rows[0]['date']} ~ {rows[-1]['date']}",
                 "sharpe": round(sharpe, 2),
@@ -2864,7 +2911,7 @@ def create_app() -> FastAPI:
                 "kospi_return": kospi_return,
             }
         except Exception as e:
-            return {"error": str(e)}
+            return {"status": "INVALID", "reason": "COMPUTE_ERROR", "detail": str(e)}
 
     @application.get("/api/rebalance/history")
     async def get_rebalance_history(limit: int = Query(10, ge=1, le=50)):

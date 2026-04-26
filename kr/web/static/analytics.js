@@ -415,6 +415,33 @@ async function loadRiskMetrics() {
         const empty = document.getElementById('risk-empty');
         if (!container) return;
 
+        // INVALID guard — backend returns this when source data is
+        // corrupted (e.g. equity.json with > 10% duplicate dates) or
+        // there are fewer than MIN_DAYS_FOR_RISK (20) trade days. Show
+        // a single "Insufficient / Corrupted data" card with the reason
+        // so the operator doesn't read Sharpe -9.17 / Sortino -5.29 as
+        // strategy failure when the real problem is a data pipeline bug.
+        if (d.status === 'INVALID') {
+            const reasonLabel = (d.reason === 'CORRUPTED_SOURCE')
+                ? 'Corrupted data'
+                : (d.reason === 'INSUFFICIENT_DATA')
+                    ? 'Insufficient data'
+                    : 'Invalid';
+            container.innerHTML = `
+                <div style="grid-column:1/-1;background:rgba(245,158,11,0.10);
+                            border:1px solid #f59e0b;border-radius:8px;padding:14px 16px;">
+                    <div style="font-size:11px;color:#fbbf24;font-weight:700;
+                                text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">
+                        ${reasonLabel}
+                    </div>
+                    <div style="font-size:12px;color:#e5e7eb;line-height:1.5;">
+                        ${d.detail || '데이터 부족 또는 손상으로 리스크 지표를 계산할 수 없습니다.'}
+                    </div>
+                </div>`;
+            if (empty) empty.textContent = '';
+            return;
+        }
+
         if (d.error) {
             container.innerHTML = '';
             if (empty) empty.textContent = d.error === 'insufficient data'

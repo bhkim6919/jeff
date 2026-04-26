@@ -790,10 +790,22 @@ class LabLiveSimulator:
                             pos.current_price = c
                             equity += pos.qty * c
 
-                    lane.equity_history.append({
+                    # Upsert-by-date: re-runs of the same trade_date must not
+                    # accumulate duplicate equity_history rows. Without this,
+                    # an OHLCV CSV stuck at one last-date (2026-04-22 incident
+                    # pattern) — or any code path that re-enters EOD with the
+                    # same today_date — produces N rows of the same date and
+                    # poisons every downstream metric (Sharpe / Sortino / CAGR
+                    # all collapse on the dedup'd dict). 2026-04-26: Jeff hit
+                    # exactly this — equity.json had 12 rows all 2026-04-10.
+                    new_eh_row = {
                         "date": today_date, "equity": equity,
                         "n_positions": len(lane.positions),
-                    })
+                    }
+                    if lane.equity_history and lane.equity_history[-1].get("date") == today_date:
+                        lane.equity_history[-1] = new_eh_row
+                    else:
+                        lane.equity_history.append(new_eh_row)
                     equity_row[sname] = equity
 
                 except Exception as e:
@@ -809,7 +821,14 @@ class LabLiveSimulator:
             self._last_snapshot_version = snapshot_version
             if new_trades:
                 self._all_trades.extend(new_trades)
-            self._equity_rows.append(equity_row)
+            # Upsert by date — see lane.equity_history note above. The
+            # tail-only check is sufficient because rows are recorded in
+            # date order; if a stale duplicate hides earlier in the list
+            # it predates this fix and is cleaned by the loader (state_store).
+            if self._equity_rows and self._equity_rows[-1].get("date") == today_date:
+                self._equity_rows[-1] = equity_row
+            else:
+                self._equity_rows.append(equity_row)
             self._save_state()
 
             elapsed = time.time() - t0
