@@ -2462,26 +2462,87 @@ def create_app() -> FastAPI:
             for d, v in live_kospi_map.items():
                 kospi_map.setdefault(d, v)
 
-            # 4. Lab 9-strategy equity from lab_live/equity.json
+            # 4. Lab 9-strategy equity — primary source is per-strategy
+            # state files (states/{s}.json :: equity_history), with the
+            # legacy lab_live/equity.json as a backstop. The state files
+            # carry one row per EOD per strategy and survive the
+            # 2026-04-26 same-date duplicate corruption (loader dedups
+            # via state_store._dedupe_by_date). Pre-2026-04-26 the chart
+            # used equity.json only; combined with the corruption + the
+            # ``dt < baseline_date`` skip below, every strategy line went
+            # flat at +0.00% even when Forward Trading cards showed
+            # +26% cumulative growth.
             strategies = [
                 "breakout_trend", "hybrid_qscore", "liquidity_signal",
                 "lowvol_momentum", "mean_reversion", "momentum_base",
                 "quality_factor", "sector_rotation", "vol_regime",
             ]
             lab_map: dict = {s: {} for s in strategies}
+            states_dir = (
+                _P(__file__).resolve().parent.parent / "data" / "lab_live" / "states"
+            )
+
+            def _dedup_eh(rows):
+                """Last-write-wins by date, ascending. Same shape as
+                state_store._dedupe_by_date but inlined here so the API
+                module doesn't depend on the lab_live engine package."""
+                if not rows:
+                    return []
+                out_by_date = {}
+                for r in rows:
+                    if not isinstance(r, dict):
+                        continue
+                    d = r.get("date") or ""
+                    if d:
+                        out_by_date[d] = r
+                return [out_by_date[d] for d in sorted(out_by_date.keys())]
+
+            for s in strategies:
+                state_path = states_dir / f"{s}.json"
+                if not state_path.exists():
+                    continue
+                try:
+                    sd = _json.loads(state_path.read_text(encoding="utf-8"))
+                    eh = _dedup_eh(sd.get("equity_history", []))
+                except Exception:
+                    continue
+                if not eh:
+                    continue
+                # Forward-fill into every date in the LIVE range so
+                # _pct_series sees a value at every x-axis tick. For each
+                # target date, take the latest equity_history row whose
+                # date is <= target. If the strategy started after the
+                # target date (no row available), leave it absent — the
+                # series renderer plots None as a gap.
+                eh_sorted = sorted(eh, key=lambda r: r.get("date", ""))
+                eh_idx = 0
+                last_eq = None
+                for dt in dates_sorted:
+                    while eh_idx < len(eh_sorted) and eh_sorted[eh_idx].get("date", "") <= dt:
+                        try:
+                            last_eq = float(eh_sorted[eh_idx].get("equity", 0))
+                        except (TypeError, ValueError):
+                            pass
+                        eh_idx += 1
+                    if last_eq is not None and last_eq > 0:
+                        lab_map[s][dt] = last_eq
+
+            # Backstop: the legacy equity.json also gets read in case a
+            # strategy file is missing (per-strategy upsert was added
+            # 2026-04-26; older deployments may still rely on this).
             try:
                 eq_path = (
                     _P(__file__).resolve().parent.parent
                     / "data" / "lab_live" / "equity.json"
                 )
                 eq_data = _json.loads(eq_path.read_text(encoding="utf-8"))
-                # Keep only the last row per (date, strategy) — equity.json contains
-                # historical seeds (100_000_000 resets) plus post-run commits.
                 for row in eq_data.get("rows", []):
                     dt = row.get("date", "")
                     if not dt or dt < baseline_date:
                         continue
                     for s in strategies:
+                        if dt in lab_map[s]:
+                            continue  # state file already populated this point
                         if s in row:
                             try:
                                 v = float(row[s])
@@ -2492,11 +2553,20 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
 
-            # 5. Normalize all series to % from baseline_date
-            def _pct_series(values: dict, dates: list) -> list:
-                base = values.get(baseline_date)
+            # 5. Normalize all series to % from a per-series base.
+            # LIVE / KOSPI: base = value at baseline_date (shared LIVE start).
+            # Strategies: base = lab_initial_capital (100M) so the chart's
+            # cumulative-return ranking matches the per-strategy cards
+            # ("누적 +26.81%"). Without this override, the chart's baseline
+            # would be the strategy's forward-filled value at LIVE start —
+            # which subtracts pre-LIVE growth and produces a different
+            # (and confusing) ranking from the card view.
+            LAB_INITIAL_CAPITAL = 100_000_000
+
+            def _pct_series(values: dict, dates: list, base=None) -> list:
                 if base is None:
-                    # fallback: earliest available value within range
+                    base = values.get(baseline_date)
+                if base is None:
                     for d in dates:
                         if values.get(d) is not None:
                             base = values[d]
@@ -2525,7 +2595,8 @@ def create_app() -> FastAPI:
                 series[s] = {
                     "label": s,
                     "kind": "strategy",
-                    "pct": _pct_series(lab_map[s], dates_sorted),
+                    "pct": _pct_series(lab_map[s], dates_sorted,
+                                       base=LAB_INITIAL_CAPITAL),
                 }
 
             return {
