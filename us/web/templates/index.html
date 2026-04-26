@@ -56,6 +56,211 @@
         .gain { color: #ef4444 !important; }   /* 수익=빨강 (KR convention) */
         .loss { color: #3b82f6 !important; }   /* 손실=파랑 */
 
+        /* ── P1+P2+P3+P5+P10 (2026-04-26): Operator Console restructure ─── */
+
+        /* P1: Top status pill bar */
+        .qc-status-bar {
+            display: flex; flex-wrap: wrap; gap: 8px;
+            padding: 0; margin: 0 0 16px 0;
+        }
+        .qc-status-bar:empty { margin: 0; }
+        .qc-status-bar.qc-status-bar-active {
+            padding: 10px 14px;
+            background: linear-gradient(180deg, rgba(31,41,55,0.6), rgba(17,24,39,0.4));
+            border: 1px solid var(--border); border-left: 3px solid #f59e0b;
+            border-radius: 10px;
+        }
+        .qc-pill {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 6px 12px; background: var(--card);
+            border: 1px solid #30363d; border-radius: 999px;
+            font-size: 12px; font-weight: 700; color: var(--text);
+            cursor: pointer; transition: transform 0.15s ease, box-shadow 0.15s ease;
+            font-family: inherit;
+        }
+        .qc-pill:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+        .qc-pill-icon {
+            display: inline-flex; width: 16px; height: 16px;
+            align-items: center; justify-content: center; border-radius: 50%;
+            font-size: 11px; font-weight: 900; color: #fff;
+        }
+        .qc-pill-ok       { border-color: #10b981; }
+        .qc-pill-ok       .qc-pill-icon { background: #10b981; }
+        .qc-pill-info     { border-color: #3b82f6; }
+        .qc-pill-info     .qc-pill-icon { background: #3b82f6; }
+        .qc-pill-warn     { border-color: #f59e0b; color: #fbbf24; }
+        .qc-pill-warn     .qc-pill-icon { background: #f59e0b; }
+        .qc-pill-critical { border-color: #ef4444; color: #fca5a5; background: rgba(239,68,68,0.10); }
+        .qc-pill-critical .qc-pill-icon { background: #ef4444; }
+        .qc-highlight-pulse { animation: qc-highlight-pulse 2s ease-out; }
+        @keyframes qc-highlight-pulse {
+            0%   { box-shadow: 0 0 0 0 rgba(59,130,246,0.55); }
+            50%  { box-shadow: 0 0 0 6px rgba(59,130,246,0.25), 0 0 24px 4px rgba(59,130,246,0.18); }
+            100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
+        }
+
+        /* P2: Hero grid (left=status, right=metrics) */
+        .hero-grid {
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) 2.5fr;
+            gap: 24px; align-items: start;
+        }
+        .hero-status-block {
+            display: flex; flex-direction: column; gap: 6px;
+            padding: 4px 0;
+        }
+        .hero-status-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 4px 8px; border-radius: 4px;
+            border-left: 3px solid #4b5563;
+            transition: background 0.15s ease;
+        }
+        .hero-status-row.lvl-ok       { border-left-color: #10b981; }
+        .hero-status-row.lvl-info     { border-left-color: #3b82f6; }
+        .hero-status-row.lvl-warn     { border-left-color: #f59e0b; }
+        .hero-status-row.lvl-critical { border-left-color: #ef4444; background: rgba(239,68,68,0.06); }
+        .hero-status-label {
+            font-size: 10px; color: var(--muted);
+            text-transform: uppercase; letter-spacing: 1px; font-weight: 700;
+        }
+        .hero-status-value {
+            font-size: 13px; font-weight: 700; color: var(--text);
+            font-variant-numeric: tabular-nums;
+        }
+        .hero-status-row.lvl-critical .hero-status-value { color: #fca5a5; }
+        .hero-status-row.lvl-warn .hero-status-value     { color: #fbbf24; }
+        .hero-status-badges {
+            display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px;
+            padding-top: 8px; border-top: 1px solid var(--border);
+        }
+        .hero-debug-link {
+            padding: 4px 10px; font-size: 10px; font-weight: 600;
+            background: rgba(59,130,246,0.1); color: var(--accent);
+            border: 1px solid var(--accent); border-radius: 3px; text-decoration: none;
+        }
+        .hero-metrics-block .hero-meta {
+            justify-content: flex-start; gap: 28px; flex-wrap: wrap;
+        }
+
+        /* P3: Hybrid summary cards */
+        .cards-hybrid { grid-template-columns: repeat(4, 1fr); }
+        .status-card {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 8px; padding: 14px 16px;
+            border-left-width: 4px;
+            cursor: pointer;
+            transition: border-color 0.18s ease, transform 0.18s ease;
+        }
+        .status-card:hover { transform: translateY(-1px); }
+        .status-card-label {
+            font-size: 11px; color: var(--muted);
+            text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px;
+        }
+        .status-card-value {
+            font-size: 18px; font-weight: 800;
+            font-variant-numeric: tabular-nums; color: var(--text);
+        }
+        .status-card-sub {
+            font-size: 11px; color: var(--muted); margin-top: 4px;
+            font-variant-numeric: tabular-nums;
+        }
+        .status-card-ok       { border-left-color: #10b981; }
+        .status-card-ok       .status-card-value { color: #10b981; }
+        .status-card-info     { border-left-color: #3b82f6; }
+        .status-card-info     .status-card-value { color: #60a5fa; }
+        .status-card-warn     { border-left-color: #f59e0b; }
+        .status-card-warn     .status-card-value { color: #fbbf24; }
+        .status-card-critical { border-left-color: #ef4444; background: rgba(239,68,68,0.06); }
+        .status-card-critical .status-card-value { color: #fca5a5; }
+        .status-card-unknown  { border-left-color: #4b5563; }
+
+        /* P5: qc-group visible labels */
+        .qc-group-label {
+            font-size: 11px; font-weight: 700; color: var(--muted);
+            text-transform: uppercase; letter-spacing: 2px;
+            margin: 28px 0 10px 0; padding: 0 0 6px 0;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center;
+        }
+        .qc-group .qc-group-label:first-child { margin-top: 0; }
+
+        /* P10: Diagnostics toggle */
+        .qtron-diag-only { display: none !important; }
+        body.qtron-diagnostics-on .qtron-diag-only { display: block !important; }
+        .qtron-diag-toggle {
+            margin-left: 12px; padding: 3px 10px; font-size: 10px; font-weight: 600;
+            background: transparent; color: var(--muted);
+            border: 1px solid #30363d; border-radius: 12px;
+            cursor: pointer; letter-spacing: 0.5px; text-transform: none;
+            font-family: inherit;
+        }
+        .qtron-diag-toggle:hover { color: var(--text); background: rgba(59,130,246,0.08); border-color: var(--accent); }
+        body.qtron-diagnostics-on .qtron-diag-toggle {
+            background: var(--accent); color: #fff; border-color: var(--accent);
+        }
+
+        /* Mobile: hero stacks vertically */
+        @media (max-width: 700px) {
+            .hero-grid { grid-template-columns: 1fr; }
+            .cards-hybrid { grid-template-columns: 1fr 1fr; }
+        }
+
+        /* ── Target Portfolio rows (KR-parallel, 2026-04-25) ───── */
+        .rp-row {
+            display: grid;
+            grid-template-columns: 70px minmax(140px, 1fr) 70px minmax(150px, auto) 70px;
+            align-items: center; gap: 8px;
+            padding: 6px 10px; border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px; line-height: 1.6;
+            font-variant-numeric: tabular-nums;
+            transition: background 0.18s ease, transform 0.18s ease;
+        }
+        .rp-row:hover { background: rgba(59,130,246,0.08); transform: translateX(1px); }
+        .rp-code { color: var(--muted); font-weight: 600; }
+        .rp-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .rp-spark-cell { display: inline-flex; align-items: center; justify-content: center; }
+        .rp-spark { display: block; }
+        .rp-px { color: var(--muted); text-align: right; font-size: 11px; }
+        .rp-change-pos { color: #ef5350; font-weight: 600; text-align: right; }
+        .rp-change-neg { color: #42a5f5; font-weight: 600; text-align: right; }
+
+        /* Skeleton shimmer (loading rows) */
+        .rp-skeleton-row { pointer-events: none; }
+        .skeleton {
+            display: inline-block;
+            background: linear-gradient(90deg,
+                rgba(59,130,246,0.04) 0%,
+                rgba(59,130,246,0.12) 50%,
+                rgba(59,130,246,0.04) 100%);
+            background-size: 200% 100%;
+            animation: us-shimmer 1.6s ease-in-out infinite;
+            border-radius: 3px; height: 12px;
+        }
+        @keyframes us-shimmer {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        /* Card flash on value change (summary cards) */
+        @keyframes us-flash-up   { 0% { background: rgba(16,185,129,0.18); } 100% { background: transparent; } }
+        @keyframes us-flash-down { 0% { background: rgba(239,68,68,0.18);  } 100% { background: transparent; } }
+        .flash-up   { animation: us-flash-up   0.32s cubic-bezier(0.16,1,0.3,1); }
+        .flash-down { animation: us-flash-down 0.32s cubic-bezier(0.16,1,0.3,1); }
+
+        /* EOD-soft status dot (nav qnav-dot.warn already styled; this mirrors KR amber) */
+        .qnav-dot.warn {
+            background: #f59e0b !important;
+            box-shadow: 0 0 8px rgba(245,158,11,0.45);
+            animation: pulse-led 3s ease-in-out infinite;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .rp-row, .skeleton, .flash-up, .flash-down, .qnav-dot.warn {
+                animation: none !important; transition: none !important;
+            }
+        }
+
         .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
         .card {
             background: var(--card); border: 1px solid var(--border);
@@ -242,37 +447,65 @@
 
 <main>
 
-    <!-- Hero -->
+    <!-- ====== Top Status Pill Bar (P1, 2026-04-26) =====
+         Renders 0~5 abnormal pills synthesized from snapshot.
+         Empty when all systems are normal (3-second test rule). -->
+    <div id="qc-status-bar" class="qc-status-bar"></div>
+
+    <!-- Hero (P2, 2026-04-26): redesigned — left=status, right=metrics
+         Original .hero-meta target preserved for summary.us.js render. -->
     <div class="hero">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-            <div class="hero-meta" style="margin-top:0;">
-                <div class="meta-item">
-                    <span class="meta-label">Equity</span>
-                    <span id="hero-equity" class="meta-value">--</span>
+        <div class="hero-grid">
+            <!-- LEFT: synthesized operations status -->
+            <div class="hero-status-block">
+                <div class="hero-status-row" id="hero-status-buy">
+                    <span class="hero-status-label">BUY</span>
+                    <span class="hero-status-value">--</span>
                 </div>
-                <div class="meta-item">
-                    <span class="meta-label">Cash</span>
-                    <span id="hero-cash" class="meta-value">--</span>
+                <div class="hero-status-row" id="hero-status-recon">
+                    <span class="hero-status-label">RECON</span>
+                    <span class="hero-status-value">--</span>
                 </div>
-                <div class="meta-item">
-                    <span class="meta-label">P&L (Total)</span>
-                    <span id="hero-pnl" class="meta-value">--</span>
-                    <span id="hero-pnl-today" class="meta-sub">vs Prev --</span>
+                <div class="hero-status-row" id="hero-status-data">
+                    <span class="hero-status-label">DATA</span>
+                    <span class="hero-status-value">--</span>
                 </div>
-                <div class="meta-item">
-                    <span class="meta-label">P&L % (Total)</span>
-                    <span id="hero-pnl-pct" class="meta-value">--</span>
-                    <span id="hero-pnl-pct-today" class="meta-sub">vs Prev --</span>
+                <div class="hero-status-row" id="hero-status-alerts">
+                    <span class="hero-status-label">ALERTS</span>
+                    <span class="hero-status-value">0</span>
                 </div>
-                <div class="meta-item">
-                    <span class="meta-label">Positions</span>
-                    <span id="hero-positions" class="meta-value">--</span>
+                <div class="hero-status-badges">
+                    <span id="st-buy-badge" class="sbadge sbadge-normal">BUY: --</span>
+                    <span id="st-regime-badge" class="sbadge sbadge-regime-3">REGIME: --</span>
+                    <a href="/debug" class="hero-debug-link">🔧 DEBUG</a>
                 </div>
             </div>
-            <div style="display:flex;gap:8px;align-items:center;">
-                <span id="st-buy-badge" class="sbadge sbadge-normal">BUY: --</span>
-                <span id="st-regime-badge" class="sbadge sbadge-regime-3">REGIME: --</span>
-                <a href="/debug" style="padding:4px 12px; font-size:11px; font-weight:600; background:rgba(59,130,246,0.1); color:var(--accent); border:1px solid var(--accent); border-radius:3px; text-decoration:none;">🔧 DEBUG</a>
+            <!-- RIGHT: portfolio metrics (existing summary.us.js render target) -->
+            <div class="hero-metrics-block">
+                <div class="hero-meta" style="margin-top:0;">
+                    <div class="meta-item">
+                        <span class="meta-label">Equity</span>
+                        <span id="hero-equity" class="meta-value">--</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Cash</span>
+                        <span id="hero-cash" class="meta-value">--</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">P&L (Total)</span>
+                        <span id="hero-pnl" class="meta-value">--</span>
+                        <span id="hero-pnl-today" class="meta-sub">vs Prev --</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">P&L % (Total)</span>
+                        <span id="hero-pnl-pct" class="meta-value">--</span>
+                        <span id="hero-pnl-pct-today" class="meta-sub">vs Prev --</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Positions</span>
+                        <span id="hero-positions" class="meta-value">--</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -287,8 +520,33 @@
         See docs/ui_unification_ia_20260424.md §2.2 for target layout.
     -->
     <div class="qc-group qc-group-core" id="qc-group-core" data-qc-group="core">
-    <!-- Summary Cards -->
-    <div class="cards">
+    <h3 class="qc-group-label">CORE OPERATIONS</h3>
+
+    <!-- Summary Hybrid (P3, 2026-04-26): 4 status + 4 metric cards -->
+    <div class="cards cards-hybrid">
+        <!-- Row 1: synthesized operational status -->
+        <div class="status-card status-card-unknown" id="card-buy-permission">
+            <div class="status-card-label">Buy Permission</div>
+            <div class="status-card-value">--</div>
+            <div class="status-card-sub"></div>
+        </div>
+        <div class="status-card status-card-unknown" id="card-dd-status">
+            <div class="status-card-label">DD Status</div>
+            <div class="status-card-value">--</div>
+            <div class="status-card-sub">daily / monthly</div>
+        </div>
+        <div class="status-card status-card-unknown" id="card-rebal-status">
+            <div class="status-card-label">Rebalance</div>
+            <div class="status-card-value">--</div>
+            <div class="status-card-sub"></div>
+        </div>
+        <div class="status-card status-card-unknown" id="card-data-freshness">
+            <div class="status-card-label">Data / RECON</div>
+            <div class="status-card-value">--</div>
+            <div class="status-card-sub">cache age / recon</div>
+        </div>
+
+        <!-- Row 2: account metrics (kept from original 4 cards) -->
         <div class="card">
             <div class="card-label">Buying Power</div>
             <div id="card-bp" class="card-value">--</div>
@@ -304,6 +562,38 @@
         <div class="card">
             <div class="card-label">Market</div>
             <div id="card-market" class="card-value">--</div>
+        </div>
+    </div>
+
+    <!-- ====== Rebalance (P4 moved here, 2026-04-26) =====
+         Was below Holdings; promoted to right after Summary
+         because it is the highest-frequency operator action. -->
+    <div class="section">
+        <div class="section-title">Rebalance</div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <span style="font-size:11px;color:var(--muted);">Mode:</span>
+                <button id="rebal-mode-btn" onclick="_toggleRebalMode()" style="padding:3px 14px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;">MANUAL</button>
+                <span style="font-size:11px;color:var(--muted);">Phase:</span>
+                <span id="rebal-phase" class="badge badge-closed" style="font-size:11px;">IDLE</span>
+                <span id="rebal-dday" style="font-size:16px;font-weight:700;color:var(--yellow);">D-?</span>
+                <span id="rebal-next" style="font-size:11px;color:var(--muted);"></span>
+            </div>
+            <div style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap;font-size:11px;">
+                <span>Batch: <span id="rebal-batch-status" style="color:var(--muted);">--</span></span>
+                <span>Execute: <span id="rebal-exec-status" style="color:var(--muted);">--</span></span>
+                <span>Last: <span id="rebal-last-exec" style="color:var(--muted);">--</span></span>
+            </div>
+            <div id="rebal-block-reasons" style="margin-top:6px;font-size:10px;color:var(--red);display:none;"></div>
+        </div>
+        <div id="rebal-panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;">
+            <div id="rebal-preview" style="color:var(--muted);font-size:12px;">Click Preview to check rebalance orders</div>
+            <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+                <button onclick="_rebalPreview()" style="padding:6px 16px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-size:12px;cursor:pointer;">Preview</button>
+                <button onclick="_rebalExecute('sell_only')" id="btn-rebal-sell" style="padding:6px 16px;background:#c62828;border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;display:none;">Sell Only</button>
+                <button onclick="_rebalExecute('buy_only')" id="btn-rebal-buy" style="padding:6px 16px;background:#2e7d32;border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;display:none;">Buy Only</button>
+                <button onclick="_rebalExecute('sell_and_buy')" id="btn-rebal-all" style="padding:6px 16px;background:#1565c0;border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;display:none;">Sell + Buy</button>
+            </div>
         </div>
     </div>
 
@@ -327,38 +617,6 @@
         </table>
     </div>
 
-    <!-- Rebalance -->
-    <div class="section">
-        <div class="section-title">Rebalance</div>
-        <!-- Rebal Status Panel -->
-        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px;">
-            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-                <span style="font-size:11px;color:var(--muted);">Mode:</span>
-                <button id="rebal-mode-btn" onclick="_toggleRebalMode()" style="padding:3px 14px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;">MANUAL</button>
-                <span style="font-size:11px;color:var(--muted);">Phase:</span>
-                <span id="rebal-phase" class="badge badge-closed" style="font-size:11px;">IDLE</span>
-                <span id="rebal-dday" style="font-size:16px;font-weight:700;color:var(--yellow);">D-?</span>
-                <span id="rebal-next" style="font-size:11px;color:var(--muted);"></span>
-            </div>
-            <div style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap;font-size:11px;">
-                <span>Batch: <span id="rebal-batch-status" style="color:var(--muted);">--</span></span>
-                <span>Execute: <span id="rebal-exec-status" style="color:var(--muted);">--</span></span>
-                <span>Last: <span id="rebal-last-exec" style="color:var(--muted);">--</span></span>
-            </div>
-            <div id="rebal-block-reasons" style="margin-top:6px;font-size:10px;color:var(--red);display:none;"></div>
-        </div>
-        <!-- Rebal Orders Panel -->
-        <div id="rebal-panel" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;">
-            <div id="rebal-preview" style="color:var(--muted);font-size:12px;">Click Preview to check rebalance orders</div>
-            <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
-                <button onclick="_rebalPreview()" style="padding:6px 16px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-size:12px;cursor:pointer;">Preview</button>
-                <button onclick="_rebalExecute('sell_only')" id="btn-rebal-sell" style="padding:6px 16px;background:#c62828;border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;display:none;">Sell Only</button>
-                <button onclick="_rebalExecute('buy_only')" id="btn-rebal-buy" style="padding:6px 16px;background:#2e7d32;border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;display:none;">Buy Only</button>
-                <button onclick="_rebalExecute('sell_and_buy')" id="btn-rebal-all" style="padding:6px 16px;background:#1565c0;border:none;border-radius:6px;color:#fff;font-size:12px;cursor:pointer;display:none;">Sell + Buy</button>
-            </div>
-        </div>
-    </div>
-
     <!-- Target Portfolio -->
     <div class="section">
         <div class="section-title">Target Portfolio (Latest Batch)</div>
@@ -366,6 +624,7 @@
     </div>
     </div>
     <div class="qc-group qc-group-market" id="qc-group-market" data-qc-group="market">
+    <h3 class="qc-group-label">MARKET CONTEXT</h3>
     <!-- Regime Section -->
     <div class="section" id="regime-section">
         <div class="section-title">Market Regime</div>
@@ -412,6 +671,7 @@
     </div>
     </div>
     <div class="qc-group qc-group-ext" id="qc-group-ext" data-qc-group="ext">
+    <h3 class="qc-group-label">RISK &amp; CONTROL</h3>
     <!-- Exchange Rate & Tax -->
     <div class="section">
         <div class="section-title">Exchange Rate & Tax</div>
@@ -455,6 +715,14 @@
          B.1 Equity Curve | B.2 Trade History | B.3 Risk Metrics
          | B.4 Rebal History | B.5 Alert History -->
     <div class="qc-group qc-group-analytics" id="qc-group-analytics" data-qc-group="analytics">
+        <h3 class="qc-group-label">
+            ANALYTICS / DIAGNOSTICS
+            <button id="qtron-diag-toggle" class="qtron-diag-toggle" type="button"
+                    onclick="qtronToggleDiagnostics()"
+                    title="진단 카드 (Trade History / Risk Metrics / Alert History) 표시 토글">
+                ⚙ Show Diagnostics
+            </button>
+        </h3>
         <!-- B.1 Equity Curve -->
         <div class="section">
             <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
@@ -474,8 +742,8 @@
             </div>
         </div>
 
-        <!-- B.2 Trade History -->
-        <div class="section">
+        <!-- B.2 Trade History (P6: diag-only — hidden by default) -->
+        <div class="section qtron-diag-only">
             <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
                 <span>Analytics — Trade History</span>
                 <div style="display:flex;gap:6px;align-items:center;">
@@ -493,8 +761,8 @@
             </div>
         </div>
 
-        <!-- B.3 Risk Metrics -->
-        <div class="section">
+        <!-- B.3 Risk Metrics (P6: diag-only — hidden by default) -->
+        <div class="section qtron-diag-only">
             <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
                 <span>Analytics — Risk Metrics</span>
                 <select id="risk-days" style="font-size:12px;padding:2px 6px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:4px;">
@@ -511,8 +779,8 @@
             </div>
         </div>
 
-        <!-- B.4 Rebalance History -->
-        <div class="section">
+        <!-- B.4 Rebalance History (P6: diag-only — hidden by default) -->
+        <div class="section qtron-diag-only">
             <div class="section-title">Analytics — Rebalance History</div>
             <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px;">
                 <div id="rebal-history" style="max-height:300px;overflow-y:auto;">
@@ -521,8 +789,8 @@
             </div>
         </div>
 
-        <!-- B.5 Alert History -->
-        <div class="section">
+        <!-- B.5 Alert History (P6: diag-only — hidden by default) -->
+        <div class="section qtron-diag-only">
             <div class="section-title">Analytics — Alert History</div>
             <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px;">
                 <div id="alert-history" style="max-height:300px;overflow-y:auto;">
@@ -533,8 +801,8 @@
     </div>
 
 
-    <!-- Test Orders -->
-    <div class="test-panel">
+    <!-- Test Orders (P6: diag-only — operator hidden by default) -->
+    <div class="test-panel qtron-diag-only">
         <div class="section-title">Test Order (Paper)</div>
         <div class="test-row">
             <input id="test-symbol" class="test-input" placeholder="AAPL" value="AAPL">
@@ -552,6 +820,7 @@
 <script src="/shared/components/summary.us.js?v=1"></script>
 <script src="/shared/components/regime.us.js?v=1"></script>
 <script src="/shared/components/holdings.us.js?v=1"></script>
+<script src="/shared/components/qc-actions.js?v=3"></script>
 
 <script>
 const BASE = '';
@@ -564,6 +833,269 @@ function fmt(n, dec=2) {
 }
 
 function pctClass(v) { return v >= 0 ? 'gain' : 'loss'; }
+
+// ── KR-parallel UI helpers (added 2026-04-25) ──────────────
+// Mirrors kr/web/static/dashboard.js rpSparkSvg/rpRowHtml. The
+// US dashboard reuses the same color convention as KR (gain=red,
+// loss=blue) per the existing CSS .gain/.loss rules above.
+function usSparkSvg(series, w, h) {
+    if (!series || series.length < 2) return '';
+    w = w || 64; h = h || 18;
+    const min = Math.min(...series), max = Math.max(...series);
+    const span = (max - min) || 1;
+    const step = w / (series.length - 1);
+    const pts = series.map((v, i) =>
+        `${(i * step).toFixed(1)},${(h - ((v - min) / span) * h).toFixed(1)}`
+    ).join(' ');
+    const last = series[series.length - 1];
+    const prev = series[series.length - 2];
+    const stroke = last >= prev ? '#ef5350' : '#42a5f5';
+    return `<svg class="rp-spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+        <polyline fill="none" stroke="${stroke}" stroke-width="1.4" points="${pts}" />
+    </svg>`;
+}
+function usRowHtml(s) {
+    const cls  = (s.change_pct || 0) >= 0 ? 'rp-change-pos' : 'rp-change-neg';
+    const sign = (s.change_pct || 0) >= 0 ? '+' : '';
+    const open = (s.open != null ? s.open : 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    const close = (s.close != null ? s.close : 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    // Adapt KR payload field names: code → symbol, name = company name
+    const payload = encodeURIComponent(JSON.stringify({
+        code: s.symbol, name: s.name, sector: s.sector,
+        open: s.open, close: s.close, change_pct: s.change_pct,
+        spark: s.spark, mom: s.mom, vol: s.vol,
+    }));
+    return `<div class="rp-row" data-payload="${payload}" onclick="usRowClick(this)">
+        <span class="rp-code">${s.symbol}</span>
+        <span class="rp-name">${s.name || s.symbol}</span>
+        <span class="rp-spark-cell">${usSparkSvg(s.spark)}</span>
+        <span class="rp-px">${open}→${close}</span>
+        <span class="${cls}">${sign}${(s.change_pct || 0).toFixed(2)}%</span>
+    </div>`;
+}
+function usRowClick(el) {
+    try {
+        const s = JSON.parse(decodeURIComponent(el.dataset.payload || '{}'));
+        if (window.qcDrawer) window.qcDrawer.open(s);
+    } catch (e) { /* noop */ }
+}
+
+// Pure client-side US market phase detection. Assumes the user's local
+// clock interpretation of NYSE hours (09:30–16:00 ET, M–F). Does not
+// account for ET/local-tz offset; for soft visual relabeling the wall
+// clock is good enough. Returns PRE_OPEN / OPEN / AFTER_HOURS / WEEKEND.
+function getUsMarketPhase(now) {
+    const d = now || new Date();
+    const dow = d.getUTCDay();
+    if (dow === 0 || dow === 6) return 'WEEKEND';
+    // Convert to ET (UTC-5 standard, UTC-4 DST). Roughly: assume EDT.
+    // Off by 1h in winter is acceptable for soft visual relabel.
+    const etMinutes = (d.getUTCHours() - 4 + 24) % 24 * 60 + d.getUTCMinutes();
+    if (etMinutes < (9 * 60 + 30)) return 'PRE_OPEN';
+    if (etMinutes >= 16 * 60)      return 'AFTER_HOURS';
+    return 'OPEN';
+}
+
+// ── synthesizeStatus (P7, 2026-04-26) ──────────────────────
+// Mirror of kr/web/static/dashboard.js synthesizeStatus(). Pure
+// function — does NOT mutate snapshot, does NOT call APIs. Adapts
+// US-specific snapshot shape (status_summary + portfolio + health).
+function synthesizeStatus(data) {
+    const empty = {
+        engine: 'UNKNOWN', buy: 'UNKNOWN', buyReason: '',
+        recon: 'UNKNOWN', data: 'UNKNOWN', alerts: 0,
+        worst: 'OK', pills: [],
+    };
+    if (!data || typeof data !== 'object') return empty;
+
+    const phase = getUsMarketPhase();
+    const isMarketHours = (phase === 'OPEN');
+
+    // ENGINE — US uses health.status (OK/DISCONNECTED). After-hours
+    // disconnect is expected → soft warn instead of red.
+    let engine = 'OK', engineReason = '';
+    if (data.healthStatus === 'DISCONNECTED' || data.connected === false) {
+        if (isMarketHours) { engine = 'OFFLINE'; engineReason = 'broker disconnected (market open)'; }
+        else                { engine = 'STALE';   engineReason = `broker idle (${phase})`; }
+    } else if ((data.cache_age_sec || 0) > 600) {
+        engine = 'STALE'; engineReason = `cache age ${Math.round(data.cache_age_sec)}s`;
+    }
+
+    // BUY EFFECTIVE
+    const buyGate = (data.buy_gate || '').toUpperCase();
+    let buy = 'OK', buyReason = '', buyDetail = '';
+    if (engine === 'OFFLINE') { buy = 'BLOCKED'; buyReason = 'ENGINE'; buyDetail = engineReason; }
+    else if (buyGate === 'BLOCKED') {
+        buy = 'BLOCKED';
+        buyReason = (data.buy_blocker || data.buy_reason || 'GATE');
+        buyDetail = data.buy_reason || '';
+    } else if (buyGate === 'WARN') {
+        buy = 'BLOCKED'; buyReason = 'WARN';
+        buyDetail = data.buy_reason || '';
+    }
+
+    // RECON — US has fewer signals than KR; treat absence as OK
+    let recon = 'OK', reconDetail = '';
+    if (data.recon_status === 'UNRELIABLE' || data.broker_mismatch) {
+        recon = 'UNRELIABLE'; reconDetail = data.recon_reason || 'broker sync mismatch';
+    }
+
+    // DATA freshness
+    const cacheAge = Number(data.cache_age_sec || 0);
+    let dataFresh = 'OK';
+    if (cacheAge > 600)      dataFresh = 'STALE';
+    else if (cacheAge > 300) dataFresh = 'AGING';
+
+    // ALERTS — toast ring buffer
+    let alerts = 0;
+    try { if (window.qcToast && typeof window.qcToast.recentCount === 'function') alerts = window.qcToast.recentCount(10*60*1000) || 0; } catch (_) {}
+
+    const ICON = { ok:'✓', info:'i', warn:'⚠', critical:'✗' };
+    const pills = [];
+    if (engine !== 'OK') pills.push({
+        key:'engine',
+        label: engine === 'OFFLINE' ? 'ENGINE OFFLINE' : 'ENGINE STALE',
+        sub: engineReason,
+        level: engine === 'OFFLINE' ? 'critical' : 'warn',
+        icon:  engine === 'OFFLINE' ? ICON.critical : ICON.warn,
+        scrollTarget: 'card-buy-permission',
+    });
+    if (buy !== 'OK') pills.push({
+        key:'buy', label:`Buy Blocked (${buyReason})`, sub:buyDetail,
+        level:'critical', icon:ICON.critical, scrollTarget:'card-buy-permission',
+    });
+    if (recon !== 'OK') pills.push({
+        key:'recon', label:'RECON Unreliable', sub:reconDetail,
+        level:'warn', icon:ICON.warn, scrollTarget:'card-data-freshness',
+    });
+    if (dataFresh !== 'OK') pills.push({
+        key:'data',
+        label: dataFresh === 'STALE' ? `DATA STALE (${Math.round(cacheAge)}s)` : `DATA AGING (${Math.round(cacheAge)}s)`,
+        sub:'', level: dataFresh === 'STALE' ? 'warn' : 'info',
+        icon: dataFresh === 'STALE' ? ICON.warn : ICON.info,
+        scrollTarget: 'card-data-freshness',
+    });
+    if (alerts > 0) pills.push({
+        key:'alerts', label:`${alerts} ALERTS`, sub:'last 10min toasts',
+        level:'info', icon:ICON.info, scrollTarget:null,
+    });
+
+    const levelRank = { ok:0, info:1, warn:2, critical:3 };
+    const worstRank = pills.reduce((m,p) => Math.max(m, levelRank[p.level]||0), 0);
+    const worst = ['OK','INFO','WARN','CRITICAL'][worstRank];
+
+    return { engine, buy, buyReason, recon, data: dataFresh, alerts, worst, pills };
+}
+
+function renderStatusBar(synth) {
+    const bar = document.getElementById('qc-status-bar');
+    if (!bar) return;
+    if (!synth || !synth.pills || synth.pills.length === 0) {
+        bar.innerHTML = ''; bar.classList.remove('qc-status-bar-active'); return;
+    }
+    bar.classList.add('qc-status-bar-active');
+    bar.innerHTML = synth.pills.map(p => {
+        const tip = (p.label + (p.sub ? ' — ' + p.sub : '')).replace(/"/g, '&quot;');
+        const target = p.scrollTarget ? `data-scroll="${p.scrollTarget}"` : '';
+        return `<button class="qc-pill qc-pill-${p.level}" type="button" title="${tip}" ${target} onclick="qcPillClick(this)">
+            <span class="qc-pill-icon">${p.icon}</span>
+            <span class="qc-pill-label">${p.label}</span>
+        </button>`;
+    }).join('');
+}
+function qcPillClick(btn) {
+    const id = btn.getAttribute('data-scroll');
+    if (!id) return;
+    const target = document.getElementById(id);
+    if (!target) return;
+    target.scrollIntoView({ behavior:'smooth', block:'center' });
+    target.classList.add('qc-highlight-pulse');
+    setTimeout(() => target.classList.remove('qc-highlight-pulse'), 2000);
+}
+
+// Render hero status block (left column) — drives the four hero rows.
+function renderHeroStatus(synth, data) {
+    const rows = {
+        'hero-status-buy':   { value: synth.buy === 'OK' ? 'NORMAL' : `BLOCKED (${synth.buyReason})`, level: synth.buy === 'OK' ? 'ok' : 'critical' },
+        'hero-status-recon': { value: synth.recon === 'OK' ? 'OK' : synth.recon, level: synth.recon === 'OK' ? 'ok' : 'warn' },
+        'hero-status-data':  { value: `${Math.round(Number((data && data.cache_age_sec) || 0))}s`, level: synth.data === 'OK' ? 'ok' : (synth.data === 'STALE' ? 'warn' : 'info') },
+        'hero-status-alerts':{ value: String(synth.alerts || 0), level: (synth.alerts > 0) ? 'info' : 'ok' },
+    };
+    Object.keys(rows).forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.className = 'hero-status-row lvl-' + rows[id].level;
+        const v = el.querySelector('.hero-status-value');
+        if (v) v.textContent = rows[id].value;
+    });
+}
+
+// Render hybrid summary status cards (top row of the cards grid).
+function renderStatusCards(synth, data) {
+    const set = (id, value, level, sub) => {
+        const card = document.getElementById(id);
+        if (!card) return;
+        const v = card.querySelector('.status-card-value');
+        const s = card.querySelector('.status-card-sub');
+        if (v) v.textContent = value || '--';
+        if (s) s.textContent = sub || '';
+        card.className = 'status-card status-card-' + (level || 'unknown');
+    };
+    if (!synth) return;
+    set('card-buy-permission',
+        synth.buy === 'OK' ? 'NORMAL' : `BLOCKED (${synth.buyReason})`,
+        synth.buy === 'OK' ? 'ok' : 'critical',
+        synth.buy === 'OK' ? 'New buys allowed' : 'New buys blocked');
+    // US lacks daily/monthly DD; show simple PnL% instead
+    const pnlPct = (data && data.portfolio && data.portfolio.unrealized_pl_pct);
+    let ddLevel = 'ok';
+    if (pnlPct != null && pnlPct < -5) ddLevel = 'critical';
+    else if (pnlPct != null && pnlPct < -3) ddLevel = 'warn';
+    set('card-dd-status',
+        pnlPct != null ? `${pnlPct.toFixed(2)}%` : '--',
+        ddLevel,
+        'unrealized P&L %');
+    const reb = (data && data.rebalance) || {};
+    const dDay = reb.d_day != null ? `D-${reb.d_day}` : (reb.dDay != null ? `D-${reb.dDay}` : '--');
+    let rebLevel = 'ok';
+    if (reb.d_day === 0 || reb.dDay === 0) rebLevel = 'warn';
+    else if (reb.d_day === 1 || reb.dDay === 1) rebLevel = 'info';
+    set('card-rebal-status', dDay, rebLevel, reb.window || '');
+    const cacheAge = Math.round(Number((data && data.cache_age_sec) || 0));
+    let freshLabel = '--', freshLevel = 'ok';
+    if (synth.data === 'STALE')      { freshLabel = `STALE ${cacheAge}s`; freshLevel = 'warn'; }
+    else if (synth.data === 'AGING') { freshLabel = `AGING ${cacheAge}s`; freshLevel = 'info'; }
+    else                              { freshLabel = `${cacheAge}s`; freshLevel = 'ok'; }
+    if (synth.recon !== 'OK') { freshLabel += ` · RECON ${synth.recon}`; freshLevel = 'warn'; }
+    set('card-data-freshness', freshLabel, freshLevel, 'cache age / recon');
+}
+
+// Diagnostics toggle (P10)
+function qtronToggleDiagnostics() {
+    const next = !document.body.classList.contains('qtron-diagnostics-on');
+    document.body.classList.toggle('qtron-diagnostics-on', next);
+    try { localStorage.setItem('qtron_diagnostics', next ? '1' : '0'); } catch (_) {}
+    const btn = document.getElementById('qtron-diag-toggle');
+    if (btn) btn.textContent = next ? '⚙ Hide Diagnostics' : '⚙ Show Diagnostics';
+}
+(function () {
+    try {
+        if (localStorage.getItem('qtron_diagnostics') === '1') {
+            document.body.classList.add('qtron-diagnostics-on');
+            const apply = () => { const b = document.getElementById('qtron-diag-toggle'); if (b) b.textContent = '⚙ Hide Diagnostics'; };
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply);
+            else apply();
+        }
+    } catch (_) {}
+})();
+
+// Expose for debug + tests
+window.synthesizeStatus = synthesizeStatus;
+window.renderStatusBar = renderStatusBar;
+window.renderStatusCards = renderStatusCards;
+window.renderHeroStatus = renderHeroStatus;
+window.qcPillClick = qcPillClick;
+window.qtronToggleDiagnostics = qtronToggleDiagnostics;
 
 async function apiFetch(path) {
     try {
@@ -582,7 +1114,15 @@ async function refresh() {
     if (nb) {
         const svr = h.server_type || 'PAPER';
         const mkt = h.is_market_open ? 'OPEN' : 'CLOSED';
-        const dotCls = h.status === 'OK' ? 'ok' : 'err';
+        // After-hours softening: when broker says DISCONNECTED but it's
+        // simply outside NYSE hours, the disconnect is expected — show a
+        // friendly amber dot instead of red. Mirrors KR EOD behavior.
+        const phase = getUsMarketPhase();
+        const isAfterHours = (phase === 'AFTER_HOURS' || phase === 'WEEKEND' || phase === 'PRE_OPEN');
+        let dotCls;
+        if (h.status === 'OK')               dotCls = 'ok';
+        else if (isAfterHours)               dotCls = 'warn';   // EOD/weekend — soft amber
+        else                                 dotCls = 'err';
         nb.innerHTML =
             `<span class="qnav-badge qnav-badge-${svr.toLowerCase()}">${svr}</span>` +
             `<span class="qnav-badge qnav-badge-${mkt.toLowerCase()}">${mkt}</span>` +
@@ -608,14 +1148,19 @@ async function refresh() {
         );
     }
 
-    // Target
+    // Target — sparkline row format (qc-actions drawer click-through)
     const t = await apiFetch('/api/target');
     if (t.target_tickers) {
         $('card-target').textContent = t.target_tickers.length;
-        $('target-list').innerHTML = t.target_tickers.map((sym, i) => {
-            const s = t.scores?.[sym] || {};
-            return `<span style="display:inline-block;margin:2px 4px;padding:2px 8px;background:var(--card);border:1px solid var(--border);border-radius:4px;font-size:13px;">${i+1}. ${sym}</span>`;
-        }).join('');
+        // Prefer enriched items[] (added 2026-04-25 with name + spark + sector).
+        // Fall back to plain ticker chips if the backend hasn't been restarted.
+        if (Array.isArray(t.items) && t.items.length) {
+            $('target-list').innerHTML = t.items.map(usRowHtml).join('');
+        } else {
+            $('target-list').innerHTML = t.target_tickers.map((sym, i) =>
+                `<span style="display:inline-block;margin:2px 4px;padding:2px 8px;background:var(--card);border:1px solid var(--border);border-radius:4px;font-size:13px;">${i+1}. ${sym}</span>`
+            ).join('');
+        }
     } else {
         $('card-target').textContent = '--';
         $('target-list').textContent = 'No target portfolio';
@@ -625,6 +1170,32 @@ async function refresh() {
     const db = await apiFetch('/api/db/health');
     $('card-db').textContent = db.status || '--';
     $('card-db').style.color = db.status === 'OK' ? 'var(--green)' : 'var(--red)';
+
+    // ── P1+P2+P3 status synthesis (2026-04-26) ────────────────
+    // Compose a unified snapshot for synthesizeStatus from the
+    // multiple US endpoints. This is purely client-side adaptation
+    // (no backend contract change).
+    try {
+        const synthInput = {
+            healthStatus: h.status,
+            connected: h.status === 'OK',
+            cache_age_sec: (typeof p.cache_age_sec === 'number') ? p.cache_age_sec : 0,
+            buy_gate: window._lastStatusSummary && window._lastStatusSummary.buy_gate,
+            buy_blocker: window._lastStatusSummary && window._lastStatusSummary.buy_blocker,
+            buy_reason:  window._lastStatusSummary && window._lastStatusSummary.buy_reason,
+            recon_status: (window._lastStatusSummary && window._lastStatusSummary.recon_status) || 'OK',
+            broker_mismatch: !!(window._lastStatusSummary && window._lastStatusSummary.broker_mismatch),
+            portfolio: p,
+            rebalance: window._lastRebalStatus || {},
+        };
+        const synth = synthesizeStatus(synthInput);
+        renderStatusBar(synth);
+        renderHeroStatus(synth, synthInput);
+        renderStatusCards(synth, synthInput);
+        window._qcLastSynth = synth;
+    } catch (e) {
+        console.warn('[StatusBar] synthesize/render error:', e);
+    }
 }
 
 async function testBuy() {
@@ -925,6 +1496,12 @@ async function refreshRebalStatus() {
         const s = await apiFetch('/api/rebalance/status');
         if (s.error) return;
 
+        // Cache for synthesizeStatus consumption (driven by refresh()).
+        window._lastRebalStatus = {
+            d_day: s.d_day, dDay: s.dDay,
+            window: s.window, mode: s.mode, phase: s.phase,
+        };
+
         // Mode button
         const btn = $('rebal-mode-btn');
         btn.textContent = (s.mode || 'manual').toUpperCase();
@@ -1002,7 +1579,16 @@ async function refreshStatus() {
         const s = await apiFetch('/api/status/summary');
         if (s.error) return;
 
-        // LED
+        // Cache for synthesizeStatus consumption (driven by refresh()).
+        // Includes only fields referenced by the synthesis layer.
+        window._lastStatusSummary = {
+            buy_gate: s.buy_gate,
+            buy_blocker: s.buy_blocker,
+            buy_reason:  s.buy_reason,
+            recon_status: s.recon_status,
+            broker_mismatch: s.broker_mismatch,
+        };
+
         // Nav: SPY index
         if (s.spy && s.spy.price > 0) {
             const chg = s.spy.change_pct;
@@ -1010,7 +1596,7 @@ async function refreshStatus() {
             if (ni) ni.innerHTML = `SPY ${s.spy.price.toFixed(2)} <span class="chg ${chg>=0?'up':'dn'}">${chg>=0?'+':''}${chg.toFixed(1)}%</span>`;
         }
 
-        // Hero: BUY gate badge
+        // Hero: BUY gate badge (legacy, retained inside hero-status-block)
         const buyBadge = $('st-buy-badge');
         if (buyBadge) {
             buyBadge.textContent = 'BUY: ' + s.buy_gate;
