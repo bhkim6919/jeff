@@ -190,9 +190,321 @@ function updateDashboard(data) {
     updateRawJson(data);
     updateLatencyHistogram();
     updateStateDiff(data);
+
+    // P1 (2026-04-26): Top status pill bar — synthesized worst-effective
+    // state across ENGINE / BUY / RECON / DATA + recent ALERT count.
+    // Renders nothing when all systems are normal (3-second test policy).
+    try {
+        const synth = synthesizeStatus(data);
+        renderStatusBar(synth);
+        // Cache for status cards (P2) so they render from same source
+        window._qcLastSynth = synth;
+        renderStatusCards(synth, data);
+    } catch (e) {
+        console.warn('[StatusBar] render error:', e);
+    }
 }
 
 // ── Hero Status ──────────────────────────────────────────────
+
+// Helper: KST market phase (PRE_OPEN / OPEN / AFTER_HOURS / WEEKEND).
+// Pure client-side — relies on the user's wall clock interpreted as KST.
+// Used to soften ENGINE_OFFLINE banner after market close.
+function getKrMarketPhase(now) {
+    const d = now || new Date();
+    const dow = d.getDay();           // 0=Sun, 6=Sat
+    if (dow === 0 || dow === 6) return 'WEEKEND';
+    const minutes = d.getHours() * 60 + d.getMinutes();
+    if (minutes < 9 * 60)        return 'PRE_OPEN';     // before 09:00
+    if (minutes >= 15 * 60 + 30) return 'AFTER_HOURS';  // 15:30 onward
+    return 'OPEN';
+}
+
+// ── synthesizeStatus (Phase P1, 2026-04-26) ──────────────────
+// Read-only synthesis of the snapshot into a single object that
+// drives the top status-pill bar. Pure function — does NOT mutate
+// snapshot, does NOT call APIs, does NOT change behavior.
+//
+// Output:
+//   {
+//     engine: 'OK' | 'OFFLINE' | 'STALE',
+//     buy:    'OK' | 'BLOCKED',
+//     buyReason: '' | 'ENGINE' | 'DD' | 'RECON' | <blocker_code>,
+//     recon:  'OK' | 'UNAVAILABLE' | 'UNRELIABLE',
+//     data:   'OK' | 'AGING' | 'STALE',
+//     alerts: <integer count of recent toasts (10min window)>,
+//     worst:  'OK' | 'INFO' | 'WARN' | 'CRITICAL',
+//     pills:  [{ key, label, sub, level, scrollTarget }, ...]
+//   }
+//
+// `pills[]` is the source-of-truth for what to render in the bar.
+// Empty array = all systems normal, hide the bar entirely.
+//
+// Worst-effective rule: BUY=BLOCKED + ENGINE_OFFLINE → single pill
+// "신규 매수 차단 (ENGINE)" with critical level. The other pills
+// can still surface (RECON, DATA) but BUY is the operational
+// headline.
+function synthesizeStatus(data) {
+    const empty = {
+        engine: 'UNKNOWN', buy: 'UNKNOWN', buyReason: '',
+        recon: 'UNKNOWN', data: 'UNKNOWN', alerts: 0,
+        worst: 'OK', pills: [],
+    };
+    if (!data || typeof data !== 'object') return empty;
+
+    const engineSt = data.engine_status || {};
+    const ddGuard  = data.dd_guard || {};
+    const reconSt  = data.recon || {};
+    const auto     = data.auto_trading || {};
+    const cacheAge = Number(data.cache_age_sec || 0);
+
+    // ENGINE
+    let engine = 'OK';
+    let engineReason = '';
+    if ((engineSt.status || '').toUpperCase() === 'OFFLINE') {
+        engine = 'OFFLINE';
+        engineReason = engineSt.reason || 'engine offline';
+    } else if (cacheAge > 600) {
+        engine = 'STALE';
+        engineReason = `cache age ${Math.round(cacheAge)}s`;
+    }
+
+    // BUY EFFECTIVE — synthesized priority: ENGINE > AUTO > DD > RECON
+    let buy = 'OK', buyReason = '', buyDetail = '';
+    if (engine === 'OFFLINE') {
+        buy = 'BLOCKED'; buyReason = 'ENGINE'; buyDetail = engineReason;
+    } else if (auto.enabled === false) {
+        buy = 'BLOCKED';
+        buyReason = (auto.highest_priority_blocker
+                     || (Array.isArray(auto.blockers) && auto.blockers[0])
+                     || 'AUTO');
+        buyDetail = auto.reason_summary || '';
+    } else if ((ddGuard.buy_permission || '').toUpperCase() === 'BLOCKED') {
+        buy = 'BLOCKED'; buyReason = 'DD';
+        const dailyDd   = ddGuard.daily_dd != null ? (ddGuard.daily_dd * 100).toFixed(1) + '%' : '?';
+        const monthlyDd = ddGuard.monthly_dd != null ? (ddGuard.monthly_dd * 100).toFixed(1) + '%' : '?';
+        buyDetail = `daily ${dailyDd}, monthly ${monthlyDd}`;
+    } else if (reconSt.unreliable) {
+        // RECON unreliability shouldn't outright block BUY but advisory only;
+        // surface separately below as its own pill.
+    }
+
+    // RECON
+    let recon = 'OK';
+    let reconDetail = '';
+    if ((reconSt.status || '').toUpperCase() === 'UNAVAILABLE') {
+        recon = 'UNAVAILABLE';
+        reconDetail = reconSt.engine_reason || 'recon unavailable';
+    } else if (reconSt.unreliable) {
+        recon = 'UNRELIABLE';
+        reconDetail = reconSt.reason || 'broker sync unreliable';
+    }
+
+    // DATA freshness (cache_age_sec is the most authoritative single field)
+    let dataFresh = 'OK';
+    if (cacheAge > 600)      dataFresh = 'STALE';
+    else if (cacheAge > 300) dataFresh = 'AGING';
+
+    // ALERTS — toast ring buffer (qc-actions.js exposes recentCount)
+    let alerts = 0;
+    try {
+        if (window.qcToast && typeof window.qcToast.recentCount === 'function') {
+            alerts = window.qcToast.recentCount(10 * 60 * 1000) || 0;
+        }
+    } catch (_) { alerts = 0; }
+
+    // Build pill array — only abnormal states surface
+    const pills = [];
+    const ICON = { ok: '✓', info: 'i', warn: '⚠', critical: '✗' };
+
+    if (engine !== 'OK') {
+        pills.push({
+            key: 'engine',
+            label: engine === 'OFFLINE' ? 'ENGINE OFFLINE' : 'ENGINE STALE',
+            sub: engineReason,
+            level: engine === 'OFFLINE' ? 'critical' : 'warn',
+            icon: engine === 'OFFLINE' ? ICON.critical : ICON.warn,
+            scrollTarget: 'hero',
+        });
+    }
+    if (buy !== 'OK') {
+        pills.push({
+            key: 'buy',
+            label: `신규 매수 차단 (${buyReason})`,
+            sub: buyDetail,
+            level: 'critical',
+            icon: ICON.critical,
+            scrollTarget: 'card-buy-permission',
+        });
+    }
+    if (recon !== 'OK') {
+        pills.push({
+            key: 'recon',
+            label: recon === 'UNAVAILABLE' ? 'RECON 불가' : 'RECON 불안정',
+            sub: reconDetail,
+            level: recon === 'UNAVAILABLE' ? 'critical' : 'warn',
+            icon: recon === 'UNAVAILABLE' ? ICON.critical : ICON.warn,
+            scrollTarget: 'card-data-freshness',
+        });
+    }
+    if (dataFresh !== 'OK') {
+        pills.push({
+            key: 'data',
+            label: dataFresh === 'STALE' ? `DATA STALE (${Math.round(cacheAge)}s)` : `DATA AGING (${Math.round(cacheAge)}s)`,
+            sub: '',
+            level: dataFresh === 'STALE' ? 'warn' : 'info',
+            icon: dataFresh === 'STALE' ? ICON.warn : ICON.info,
+            scrollTarget: 'card-data-freshness',
+        });
+    }
+    if (alerts > 0) {
+        pills.push({
+            key: 'alerts',
+            label: `${alerts} ALERTS`,
+            sub: '최근 10분 토스트',
+            level: 'info',
+            icon: ICON.info,
+            scrollTarget: null,
+        });
+    }
+
+    // Worst-effective level
+    const levelRank = { ok: 0, info: 1, warn: 2, critical: 3 };
+    const worstRank = pills.reduce((m, p) => Math.max(m, levelRank[p.level] || 0), 0);
+    const worst = ['OK', 'INFO', 'WARN', 'CRITICAL'][worstRank];
+
+    return { engine, buy, buyReason, recon, data: dataFresh, alerts, worst, pills };
+}
+
+// Render the top status pill bar from synthesized state.
+// Container: <div id="qc-status-bar" class="qc-status-bar"></div>
+// Empty pills[] → bar hidden entirely (3-second test: zero noise when OK).
+function renderStatusBar(synth) {
+    const bar = document.getElementById('qc-status-bar');
+    if (!bar) return;
+    if (!synth || !synth.pills || synth.pills.length === 0) {
+        bar.innerHTML = '';
+        bar.classList.remove('qc-status-bar-active');
+        return;
+    }
+    bar.classList.add('qc-status-bar-active');
+    bar.innerHTML = synth.pills.map(p => {
+        const safeSub = (p.sub || '').replace(/"/g, '&quot;');
+        const tip = (p.label + (p.sub ? ' — ' + p.sub : ''));
+        const target = p.scrollTarget ? `data-scroll="${p.scrollTarget}"` : '';
+        return `<button class="qc-pill qc-pill-${p.level}" type="button"
+                       title="${tip.replace(/"/g, '&quot;')}"
+                       ${target}
+                       onclick="qcPillClick(this)">
+            <span class="qc-pill-icon">${p.icon}</span>
+            <span class="qc-pill-label">${p.label}</span>
+        </button>`;
+    }).join('');
+}
+
+// Pill click → scrollIntoView the related card + brief highlight
+function qcPillClick(btn) {
+    const id = btn.getAttribute('data-scroll');
+    if (!id) return;
+    const target = document.getElementById(id);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.classList.add('qc-highlight-pulse');
+    setTimeout(() => target.classList.remove('qc-highlight-pulse'), 2000);
+}
+
+// ── P2 status cards (Hybrid summary, top row) ─────────────
+// Renders the 4 OPERATIONAL status cards from synthesized state.
+// The 4 ACCOUNT metric cards (holdings/cash/equity/pnl) keep their
+// existing render path via qc.summary.render() — untouched.
+function renderStatusCards(synth, data) {
+    const set = (id, value, level, sub) => {
+        const card = document.getElementById(id);
+        if (!card) return;
+        const v = card.querySelector('.status-card-value');
+        const s = card.querySelector('.status-card-sub');
+        if (v) v.textContent = value || '--';
+        if (s) s.textContent = sub || '';
+        card.className = 'status-card status-card-' + (level || 'unknown');
+    };
+
+    if (!synth) {
+        set('card-buy-permission', '--', 'unknown', '');
+        set('card-dd-status',      '--', 'unknown', '');
+        set('card-rebal-status',   '--', 'unknown', '');
+        set('card-data-freshness', '--', 'unknown', '');
+        return;
+    }
+
+    // 1) Buy Permission
+    set('card-buy-permission',
+        synth.buy === 'OK' ? 'NORMAL' : `BLOCKED (${synth.buyReason})`,
+        synth.buy === 'OK' ? 'ok' : 'critical',
+        synth.buy === 'OK' ? '신규 매수 허용' : '신규 매수 차단');
+
+    // 2) DD Status — pull from data.dd_guard
+    const dd = (data && data.dd_guard) || {};
+    const daily   = dd.daily_dd != null ? (dd.daily_dd * 100).toFixed(1) + '%' : '--';
+    const monthly = dd.monthly_dd != null ? (dd.monthly_dd * 100).toFixed(1) + '%' : '--';
+    let ddLevel = 'ok';
+    if (dd.monthly_dd != null && dd.monthly_dd < -0.05) ddLevel = 'critical';
+    else if (dd.daily_dd != null && dd.daily_dd < -0.03) ddLevel = 'warn';
+    set('card-dd-status',
+        `${daily} / ${monthly}`,
+        ddLevel,
+        'daily / monthly');
+
+    // 3) Rebalance Status — D-day from rebalance schedule (if available)
+    const reb = (data && data.rebalance) || {};
+    const dDay = reb.d_day != null ? `D-${reb.d_day}` : (reb.next ? `next ${reb.next}` : '--');
+    let rebLevel = 'ok';
+    if (reb.d_day === 0) rebLevel = 'warn';   // today
+    else if (reb.d_day === 1) rebLevel = 'info';
+    set('card-rebal-status', dDay, rebLevel, reb.window || '');
+
+    // 4) Data / RECON Freshness
+    const cacheAge = Math.round(Number((data && data.cache_age_sec) || 0));
+    let freshLabel = '--', freshLevel = 'ok';
+    if (synth.data === 'STALE')      { freshLabel = `STALE ${cacheAge}s`; freshLevel = 'warn'; }
+    else if (synth.data === 'AGING') { freshLabel = `AGING ${cacheAge}s`; freshLevel = 'info'; }
+    else                              { freshLabel = `${cacheAge}s`; freshLevel = 'ok'; }
+    if (synth.recon !== 'OK')        { freshLabel += ` · RECON ${synth.recon}`; freshLevel = 'warn'; }
+    set('card-data-freshness', freshLabel, freshLevel, 'cache age / recon');
+}
+
+// Diagnostics toggle (P3 spec). Default = operator view (diag hidden).
+// User opts in via the ⚙ button; choice persists in localStorage.
+function qtronToggleDiagnostics() {
+    const next = !document.body.classList.contains('qtron-diagnostics-on');
+    document.body.classList.toggle('qtron-diagnostics-on', next);
+    try { localStorage.setItem('qtron_diagnostics', next ? '1' : '0'); } catch (_) {}
+    const btn = document.getElementById('qtron-diag-toggle');
+    if (btn) btn.textContent = next ? '⚙ Hide Diagnostics' : '⚙ Show Diagnostics';
+}
+// Bootstrap on first paint
+(function () {
+    try {
+        if (localStorage.getItem('qtron_diagnostics') === '1') {
+            document.body.classList.add('qtron-diagnostics-on');
+            const apply = () => {
+                const btn = document.getElementById('qtron-diag-toggle');
+                if (btn) btn.textContent = '⚙ Hide Diagnostics';
+            };
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', apply);
+            } else {
+                apply();
+            }
+        }
+    } catch (_) {}
+})();
+
+// Expose for debugging + nav.js + tests
+window.synthesizeStatus = synthesizeStatus;
+window.renderStatusBar  = renderStatusBar;
+window.renderStatusCards = renderStatusCards;
+window.qcPillClick      = qcPillClick;
+window.qtronToggleDiagnostics = qtronToggleDiagnostics;
 
 function updateHero(data) {
     const health = data.health;
@@ -204,16 +516,35 @@ function updateHero(data) {
     if (dot) {
         const label = document.getElementById('health-label');
         const reason = document.getElementById('health-reason');
-        dot.className = 'health-dot health-' + statusLower;
+
+        // After-hours softening: when status is RED purely because the
+        // engine is OFFLINE and we're past 15:30 KST (or weekend), the
+        // engine being idle is expected, not an incident. Show a friendly
+        // "End of Market" label with yellow dot instead of the alarming
+        // red "오류 발생" banner. Underlying engine_status, blockers, and
+        // BUY:BLOCKED guards are unchanged.
+        const phase = getKrMarketPhase();
+        const reasonText = (health.reason || '');
+        const isEngineOffline = reasonText.startsWith('ENGINE_OFFLINE');
+        const isAfterHours = (phase === 'AFTER_HOURS' || phase === 'WEEKEND');
+        const eodMode = (statusLower === 'red' && isEngineOffline && isAfterHours);
+
+        const visualStatus = eodMode ? 'eod' : statusLower;
+        dot.className = 'health-dot health-' + visualStatus;
 
         const statusLabels = {
             green: '시스템 정상',
             yellow: '주의 필요',
             red: '오류 발생',
             black: '연결 안됨',
+            eod: 'End of Market',
         };
-        if (label) label.textContent = statusLabels[statusLower] || health.status;
-        if (reason) reason.textContent = health.reason;
+        if (label) label.textContent = statusLabels[visualStatus] || health.status;
+        if (reason) {
+            reason.textContent = eodMode
+                ? '장 마감 — 엔진 대기 모드 (다음 영업일 준비)'
+                : health.reason;
+        }
 
         // Hero meta
         const serverEl = document.getElementById('hero-server');
@@ -285,6 +616,25 @@ function updateSummaryCards(data) {
     if (window.qc && window.qc.summary && typeof window.qc.summary.render === 'function') {
         window.qc.summary.render(document.getElementById('summary-cards'), data);
     }
+
+    // Flash on changed values — compares prev numeric text and pulses the
+    // card green/red briefly. Pure visual — no behavior change.
+    try {
+        const cards = document.querySelectorAll('.summary-card');
+        cards.forEach((card) => {
+            const valEl = card.querySelector('.summary-value');
+            if (!valEl) return;
+            const cur = (valEl.textContent || '').replace(/[^0-9.\-]/g, '');
+            const prev = card.dataset.prevVal;
+            if (prev !== undefined && prev !== '' && cur !== '' && cur !== prev) {
+                const up = parseFloat(cur) >= parseFloat(prev);
+                card.classList.remove('flash-up', 'flash-down');
+                void card.offsetWidth;
+                card.classList.add(up ? 'flash-up' : 'flash-down');
+            }
+            card.dataset.prevVal = cur;
+        });
+    } catch (e) { /* visual only */ }
 }
 
 function formatKRW(val) {
@@ -1819,7 +2169,64 @@ async function loadDbHealth() {
     }
 }
 
+// SVG sparkline from a numeric series. Color follows TODAY's direction
+// (last segment, e.g. today_open → today_close in the backend payload)
+// rather than the 14-day trend, so the line color always matches the
+// change_pct shown next to it. KR convention: up=red, down=blue.
+function rpSparkSvg(series, w = 64, h = 18) {
+    if (!series || series.length < 2) return '';
+    const min = Math.min(...series), max = Math.max(...series);
+    const span = (max - min) || 1;
+    const step = w / (series.length - 1);
+    const pts = series.map((v, i) =>
+        `${(i * step).toFixed(1)},${(h - ((v - min) / span) * h).toFixed(1)}`
+    ).join(' ');
+    const last = series[series.length - 1];
+    const prev = series[series.length - 2];
+    const stroke = last >= prev ? '#ef5350' : '#42a5f5';
+    return `<svg class="rp-spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+        <polyline fill="none" stroke="${stroke}" stroke-width="1.4" points="${pts}" />
+    </svg>`;
+}
+
+// Build a single rebal preview row. Includes sparkline + click-to-drawer.
+function rpRowHtml(s) {
+    const cls  = s.change_pct >= 0 ? 'rp-change-pos' : 'rp-change-neg';
+    const sign = s.change_pct >= 0 ? '+' : '';
+    const open = (s.open != null ? s.open : 0).toLocaleString();
+    const close = (s.close != null ? s.close : 0).toLocaleString();
+    const payload = encodeURIComponent(JSON.stringify(s));
+    return `<div class="rp-row" data-payload="${payload}" onclick="rpRowClick(this)">
+        <span class="rp-code">${s.code}</span>
+        <span class="rp-name">${s.name || s.code}</span>
+        <span class="rp-spark-cell">${rpSparkSvg(s.spark)}</span>
+        <span class="rp-px">${open}→${close}</span>
+        <span class="${cls}">${sign}${s.change_pct}%</span>
+    </div>`;
+}
+
+function rpRowClick(el) {
+    try {
+        const s = JSON.parse(decodeURIComponent(el.dataset.payload || '{}'));
+        if (window.qcDrawer) window.qcDrawer.open(s);
+    } catch (e) { /* noop */ }
+}
+
 async function loadRebalPreview() {
+    // Skeleton placeholders while the API is in flight
+    ['rp-new-entries', 'rp-exits', 'rp-unchanged'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && !el.dataset.loaded) {
+            el.innerHTML = `<div class="rp-row rp-skeleton-row">
+                <span class="skeleton skel-code"></span>
+                <span class="skeleton skel-name"></span>
+                <span class="skeleton skel-spark"></span>
+                <span class="skeleton skel-px"></span>
+                <span class="skeleton skel-pct"></span>
+            </div>`.repeat(3);
+        }
+    });
+
     try {
         const resp = await fetch('/api/rebalance/preview-compare');
         const data = await resp.json();
@@ -1830,47 +2237,20 @@ async function loadRebalPreview() {
         if (hdr) hdr.textContent = `Target: ${data.target_date} (${data.target_count}종목)`;
         if (dday) dday.textContent = `D-${data.days_remaining}`;
 
-        // New entries
-        const newEl = document.getElementById('rp-new-entries');
-        if (newEl) {
-            if (data.new_entries && data.new_entries.length > 0) {
-                newEl.innerHTML = data.new_entries.map(s => {
-                    const cls = s.change_pct >= 0 ? 'rp-change-pos' : 'rp-change-neg';
-                    const sign = s.change_pct >= 0 ? '+' : '';
-                    return `<div class="rp-row"><span class="rp-code">${s.code}</span><span class="rp-name">${s.name}</span><span>${s.open?.toLocaleString()}→${s.close?.toLocaleString()}</span><span class="${cls}">${sign}${s.change_pct}%</span></div>`;
-                }).join('');
+        // New entries / Exits / Unchanged — unified renderer (sparkline + drawer)
+        const renderGroup = (id, items, emptyText) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.dataset.loaded = '1';
+            if (items && items.length > 0) {
+                el.innerHTML = items.map(rpRowHtml).join('');
             } else {
-                newEl.textContent = '변경 없음';
+                el.textContent = emptyText;
             }
-        }
-
-        // Exits
-        const exitEl = document.getElementById('rp-exits');
-        if (exitEl) {
-            if (data.exits && data.exits.length > 0) {
-                exitEl.innerHTML = data.exits.map(s => {
-                    const cls = s.change_pct >= 0 ? 'rp-change-pos' : 'rp-change-neg';
-                    const sign = s.change_pct >= 0 ? '+' : '';
-                    return `<div class="rp-row"><span class="rp-code">${s.code}</span><span class="rp-name">${s.name}</span><span>${s.open?.toLocaleString()}→${s.close?.toLocaleString()}</span><span class="${cls}">${sign}${s.change_pct}%</span></div>`;
-                }).join('');
-            } else {
-                exitEl.textContent = '변경 없음';
-            }
-        }
-
-        // Unchanged
-        const keepEl = document.getElementById('rp-unchanged');
-        if (keepEl) {
-            if (data.unchanged && data.unchanged.length > 0) {
-                keepEl.innerHTML = data.unchanged.map(s => {
-                    const cls = s.change_pct >= 0 ? 'rp-change-pos' : 'rp-change-neg';
-                    const sign = s.change_pct >= 0 ? '+' : '';
-                    return `<div class="rp-row"><span class="rp-code">${s.code}</span><span class="rp-name">${s.name}</span><span>${s.open?.toLocaleString()}→${s.close?.toLocaleString()}</span><span class="${cls}">${sign}${s.change_pct}%</span></div>`;
-                }).join('');
-            } else {
-                keepEl.textContent = '--';
-            }
-        }
+        };
+        renderGroup('rp-new-entries', data.new_entries, '변경 없음');
+        renderGroup('rp-exits',       data.exits,       '변경 없음');
+        renderGroup('rp-unchanged',   data.unchanged,   '--');
 
         // Rebalance Score
         const optEl = document.getElementById('rp-optimal');

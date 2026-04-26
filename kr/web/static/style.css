@@ -236,9 +236,27 @@ main {
     box-shadow: none;
 }
 
+/* End-of-Market state — engine quiet AFTER 15:30 KST is expected, not an
+   incident. Soft amber (not red) + slow pulse. dashboard.js maps this
+   visual class when statusLower==red AND market_phase==AFTER_HOURS AND
+   reason starts with ENGINE_OFFLINE. */
+.health-dot.health-eod {
+    background: #f59e0b;
+    box-shadow: 0 0 16px rgba(245,158,11,0.35), 0 0 32px rgba(245,158,11,0.12);
+    animation: pulse-glow 3s ease-in-out infinite;
+}
+
 @keyframes pulse-glow {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .health-dot, .flash-up, .flash-down, .summary-card,
+    .skeleton, .qc-toast, .qc-drawer {
+        animation: none !important;
+        transition: none !important;
+    }
 }
 
 .hero-title {
@@ -289,6 +307,166 @@ main {
     color: var(--text);
     font-family: var(--font-mono);
 }
+
+/* ─────────────────────────────────────────────────────────────
+   P1+P2+P3 (2026-04-26): Operator Console restructure
+   - Top status pill bar (.qc-status-bar)
+   - Hybrid Summary cards (.summary-cards-hybrid: 4 status + 4 metric)
+   - qc-group visible labels (.qc-group-label)
+   - Diagnostics toggle (body.qtron-diagnostics-on)
+   - Pill click highlight (.qc-highlight-pulse)
+   ───────────────────────────────────────────────────────────── */
+
+/* Top Status Pill Bar (P1) */
+.qc-status-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0;
+    margin: 0 0 16px 0;
+    /* When empty: collapsed, no visible footprint */
+    min-height: 0;
+}
+.qc-status-bar:empty { margin: 0; }
+.qc-status-bar.qc-status-bar-active {
+    padding: 10px 14px;
+    background: linear-gradient(180deg, rgba(31,41,55,0.6) 0%, rgba(17,24,39,0.4) 100%);
+    border: 1px solid var(--border);
+    border-left: 3px solid #f59e0b;
+    border-radius: var(--radius);
+}
+.qc-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong, #30363d);
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text);
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    font-family: inherit;
+}
+.qc-pill:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+.qc-pill-icon {
+    display: inline-flex;
+    width: 16px; height: 16px;
+    align-items: center; justify-content: center;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 900;
+    color: #fff;
+}
+.qc-pill-ok       { border-color: #10b981; }
+.qc-pill-ok       .qc-pill-icon { background: #10b981; }
+.qc-pill-info     { border-color: #3b82f6; }
+.qc-pill-info     .qc-pill-icon { background: #3b82f6; }
+.qc-pill-warn     { border-color: #f59e0b; color: #fbbf24; }
+.qc-pill-warn     .qc-pill-icon { background: #f59e0b; }
+.qc-pill-critical { border-color: #ef4444; color: #fca5a5; background: rgba(239,68,68,0.10); }
+.qc-pill-critical .qc-pill-icon { background: #ef4444; }
+
+/* Highlight pulse — applied when a pill click scrolls to a card */
+.qc-highlight-pulse {
+    animation: qc-highlight-pulse 2s ease-out;
+}
+@keyframes qc-highlight-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(59,130,246,0.55), 0 0 0 0 rgba(59,130,246,0.35); }
+    50%  { box-shadow: 0 0 0 6px rgba(59,130,246,0.25), 0 0 24px 4px rgba(59,130,246,0.18); }
+    100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
+}
+
+/* qc-group visible labels (P3) */
+.qc-group-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted, #6b7280);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin: 28px 0 10px 0;
+    padding: 0 0 6px 0;
+    border-bottom: 1px solid var(--border);
+}
+.qc-group .qc-group-label:first-child { margin-top: 0; }
+
+/* Hybrid Summary cards (P2): row 1 = 4 status, row 2 = 4 metrics */
+.summary-cards-hybrid {
+    grid-template-columns: repeat(4, 1fr);
+}
+.status-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    box-shadow: var(--shadow-card);
+    transition: border-color 0.18s ease, transform 0.18s ease;
+    border-left-width: 4px;
+    cursor: pointer;
+}
+.status-card:hover { transform: translateY(-1px); }
+.status-card-label {
+    font-size: 11px;
+    color: var(--text-muted, #6b7280);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+}
+.status-card-value {
+    font-size: 20px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+}
+.status-card-sub {
+    font-size: 11px;
+    color: var(--text-muted, #6b7280);
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+}
+.status-card-ok       { border-left-color: #10b981; }
+.status-card-ok       .status-card-value { color: #10b981; }
+.status-card-info     { border-left-color: #3b82f6; }
+.status-card-info     .status-card-value { color: #60a5fa; }
+.status-card-warn     { border-left-color: #f59e0b; }
+.status-card-warn     .status-card-value { color: #fbbf24; }
+.status-card-critical { border-left-color: #ef4444; background: rgba(239,68,68,0.06); }
+.status-card-critical .status-card-value { color: #fca5a5; }
+.status-card-unknown  { border-left-color: #4b5563; }
+
+/* Diagnostics toggle — sections marked .qtron-diag-only stay hidden
+   unless the user toggled diagnostics ON (localStorage). */
+.qtron-diag-only { display: none !important; }
+body.qtron-diagnostics-on .qtron-diag-only { display: block !important; }
+.qtron-diag-toggle {
+    margin-left: 12px;
+    padding: 3px 10px;
+    font-size: 10px;
+    font-weight: 600;
+    background: transparent;
+    color: var(--text-secondary, #9ca3af);
+    border: 1px solid var(--border-strong, #30363d);
+    border-radius: 12px;
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    text-transform: none;
+    transition: all 0.15s ease;
+    font-family: inherit;
+}
+.qtron-diag-toggle:hover {
+    color: var(--text);
+    background: rgba(59,130,246,0.08);
+    border-color: var(--accent, #3b82f6);
+}
+body.qtron-diagnostics-on .qtron-diag-toggle {
+    background: var(--accent, #3b82f6);
+    color: #fff;
+    border-color: var(--accent, #3b82f6);
+}
+
+/* Original Summary block continues below */
 
 /* ── Summary Cards ─────────────────────────────────────────── */
 
@@ -1785,14 +1963,56 @@ footer {
     font-variant-numeric: tabular-nums;
 }
 .rp-row {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 3px 8px; border-radius: 4px;
+    display: grid;
+    grid-template-columns: 64px minmax(120px, 1fr) 70px minmax(130px, auto) 60px;
+    align-items: center; gap: 8px;
+    padding: 4px 8px; border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.18s ease, transform 0.18s ease;
 }
-.rp-row:hover { background: var(--bg-hover); }
-.rp-code { color: var(--text-secondary); min-width: 60px; }
-.rp-name { flex: 1; margin: 0 8px; }
-.rp-change-pos { color: #ef5350; font-weight: 600; }
-.rp-change-neg { color: #42a5f5; font-weight: 600; }
+.rp-row:hover { background: var(--bg-hover); transform: translateX(1px); }
+.rp-code { color: var(--text-secondary); min-width: 60px; font-variant-numeric: tabular-nums; }
+.rp-name { color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-spark-cell { display: inline-flex; align-items: center; justify-content: center; }
+.rp-spark { display: block; }
+.rp-px { color: var(--text-secondary); text-align: right; font-variant-numeric: tabular-nums; font-size: 11px; }
+.rp-change-pos { color: #ef5350; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.rp-change-neg { color: #42a5f5; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Skeleton row (shown while /api/rebalance/preview-compare is in flight) */
+.rp-skeleton-row { pointer-events: none; }
+.skeleton {
+    display: inline-block;
+    background: linear-gradient(90deg,
+        var(--bg-hover, #1a2435) 0%,
+        var(--bg-card-hover, #1f2937) 50%,
+        var(--bg-hover, #1a2435) 100%);
+    background-size: 200% 100%;
+    animation: qc-shimmer 1.6s ease-in-out infinite;
+    border-radius: 3px;
+    height: 12px;
+}
+.skel-code  { width: 56px; }
+.skel-name  { width: 100%; }
+.skel-spark { width: 64px; height: 14px; }
+.skel-px    { width: 100%; }
+.skel-pct   { width: 50px; }
+@keyframes qc-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* Card flash on value change (summary cards, hero, etc.) */
+@keyframes qc-flash-up {
+    0%   { background: rgba(16,185,129,0.22); }
+    100% { background: transparent; }
+}
+@keyframes qc-flash-down {
+    0%   { background: rgba(239,68,68,0.22); }
+    100% { background: transparent; }
+}
+.flash-up   { animation: qc-flash-up   0.32s cubic-bezier(0.16,1,0.3,1); }
+.flash-down { animation: qc-flash-down 0.32s cubic-bezier(0.16,1,0.3,1); }
 .rp-optimal {
     font-size: 13px; padding: 8px 12px;
     background: rgba(76,175,80,.08); border-radius: 6px;

@@ -6,7 +6,7 @@
     <title>Q-TRON REST Monitor</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
         <link rel="stylesheet" href="/shared/style.css?v=1">
-<link rel="stylesheet" href="/static/style.css?v=10">
+<link rel="stylesheet" href="/static/style.css?v=12">
     <link rel="stylesheet" href="/static/nav.css?v=3">
 </head>
 <body>
@@ -16,6 +16,7 @@
     <script src="/shared/components/badges.js?v=1"></script>
     <script src="/shared/components/regime.kr.js?v=1"></script>
     <script src="/shared/components/holdings.kr.js?v=1"></script>
+    <script src="/shared/components/qc-actions.js?v=3"></script>
         <script src="/shared/i18n.js?v=1"></script>
         <script src="/shared/themes.js?v=1"></script>
     <script src="/static/nav.js?v=3"></script>
@@ -29,6 +30,11 @@
 
     <!-- ── Main Content ───────────────────────────────────── -->
     <main id="main">
+
+        <!-- ====== Top Status Pill Bar (P1, 2026-04-26) =====
+             Renders 0~5 abnormal pills synthesized from snapshot.
+             Empty when all systems are normal (3-second test rule). -->
+        <div id="qc-status-bar" class="qc-status-bar"></div>
 
         <!-- ====== Hero Status ===================== -->
         <section id="hero" class="hero">
@@ -84,8 +90,35 @@
             See docs/ui_unification_ia_20260424.md §2.2 for target layout.
         -->
         <div class="qc-group qc-group-core" id="qc-group-core" data-qc-group="core">
-        <!-- ====== Summary Cards =================== -->
-        <section id="summary-cards" class="summary-cards">
+        <h3 class="qc-group-label">CORE OPERATIONS</h3>
+
+        <!-- ====== Summary — Hybrid (P2, 2026-04-26) ==========
+             윗줄: 운영 상태 4종 (synthesized state-driven)
+             아랫줄: 계좌 수치 4종 (기존 4 카드 보존) -->
+        <section id="summary-cards" class="summary-cards summary-cards-hybrid">
+            <!-- ── Status row (P2) ──────────────────────── -->
+            <div class="status-card status-card-unknown" id="card-buy-permission">
+                <div class="status-card-label">Buy Permission</div>
+                <div class="status-card-value">--</div>
+                <div class="status-card-sub"></div>
+            </div>
+            <div class="status-card status-card-unknown" id="card-dd-status">
+                <div class="status-card-label">DD Status</div>
+                <div class="status-card-value">--</div>
+                <div class="status-card-sub">daily / monthly</div>
+            </div>
+            <div class="status-card status-card-unknown" id="card-rebal-status">
+                <div class="status-card-label">Rebalance</div>
+                <div class="status-card-value">--</div>
+                <div class="status-card-sub"></div>
+            </div>
+            <div class="status-card status-card-unknown" id="card-data-freshness">
+                <div class="status-card-label">Data / RECON</div>
+                <div class="status-card-value">--</div>
+                <div class="status-card-sub">cache age / recon</div>
+            </div>
+
+            <!-- ── Metric row (existing 4 cards, preserved) ── -->
             <div class="summary-card">
                 <div class="summary-icon">&#128203;</div>
                 <div class="summary-label" data-i18n="dash.title.holdings">보유종목</div>
@@ -108,6 +141,41 @@
                 <div id="card-total" class="summary-value">--</div>
                 <div id="card-eval" class="summary-sub">평가 --</div>
             </div>
+        </section>
+
+        <!-- ====== Rebalance Actions (P3 moved here, 2026-04-26) =====
+             Was below Target Portfolio; promoted to right after Summary
+             because it is the highest-frequency operator action. -->
+        <section id="rebal-actions" class="rebal-actions">
+            <div class="rebal-actions-header">
+                <span id="rebal-actions-title">Rebalance</span>
+                <span id="rebal-blocked-badge" class="badge badge-red" style="display:none">BLOCKED</span>
+            </div>
+
+            <div class="rebal-btn-group">
+                <button id="btn-rebal-preview" class="rebal-btn rebal-btn-preview"
+                        onclick="rebalPreview()">Preview</button>
+                <button id="btn-rebal-sell" class="rebal-btn rebal-btn-sell" disabled
+                        onclick="rebalSell()">SELL</button>
+                <button id="btn-rebal-buy" class="rebal-btn rebal-btn-buy" disabled
+                        onclick="rebalBuy()">BUY</button>
+                <button id="btn-rebal-skip" class="rebal-btn rebal-btn-skip"
+                        onclick="rebalSkip()">Skip Cycle</button>
+            </div>
+            <div id="rebal-preview-area" style="display:none">
+                <div class="rebal-preview-grid">
+                    <div class="rebal-preview-col">
+                        <h4>SELL <span id="rebal-sell-count">0</span></h4>
+                        <div id="rebal-sell-list" class="rebal-order-list"></div>
+                    </div>
+                    <div class="rebal-preview-col">
+                        <h4>BUY <span id="rebal-buy-count">0</span></h4>
+                        <div id="rebal-buy-list" class="rebal-order-list"></div>
+                    </div>
+                </div>
+                <div id="rebal-preview-errors" class="rebal-errors"></div>
+            </div>
+            <div id="rebal-result" class="rebal-result" style="display:none"></div>
         </section>
 
         <!-- ====== Holdings List ================== -->
@@ -184,42 +252,6 @@
             </div>
         </section>
 
-        <!-- Rebalance Action + Preview (통합, Operator+) -->
-        <section id="rebal-actions" class="rebal-actions"
-            <div class="rebal-actions-header">
-                <span id="rebal-actions-title">Rebalance</span>
-                <span id="rebal-blocked-badge" class="badge badge-red" style="display:none">BLOCKED</span>
-            </div>
-
-            <!-- 실행 버튼 -->
-            <div class="rebal-btn-group">
-                <button id="btn-rebal-preview" class="rebal-btn rebal-btn-preview"
-                        onclick="rebalPreview()">Preview</button>
-                <button id="btn-rebal-sell" class="rebal-btn rebal-btn-sell" disabled
-                        onclick="rebalSell()">SELL</button>
-                <button id="btn-rebal-buy" class="rebal-btn rebal-btn-buy" disabled
-                        onclick="rebalBuy()">BUY</button>
-                <button id="btn-rebal-skip" class="rebal-btn rebal-btn-skip"
-                        onclick="rebalSkip()">Skip Cycle</button>
-            </div>
-            <!-- Preview results (주문 상세) -->
-            <div id="rebal-preview-area" style="display:none">
-                <div class="rebal-preview-grid">
-                    <div class="rebal-preview-col">
-                        <h4>SELL <span id="rebal-sell-count">0</span></h4>
-                        <div id="rebal-sell-list" class="rebal-order-list"></div>
-                    </div>
-                    <div class="rebal-preview-col">
-                        <h4>BUY <span id="rebal-buy-count">0</span></h4>
-                        <div id="rebal-buy-list" class="rebal-order-list"></div>
-                    </div>
-                </div>
-                <div id="rebal-preview-errors" class="rebal-errors"></div>
-            </div>
-            <!-- Execution result -->
-            <div id="rebal-result" class="rebal-result" style="display:none"></div>
-        </section>
-
         <!-- Confirm dialog -->
         <div id="rebal-confirm-overlay" class="rebal-overlay" style="display:none">
             <div class="rebal-confirm-dialog">
@@ -233,6 +265,7 @@
         </div>
         </div>
         <div class="qc-group qc-group-market" id="qc-group-market" data-qc-group="market">
+        <h3 class="qc-group-label">MARKET CONTEXT</h3>
         <!-- ====== Regime ============================== -->
         <section id="regime-section" class="regime-section">
             <!-- 오늘 레짐 + 내일 예측: 그라데이션 바 -->
@@ -309,6 +342,7 @@
         </section>
         </div>
         <div class="qc-group qc-group-ext" id="qc-group-ext" data-qc-group="ext">
+        <h3 class="qc-group-label">RISK &amp; CONTROL</h3>
         <!-- ====== DD Guard ======================== -->
         <section id="dd-guard-section" class="dd-guard-section">
             <div class="dd-guard-grid">
@@ -380,6 +414,14 @@
         </section>
         </div>
         <div class="qc-group qc-group-analytics" id="qc-group-analytics" data-qc-group="analytics">
+        <h3 class="qc-group-label">
+            ANALYTICS / DIAGNOSTICS
+            <button id="qtron-diag-toggle" class="qtron-diag-toggle" type="button"
+                    onclick="qtronToggleDiagnostics()"
+                    title="진단 카드 (Sync / Trace / Raw JSON 등) 표시 토글">
+                ⚙ Show Diagnostics
+            </button>
+        </h3>
         <!-- ====== Profit Analysis ================ -->
         <section id="profit-section" class="profit-section">
             <h3 class="section-title" data-i18n="dash.title.profit">수익 분석</h3>
@@ -527,7 +569,7 @@
         <!-- ====== Debug Mode: TOC Navigation ================ -->
         <!-- Jeff ↔ Claude 간 섹션 참조용. Claude 가 "D-XXX 클릭" 요청 시 여기서 1클릭으로 점프. -->
 
-        <section id="sec-control" class="section">
+        <section id="sec-control" class="section qtron-diag-only">
             <h3 class="section-title">
                 <span>시스템 상태</span>
                 <span class="sec-id-badge" title="진단 ID: Kiwoom 토큰/응답속도/요청통계/RECON 4개 서브카드 (D-SYS.TOK, D-SYS.LAT, D-SYS.REQ, D-SYS.RECON)">D-SYS</span>
@@ -590,7 +632,7 @@
         </section>
 
         <!-- ====== Data Freshness =============== -->
-        <section id="sec-freshness" class="section">
+        <section id="sec-freshness" class="section qtron-diag-only">
             <h3 class="section-title">
                 <span>데이터 신선도</span>
                 <span class="sec-id-badge" title="진단 ID: account/holdings/orders/quotes/WebSocket age">D-FRESH</span>
@@ -609,7 +651,7 @@
         <!-- ====== Debug Mode: Test Order Panel =============== -->
 
         <!-- ====== Debug Mode: WebSocket + Timestamps ======== -->
-        <section id="sec-ws-sync" class="section">
+        <section id="sec-ws-sync" class="section qtron-diag-only">
             <h3 class="section-title">
                 <span>WebSocket &amp; 타임스탬프</span>
                 <span class="sec-id-badge" title="진단 ID: 실시간 연결/타임라인">D-WS</span>
@@ -706,6 +748,6 @@
 
     <!-- Phase 3 components (load before dashboard.js so qc.* is available) -->
     <script src="/shared/components/summary.kr.js?v=1"></script>
-    <script src="/static/dashboard.js?v=13"></script>
+    <script src="/static/dashboard.js?v=16"></script>
 </body>
 </html>
