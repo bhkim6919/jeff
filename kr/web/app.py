@@ -923,9 +923,21 @@ def create_app() -> FastAPI:
             signals_dir = _Path(__file__).resolve().parent.parent / "data" / "signals"
             state_dir = _Path(__file__).resolve().parent.parent / "state"
             ohlcv_dir = _Path(__file__).resolve().parent.parent.parent / "backtest" / "data_full" / "ohlcv"
-            sector_map_path = _Path(__file__).resolve().parent.parent / "data" / "sector_map.json"
-            if not sector_map_path.exists():
-                sector_map_path = _Path(__file__).resolve().parent.parent.parent / "backtest" / "data_full" / "sector_map.json"
+            # Resolution order: kr/data → project_root/data → backtest/data_full.
+            # Production install actually keeps this at project_root/data
+            # (2,770 entries, UTF-8). The two legacy locations stay for
+            # compat with older snapshots.
+            _root = _Path(__file__).resolve().parent.parent.parent
+            for _candidate in (
+                _Path(__file__).resolve().parent.parent / "data" / "sector_map.json",
+                _root / "data" / "sector_map.json",
+                _root / "backtest" / "data_full" / "sector_map.json",
+            ):
+                if _candidate.exists():
+                    sector_map_path = _candidate
+                    break
+            else:
+                sector_map_path = _Path(__file__).resolve().parent.parent / "data" / "sector_map.json"
 
             # 1. Load latest target — unified via factor_ranker.load_target_portfolio
             # which has PG fallback (hot-patch 2026-04-22, see factor_ranker.py).
@@ -954,10 +966,37 @@ def create_app() -> FastAPI:
             exit_codes = sorted(current_holdings - target_tickers)
             unchanged_codes = sorted(target_tickers & current_holdings)
 
-            # 4. Load sector map for names
+            # 4. Load sector map (sector strings) + stock_name_cache (Korean names)
+            #    Original code expected sector_map to be {code: {"name", "sector"}}
+            #    but the actual file is {code: "<sector>"}. Use the dedicated
+            #    stock-name cache + pykrx fallback (same path as daily_report).
             sector_map = {}
             if sector_map_path.exists():
                 sector_map = json.loads(sector_map_path.read_text(encoding="utf-8"))
+            name_cache_path = _Path(__file__).resolve().parent.parent / "data" / "stock_name_cache.json"
+            stock_name_cache = {}
+            if name_cache_path.exists():
+                try:
+                    stock_name_cache = json.loads(name_cache_path.read_text(encoding="utf-8"))
+                except Exception:
+                    stock_name_cache = {}
+            try:
+                from report.daily_report import resolve_stock_name as _resolve_name
+            except Exception:
+                _resolve_name = None
+            def _name_of(code):
+                c = str(code).zfill(6)
+                if c in stock_name_cache and stock_name_cache[c]:
+                    return stock_name_cache[c]
+                if _resolve_name is not None:
+                    try:
+                        n = _resolve_name(c)
+                        if n and n != c:
+                            stock_name_cache[c] = n
+                            return n
+                    except Exception:
+                        pass
+                return c
 
             # 5. Get today's prices from DB (CSV fallback)
             import pandas as pd
@@ -996,14 +1035,52 @@ def create_app() -> FastAPI:
                 except Exception:
                     return {"open": 0, "close": 0, "change_pct": 0}
 
+            def get_spark(code, n=14):
+                """Sparkline series ending in today's open→close move.
+
+                Returns last (n-2) prior closes + today_open + today_close.
+                The last segment of the polyline thus visually matches the
+                ``change_pct`` shown next to it. Without this, a stock that
+                rallied for 13 days then dropped today would show an upward
+                line next to a red -X% number — visually contradictory.
+                Returns [] when data is missing.
+                """
+                series = []
+                try:
+                    if _db_provider:
+                        df = _db_provider.get_ohlcv(code)
+                        if not df.empty:
+                            series = df.tail(n)
+                            tail_closes = [float(x) for x in series["close"].tolist()]
+                            if len(series) >= 2:
+                                last = series.iloc[-1]
+                                tail_closes = tail_closes[:-1] + [float(last["open"]), float(last["close"])]
+                            return tail_closes
+                except Exception:
+                    pass
+                f = ohlcv_dir / f"{code}.csv"
+                if not f.exists():
+                    return []
+                try:
+                    df = pd.read_csv(f, parse_dates=["date"]).sort_values("date").tail(n)
+                    closes = [float(x) for x in df["close"].tolist()]
+                    if len(df) >= 2:
+                        last = df.iloc[-1]
+                        closes = closes[:-1] + [float(last["open"]), float(last["close"])]
+                    return closes
+                except Exception:
+                    return []
+
             def build_item(code):
-                name = sector_map.get(code, {}).get("name", code) if isinstance(sector_map.get(code), dict) else code
+                name = _name_of(code)
                 price = get_price_info(code)
                 score = target.get("scores", {}).get(code, {})
                 return {
                     "code": code, "name": name,
+                    "sector": sector_map.get(code) if isinstance(sector_map.get(code), str) else None,
                     "open": price["open"], "close": price["close"],
                     "change_pct": price["change_pct"],
+                    "spark": get_spark(code, 14),
                     "mom": round(score.get("mom_12_1", 0), 4),
                     "vol": round(score.get("vol_12m", 0), 4),
                 }
@@ -1734,44 +1811,87 @@ def create_app() -> FastAPI:
         so qc-badges can use one contract:
             batch_done, business_date, snapshot_created_at, snapshot_version
 
-        Backward-compat: kr_done / kr_date kept as aliases so any
-        legacy consumer keeps working through the migration.
+        2026-04-26 fix (Jeff report): match the US semantics — report
+        the LATEST signals file as ``batch_done`` and label it with the
+        actual trade_date encoded in the filename, not today's calendar
+        date. The previous logic looked for ``target_portfolio_TODAY.json``
+        and silently returned ``done=False`` on weekends/holidays even
+        though Friday's batch had completed — so the BATCH badge stayed
+        hidden over the weekend. US already does the right thing via
+        ``get_last_closed_trading_day``.
+
+        Backward-compat: kr_done / kr_date kept as aliases. kr_date now
+        carries the snapshot's actual trade_date, not today, so consumers
+        comparing "today vs kr_date" should use ``business_date`` instead.
         """
         try:
             from datetime import datetime as _dt, timezone as _tz
             from zoneinfo import ZoneInfo
             kst_now = _dt.now(ZoneInfo("Asia/Seoul"))
-            kst_today_compact = kst_now.strftime("%Y%m%d")
-            kst_today_iso = kst_now.strftime("%Y-%m-%d")
             signals_dir = Path(__file__).resolve().parent.parent / "data" / "signals"
-            target_file = signals_dir / f"target_portfolio_{kst_today_compact}.json"
-            done = target_file.exists()
 
+            # Find the most recent target_portfolio_YYYYMMDD.json file.
+            # The filename's date IS the trade_date the batch ran for.
+            latest_file = None
+            latest_compact = ""
+            if signals_dir.exists():
+                candidates = sorted(
+                    signals_dir.glob("target_portfolio_*.json"),
+                    key=lambda p: p.name,
+                    reverse=True,
+                )
+                if candidates:
+                    latest_file = candidates[0]
+                    # filename: target_portfolio_20260424.json → "20260424"
+                    stem = latest_file.stem  # "target_portfolio_20260424"
+                    latest_compact = stem.rsplit("_", 1)[-1]
+
+            # Done iff a recent (≤7 days) target_portfolio file exists.
+            # 7d ceiling so that an abandoned/stale batch doesn't keep
+            # claiming green for weeks.
+            done = False
+            business_date_iso = ""
             snapshot_created_at = ""
             snapshot_version = ""
-            if done:
-                # mtime → ISO 8601 in UTC (matches US's snapshot_created_at format)
-                mtime = target_file.stat().st_mtime
-                snapshot_created_at = _dt.fromtimestamp(mtime, tz=_tz.utc).isoformat()
-                # Try to read snapshot_version from file (head.json carries it; fall back to filename)
+
+            if latest_file is not None and len(latest_compact) == 8:
                 try:
-                    import json as _json
-                    head_file = Path(__file__).resolve().parent.parent / "data" / "lab_live" / "head.json"
-                    if head_file.exists():
-                        head_data = _json.loads(head_file.read_text(encoding="utf-8"))
-                        snapshot_version = head_data.get("snapshot_version", "") or ""
+                    file_dt = _dt.strptime(latest_compact, "%Y%m%d")
+                    age_days = (kst_now.replace(tzinfo=None) - file_dt).days
+                    if age_days <= 7:
+                        done = True
+                        business_date_iso = file_dt.strftime("%Y-%m-%d")
+                        mtime = latest_file.stat().st_mtime
+                        snapshot_created_at = _dt.fromtimestamp(
+                            mtime, tz=_tz.utc
+                        ).isoformat()
+                        try:
+                            import json as _json
+                            head_file = (
+                                Path(__file__).resolve().parent.parent
+                                / "data" / "lab_live" / "head.json"
+                            )
+                            if head_file.exists():
+                                head_data = _json.loads(
+                                    head_file.read_text(encoding="utf-8")
+                                )
+                                snapshot_version = head_data.get("snapshot_version", "") or ""
+                        except Exception:
+                            pass
                 except Exception:
                     pass
 
             return {
-                # Unified shape (Phase 4-A.1)
+                # Unified shape (Phase 4-A.1) — business_date is the trade
+                # date the snapshot is FOR (Friday on a weekend), not today.
                 "batch_done": done,
-                "business_date": kst_today_iso,
+                "business_date": business_date_iso,
                 "snapshot_created_at": snapshot_created_at,
                 "snapshot_version": snapshot_version,
-                # Legacy aliases (kept for backward compat)
+                # Legacy aliases — kr_date now mirrors business_date in
+                # compact form (filename-style) for older consumers.
                 "kr_done": done,
-                "kr_date": kst_today_compact if done else None,
+                "kr_date": latest_compact if done else None,
             }
         except Exception as e:
             return {

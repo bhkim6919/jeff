@@ -644,10 +644,61 @@ def create_app() -> FastAPI:
 
     @app.get("/api/target")
     async def target():
+        """Latest target portfolio enriched with company name, sector, and
+        a 14-day sparkline ending in [today_open, today_close] so the final
+        polyline segment matches the change% shown in the row.
+
+        Backward-compatible: legacy callers that only read ``target_tickers``
+        and ``scores`` keep working. New ``items`` array adds per-symbol
+        rich data for the dashboard to render rows + drawer.
+        """
         db = _get_db()
         t = db.get_target_portfolio()
         if not t:
             return {"error": "no target portfolio"}
+
+        # Sector + name lookup (sector_map_us has both columns)
+        try:
+            sector_map = db.get_sector_map() or {}
+        except Exception:
+            sector_map = {}
+
+        def _spark_and_change(symbol: str, n: int = 14):
+            """Return (spark_series, open, close, change_pct) — empty/zero on miss."""
+            try:
+                df = db.get_ohlcv(symbol)
+                if df is None or df.empty or len(df) < 2:
+                    return [], 0.0, 0.0, 0.0
+                tail = df.tail(n)
+                closes = [float(x) for x in tail["close"].tolist()]
+                last = tail.iloc[-1]
+                today_open = float(last["open"])
+                today_close = float(last["close"])
+                # Replace last close with [today_open, today_close] so the
+                # final polyline segment reflects today's actual move.
+                series = closes[:-1] + [today_open, today_close]
+                chg = ((today_close / today_open) - 1.0) * 100.0 if today_open > 0 else 0.0
+                return series, today_open, today_close, round(chg, 2)
+            except Exception:
+                return [], 0.0, 0.0, 0.0
+
+        items = []
+        for sym in t.get("target_tickers", []):
+            info = sector_map.get(sym) or {}
+            spark, opn, cls, chg = _spark_and_change(sym, n=14)
+            items.append({
+                "symbol": sym,
+                "name": info.get("name") or sym,
+                "sector": info.get("sector") or "",
+                "exchange": info.get("exchange") or "",
+                "open": opn,
+                "close": cls,
+                "change_pct": chg,
+                "spark": spark,
+                "mom": (t.get("scores") or {}).get(sym, {}).get("mom_12_1"),
+                "vol": (t.get("scores") or {}).get(sym, {}).get("vol_12m"),
+            })
+        t["items"] = items
         return t
 
     # ── API: Price ───────────────────────────────────────
