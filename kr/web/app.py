@@ -2437,40 +2437,19 @@ def create_app() -> FastAPI:
 
             live_baseline = str(live_rows[0][0])
 
-            # 2. Date universe — UNION of LIVE dates and the earliest
-            # strategy equity_history date. LIVE alone produced a chart
-            # x-axis of just 3 days (Jeff 2026-04-26: strategies appeared
-            # flat then jumped on the last point because forward-fill
-            # carried the only pre-LIVE strategy value across all 3 days).
-            # Extending the x-axis to the strategy inception lets the
-            # full 14-day cumulative curve render naturally; LIVE simply
-            # joins as a partial line at its real start date.
-            strategy_min_date = None
-            try:
-                states_dir_for_min = (
-                    _P(__file__).resolve().parent.parent / "data" / "lab_live" / "states"
-                )
-                if states_dir_for_min.exists():
-                    for sf in states_dir_for_min.glob("*.json"):
-                        try:
-                            sd = _json.loads(sf.read_text(encoding="utf-8"))
-                            for r in sd.get("equity_history", []) or []:
-                                d = (r or {}).get("date")
-                                if d and (strategy_min_date is None or d < strategy_min_date):
-                                    strategy_min_date = d
-                        except Exception:
-                            continue
-            except Exception:
-                pass
-
+            # 2. Date universe — start at LIVE first day (2026-04-22 in
+            # the current dataset). Earlier the x-axis was extended back
+            # to strategy inception (2026-04-10) to "show the whole
+            # journey", but with corrupted equity_history holding only
+            # 1~2 distinct dates per strategy that produced 8 days of
+            # flat lines + a jump on day 11 — visually unreadable.
+            # Sticking to the LIVE start gives a 3-day x-axis where the
+            # strategies' cumul-from-100M baseline (15.25% / 9.61% / …)
+            # renders as the FIRST point, the runtime-anchor pins the
+            # LAST point to current equity (26.81% / 19.84% / …), and
+            # the top-3 ranking matches the Forward Trading cards
+            # exactly. Jeff confirmed this trade-off 2026-04-27.
             chart_start = live_baseline
-            if strategy_min_date and strategy_min_date < live_baseline:
-                chart_start = strategy_min_date
-
-            # Build the date universe across [chart_start .. latest LIVE].
-            # We populate calendar days (KOSPI driver below fills any gaps)
-            # so a sparse LIVE schedule doesn't drop x-ticks. Strategies
-            # forward-fill into this range; LIVE/KOSPI carry their own.
             try:
                 from datetime import date as _date, timedelta as _td
                 _start = _date.fromisoformat(chart_start)
@@ -2631,19 +2610,19 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
 
-            # 5. Normalize all series to % from a per-series base.
-            # LIVE / KOSPI: base = value at baseline_date (shared LIVE start).
-            # Strategies: base = lab_initial_capital (100M) so the chart's
-            # cumulative-return ranking matches the per-strategy cards
-            # ("누적 +26.81%"). Without this override, the chart's baseline
-            # would be the strategy's forward-filled value at LIVE start —
-            # which subtracts pre-LIVE growth and produces a different
-            # (and confusing) ranking from the card view.
-            LAB_INITIAL_CAPITAL = 100_000_000
-
-            def _pct_series(values: dict, dates: list, base=None) -> list:
-                if base is None:
-                    base = values.get(baseline_date)
+            # 5. Normalize all series to % from baseline_date — every
+            # series's value at chart_start = 0%. Jeff 2026-04-27:
+            # "시작점을 동일하게" — visual cohesion outranks matching
+            # the cards' "누적" column. The previous override that
+            # baselined strategies against LAB_INITIAL_CAPITAL=100M made
+            # them start at +15% / +9% / etc on day 1 while LIVE/KOSPI
+            # started at 0%, which read as "strategies are way ahead"
+            # rather than "look at growth during the LIVE period".
+            # Top-3 ranking now reflects growth during the LIVE window
+            # (matches the cards' 일일 column more than 누적, but the
+            # ranking is roughly stable).
+            def _pct_series(values: dict, dates: list) -> list:
+                base = values.get(baseline_date)
                 if base is None:
                     for d in dates:
                         if values.get(d) is not None:
@@ -2673,8 +2652,7 @@ def create_app() -> FastAPI:
                 series[s] = {
                     "label": s,
                     "kind": "strategy",
-                    "pct": _pct_series(lab_map[s], dates_sorted,
-                                       base=LAB_INITIAL_CAPITAL),
+                    "pct": _pct_series(lab_map[s], dates_sorted),
                 }
 
             return {
