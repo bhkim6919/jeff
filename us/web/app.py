@@ -2019,6 +2019,21 @@ def create_app() -> FastAPI:
                 "error": str(e),
             }
 
+    @app.get("/api/alerts/recent")
+    async def alerts_recent(window: int = 86400):
+        """Last `window` seconds of Telegram sends from this process.
+
+        In-memory ring buffer (notify.recent_alerts), no DB. Newest first.
+        Default window = 24h. Items older than the window are evicted on
+        each call. Returns {"market": "US", "items": [...]}.
+        """
+        try:
+            from notify.recent_alerts import list_recent, MARKET
+            items = list_recent(window_seconds=int(window))
+            return {"market": MARKET, "items": items, "window_seconds": int(window)}
+        except Exception as e:
+            return {"market": "US", "items": [], "error": str(e)}
+
     @app.get("/api/rebalance/status")
     async def rebalance_status():
         """Consolidated rebal status for dashboard + tray_server."""

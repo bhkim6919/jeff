@@ -55,6 +55,7 @@ def send(text: str, severity: str = "INFO") -> bool:
     Send message to Telegram. Non-blocking, never raises.
     Returns True if sent successfully.
     """
+    ok = False
     try:
         if not _init():
             return False
@@ -73,6 +74,7 @@ def send(text: str, severity: str = "INFO") -> bool:
 
         if resp.status_code == 200:
             logger.info(f"[Telegram] Sent ({severity}): {text[:50]}...")
+            ok = True
             return True
         else:
             logger.warning(f"[Telegram] HTTP {resp.status_code}: {resp.text[:100]}")
@@ -81,6 +83,15 @@ def send(text: str, severity: str = "INFO") -> bool:
     except Exception as e:
         logger.warning(f"[Telegram] Send failed: {e}")
         return False
+    finally:
+        # Mirror to in-memory recent-alerts ring (UI diagnostics panel).
+        # Isolated try/except — buffer record must never alter send semantics.
+        try:
+            from notify import recent_alerts as _ra
+            _ra.record(severity=severity, text=text,
+                       status="sent" if ok else "failed")
+        except Exception:
+            pass
 
 
 def send_photo(photo_bytes: bytes, caption: str = "", filename: str = "image.png") -> bool:

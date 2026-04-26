@@ -480,6 +480,9 @@ function qtronToggleDiagnostics() {
     try { localStorage.setItem('qtron_diagnostics', next ? '1' : '0'); } catch (_) {}
     const btn = document.getElementById('qtron-diag-toggle');
     if (btn) btn.textContent = next ? '⚙ Hide Diagnostics' : '⚙ Show Diagnostics';
+    // Drive the Telegram-alerts polling lifecycle off this toggle so
+    // we don't spend bandwidth fetching a panel the user isn't viewing.
+    if (next) qcAlerts.start(); else qcAlerts.stop();
 }
 // Bootstrap on first paint
 (function () {
@@ -489,6 +492,7 @@ function qtronToggleDiagnostics() {
             const apply = () => {
                 const btn = document.getElementById('qtron-diag-toggle');
                 if (btn) btn.textContent = '⚙ Hide Diagnostics';
+                qcAlerts.start();
             };
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', apply);
@@ -499,12 +503,86 @@ function qtronToggleDiagnostics() {
     } catch (_) {}
 })();
 
+// ── Telegram Alerts (24h) panel — polling lifecycle ────────
+// Self-contained module; renders into #tg-alerts-list inside the
+// .qtron-diag-only section. Polling only runs while the panel is
+// visible (qtronToggleDiagnostics drives start/stop).
+const qcAlerts = (function () {
+    const POLL_MS = 30000;
+    let timer = null;
+    let inflight = false;
+
+    function escapeHtml(s) {
+        return String(s || '')
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function fmtTime(iso) {
+        try {
+            const d = new Date(iso);
+            const hh = String(d.getHours()).padStart(2, '0');
+            const mm = String(d.getMinutes()).padStart(2, '0');
+            const ss = String(d.getSeconds()).padStart(2, '0');
+            return `${hh}:${mm}:${ss}`;
+        } catch (_) { return '--:--:--'; }
+    }
+    function render(items) {
+        const list = document.getElementById('tg-alerts-list');
+        const count = document.getElementById('tg-alerts-count');
+        const upd = document.getElementById('tg-alerts-updated');
+        if (!list) return;
+        if (count) count.textContent = `${items.length} alerts`;
+        if (upd) upd.textContent = `updated ${fmtTime(new Date().toISOString())}`;
+        if (!items.length) {
+            list.innerHTML = '<div class="tg-alerts-empty">No Telegram alerts in last 24h</div>';
+            return;
+        }
+        list.innerHTML = items.map(it => {
+            const lvl = (it.level || 'INFO').toLowerCase();
+            const status = it.send_status === 'failed' ? 'failed' : 'sent';
+            const cls = `tg-alert-row lvl-${lvl} status-${status}`;
+            return `<div class="${cls}" onclick="qcAlerts.toggleRow(this)">
+                <span class="tg-alert-time">${escapeHtml(fmtTime(it.ts))}</span>
+                <span class="tg-alert-level">${escapeHtml(it.level || 'INFO')}</span>
+                <div class="tg-alert-body">${escapeHtml(it.message || it.title || '')}</div>
+                <span class="tg-alert-status">${escapeHtml(status)}</span>
+            </div>`;
+        }).join('');
+    }
+    async function fetchOnce() {
+        if (inflight) return;
+        inflight = true;
+        try {
+            const r = await fetch('/api/alerts/recent');
+            const j = await r.json();
+            render(Array.isArray(j.items) ? j.items : []);
+        } catch (e) {
+            // Soft fail — leave previous render in place.
+        } finally {
+            inflight = false;
+        }
+    }
+    function start() {
+        if (timer) return;
+        fetchOnce();
+        timer = setInterval(fetchOnce, POLL_MS);
+    }
+    function stop() {
+        if (timer) { clearInterval(timer); timer = null; }
+    }
+    function toggleRow(el) {
+        if (el && el.classList) el.classList.toggle('expanded');
+    }
+    return { start, stop, fetchOnce, toggleRow };
+})();
+
 // Expose for debugging + nav.js + tests
 window.synthesizeStatus = synthesizeStatus;
 window.renderStatusBar  = renderStatusBar;
 window.renderStatusCards = renderStatusCards;
 window.qcPillClick      = qcPillClick;
 window.qtronToggleDiagnostics = qtronToggleDiagnostics;
+window.qcAlerts         = qcAlerts;
 
 function updateHero(data) {
     const health = data.health;

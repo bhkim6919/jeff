@@ -466,6 +466,82 @@ body.qtron-diagnostics-on .qtron-diag-toggle {
     border-color: var(--accent, #3b82f6);
 }
 
+/* ── Telegram Alerts (24h) panel ───────────────────────────── */
+/* Single-block, app-style list. Lives inside .qtron-diag-only so it
+   only shows when diagnostics toggle is on; qcAlerts polling lifecycle
+   in dashboard.js starts/stops with that same toggle. */
+.tg-alerts-meta {
+    display: flex; align-items: center; gap: 12px;
+    font-size: 11px; color: var(--text-secondary, #9ca3af);
+    margin-bottom: 10px;
+}
+.tg-alerts-count {
+    font-weight: 700; color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+.tg-alerts-updated { font-size: 10px; opacity: 0.7; }
+.tg-alerts-list {
+    display: flex; flex-direction: column; gap: 6px;
+    max-height: 420px; overflow-y: auto;
+    padding-right: 4px;
+}
+.tg-alerts-empty {
+    padding: 16px; text-align: center;
+    color: var(--text-secondary, #6b7280); font-size: 12px;
+    border: 1px dashed var(--border, #30363d); border-radius: 6px;
+}
+.tg-alert-row {
+    display: grid;
+    grid-template-columns: 56px 70px 1fr auto;
+    gap: 10px; align-items: start;
+    padding: 8px 10px;
+    background: var(--card, #111827);
+    border: 1px solid var(--border, #1f2937);
+    border-left-width: 3px; border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.12s ease;
+}
+.tg-alert-row:hover { background: rgba(59,130,246,0.05); }
+.tg-alert-row.lvl-info     { border-left-color: #3b82f6; }
+.tg-alert-row.lvl-warn     { border-left-color: #f59e0b; }
+.tg-alert-row.lvl-error    { border-left-color: #ef4444; }
+.tg-alert-row.status-failed { opacity: 0.55; }
+.tg-alert-time {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary, #9ca3af);
+    font-size: 11px;
+}
+.tg-alert-level {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 2px 6px; border-radius: 3px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+    text-transform: uppercase;
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+    width: max-content;
+}
+.tg-alert-row.lvl-info  .tg-alert-level { color: #60a5fa; }
+.tg-alert-row.lvl-warn  .tg-alert-level { color: #fbbf24; }
+.tg-alert-row.lvl-error .tg-alert-level { color: #fca5a5; }
+.tg-alert-body {
+    color: var(--text);
+    line-height: 1.4;
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 4.4em; overflow: hidden;
+    position: relative;
+    transition: max-height 0.2s ease;
+}
+.tg-alert-row.expanded .tg-alert-body { max-height: 600px; }
+.tg-alert-status {
+    font-size: 10px;
+    color: var(--text-secondary, #9ca3af);
+    text-transform: uppercase; letter-spacing: 0.5px;
+}
+.tg-alert-row.status-failed .tg-alert-status {
+    color: #fca5a5;
+}
+
 /* Original Summary block continues below */
 
 /* ── Summary Cards ─────────────────────────────────────────── */

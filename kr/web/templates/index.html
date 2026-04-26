@@ -6,7 +6,7 @@
     <title>Q-TRON REST Monitor</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
         <link rel="stylesheet" href="/shared/style.css?v=1">
-<link rel="stylesheet" href="/static/style.css?v=12">
+<link rel="stylesheet" href="/static/style.css?v=13">
     <link rel="stylesheet" href="/static/nav.css?v=3">
 </head>
 <body>
@@ -563,6 +563,25 @@
             <span id="alert-text" class="alert-text"></span>
             <button id="alert-close" class="alert-close" title="닫기">&times;</button>
         </div>
+
+        <!-- ====== Telegram Alerts (24h) — diagnostics-only =====
+             In-memory buffer of telegram_bot.send() calls from this
+             process. Polled every 30s while diagnostics is open;
+             polling stops when the toggle is closed (loadAlertsRecent
+             starts/stops via qtronToggleDiagnostics observer). -->
+        <section id="sec-telegram-alerts" class="section qtron-diag-only">
+            <h3 class="section-title">
+                <span>Telegram Alerts (24h)</span>
+                <span class="sec-id-badge" title="이 프로세스에서 telegram_bot.send() 호출된 알림의 in-memory 24h 윈도우. 재시작 시 초기화.">D-TG</span>
+            </h3>
+            <div id="tg-alerts-meta" class="tg-alerts-meta">
+                <span id="tg-alerts-count" class="tg-alerts-count">--</span>
+                <span id="tg-alerts-updated" class="tg-alerts-updated">아직 fetch 전</span>
+            </div>
+            <div id="tg-alerts-list" class="tg-alerts-list">
+                <div class="tg-alerts-empty">No Telegram alerts in last 24h</div>
+            </div>
+        </section>
 
         <!-- ====== Control Cards ================ -->
         <!-- ====== DB Health ==================== -->

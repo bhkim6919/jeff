@@ -4062,6 +4062,21 @@ def create_app() -> FastAPI:
         data = _fetch_us("/api/orders/open")
         return data or {"orders": [], "error": "US server not available"}
 
+    @application.get("/api/alerts/recent")
+    async def alerts_recent(window: int = 86400):
+        """Last `window` seconds of Telegram sends from this process.
+
+        In-memory ring buffer (notify.recent_alerts), no DB. Newest first.
+        Default window = 24h. Items older than the window are evicted on
+        each call. Returns {"market": "KR", "items": [...]}.
+        """
+        try:
+            from notify.recent_alerts import list_recent, MARKET
+            items = list_recent(window_seconds=int(window))
+            return {"market": MARKET, "items": items, "window_seconds": int(window)}
+        except Exception as e:
+            return {"market": "KR", "items": [], "error": str(e)}
+
     @application.get("/api/unified/state")
     async def unified_state():
         """Combined KR + US state. Partial success allowed."""

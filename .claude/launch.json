@@ -9,6 +9,13 @@
       "autoPort": false
     },
     {
+      "name": "ui-preview",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8770", "--directory", "shared/web/static"],
+      "port": 8770,
+      "autoPort": false
+    },
+    {
       "name": "surge-rest",
       "runtimeExecutable": "C:/Q-TRON-32_ARCHIVE/.venv64/Scripts/python.exe",
       "runtimeArgs": ["-m", "uvicorn", "web.app:app", "--host", "0.0.0.0", "--port", "8080"],
@@ -27,6 +34,13 @@
       "runtimeExecutable": "C:/Q-TRON-32_ARCHIVE/us/.venv/Scripts/python.exe",
       "runtimeArgs": ["-X", "utf8", "-m", "uvicorn", "web.app:app", "--host", "0.0.0.0", "--port", "8081", "--reload"],
       "port": 8081,
+      "cwd": "us"
+    },
+    {
+      "name": "us-preview",
+      "runtimeExecutable": "C:/Q-TRON-32_ARCHIVE/us/.venv/Scripts/python.exe",
+      "runtimeArgs": ["-X", "utf8", "-m", "uvicorn", "web.app:app", "--host", "0.0.0.0", "--port", "8086"],
+      "port": 8086,
       "cwd": "us"
     }
   ]
