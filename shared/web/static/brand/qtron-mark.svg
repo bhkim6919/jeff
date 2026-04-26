@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Q-TRON logomark">
+  <!--
+    Q-TRON logomark — Q letter with 3 circuit traces fanning out
+    from the bottom-right (cyber/quant identity). Single linear
+    gradient so theme adjustments only need one stop swap.
+  -->
+  <defs>
+    <linearGradient id="qtron-g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#7dd3fc"/>
+      <stop offset="55%"  stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1e40af"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Q outer ring -->
+  <circle cx="26" cy="30" r="18" fill="none" stroke="url(#qtron-g)" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- Q tail: short diagonal stroke breaking the ring at bottom-right -->
+  <line x1="36" y1="42" x2="44" y2="50" stroke="url(#qtron-g)" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- 3 circuit traces fanning out -->
+  <line x1="38" y1="44" x2="58" y2="44" stroke="url(#qtron-g)" stroke-width="3" stroke-linecap="round"/>
+  <line x1="40" y1="50" x2="60" y2="50" stroke="url(#qtron-g)" stroke-width="3" stroke-linecap="round"/>
+  <line x1="42" y1="56" x2="56" y2="56" stroke="url(#qtron-g)" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Terminator dots -->
+  <circle cx="58" cy="44" r="2.4" fill="url(#qtron-g)"/>
+  <circle cx="60" cy="50" r="2.4" fill="url(#qtron-g)"/>
+  <circle cx="56" cy="56" r="2.4" fill="url(#qtron-g)"/>
+</svg>

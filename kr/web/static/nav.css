@@ -19,10 +19,32 @@
 }
 
 .qnav-logo {
-    font-size: 15px;
-    font-weight: 800;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    text-decoration: none;
     color: #e6edf3;
     letter-spacing: 1px;
+    transition: transform 0.18s ease, filter 0.18s ease;
+}
+.qnav-logo:hover { transform: translateY(-1px); filter: brightness(1.15); }
+.qnav-mark {
+    width: 26px;
+    height: 26px;
+    display: block;
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 6px rgba(59,130,246,0.35));
+}
+.qnav-logo-text {
+    font-size: 15px;
+    font-weight: 800;
+    background: linear-gradient(135deg, #93c5fd 0%, #3b82f6 60%, #1e40af 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
 }
 
 .qnav-market-toggle {

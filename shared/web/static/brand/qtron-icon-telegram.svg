@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Q-TRON Telegram avatar">
+  <!--
+    Telegram bot avatar — 512×512 (Telegram requires square ≥ 512).
+    Round badge with Q logomark, simpler than EXE so Telegram's
+    own circle crop doesn't clip the cyber ring. Upload via @BotFather.
+  -->
+  <defs>
+    <linearGradient id="bg-tg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#1e40af"/>
+      <stop offset="100%" stop-color="#0c1e60"/>
+    </linearGradient>
+    <linearGradient id="mark-tg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#bae6fd"/>
+      <stop offset="60%"  stop-color="#7dd3fc"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+  </defs>
+  <circle cx="256" cy="256" r="256" fill="url(#bg-tg)"/>
+
+  <g transform="translate(140 130)">
+    <circle cx="115" cy="115" r="90" fill="none" stroke="url(#mark-tg)" stroke-width="28" stroke-linecap="round"/>
+    <line x1="165" y1="167" x2="205" y2="207" stroke="url(#mark-tg)" stroke-width="28" stroke-linecap="round"/>
+    <line x1="175" y1="180" x2="240" y2="180" stroke="url(#mark-tg)" stroke-width="13" stroke-linecap="round"/>
+    <line x1="185" y1="200" x2="245" y2="200" stroke="url(#mark-tg)" stroke-width="13" stroke-linecap="round"/>
+    <line x1="195" y1="220" x2="230" y2="220" stroke="url(#mark-tg)" stroke-width="13" stroke-linecap="round"/>
+    <circle cx="240" cy="180" r="8" fill="url(#mark-tg)"/>
+    <circle cx="245" cy="200" r="8" fill="url(#mark-tg)"/>
+    <circle cx="230" cy="220" r="8" fill="url(#mark-tg)"/>
+  </g>
+</svg>

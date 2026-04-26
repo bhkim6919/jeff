@@ -64,7 +64,26 @@
         containerEl.innerHTML = `
             <div class="qnav">
                 <div class="qnav-left">
-                    <span class="qnav-logo">Q-TRON</span>
+                    <a class="qnav-logo" href="/" aria-label="Q-TRON home" title="Q-TRON">
+                        <svg class="qnav-mark" viewBox="0 0 64 64" aria-hidden="true">
+                            <defs>
+                                <linearGradient id="qnav-g-us" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%"   stop-color="#7dd3fc"/>
+                                    <stop offset="55%"  stop-color="#3b82f6"/>
+                                    <stop offset="100%" stop-color="#1e40af"/>
+                                </linearGradient>
+                            </defs>
+                            <circle cx="26" cy="30" r="18" fill="none" stroke="url(#qnav-g-us)" stroke-width="6" stroke-linecap="round"/>
+                            <line x1="36" y1="42" x2="44" y2="50" stroke="url(#qnav-g-us)" stroke-width="6" stroke-linecap="round"/>
+                            <line x1="38" y1="44" x2="58" y2="44" stroke="url(#qnav-g-us)" stroke-width="3" stroke-linecap="round"/>
+                            <line x1="40" y1="50" x2="60" y2="50" stroke="url(#qnav-g-us)" stroke-width="3" stroke-linecap="round"/>
+                            <line x1="42" y1="56" x2="56" y2="56" stroke="url(#qnav-g-us)" stroke-width="3" stroke-linecap="round"/>
+                            <circle cx="58" cy="44" r="2.4" fill="url(#qnav-g-us)"/>
+                            <circle cx="60" cy="50" r="2.4" fill="url(#qnav-g-us)"/>
+                            <circle cx="56" cy="56" r="2.4" fill="url(#qnav-g-us)"/>
+                        </svg>
+                        <span class="qnav-logo-text">Q-TRON</span>
+                    </a>
                     <div class="qnav-market-toggle">
                         <button class="qnav-market ${market === 'KR' ? 'active' : ''}"
                                 onclick="window.__qtronNav.switchMarket('KR')">KR</button>

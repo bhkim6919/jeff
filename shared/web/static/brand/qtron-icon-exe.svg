@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Q-TRON EXE">
+  <!--
+    Executable icon — cyber/HUD ring around Q. Used for compiled
+    .exe builds (Windows installer / shortcut). Heavier visual
+    weight than the GUI icon to read on dark Windows wallpapers.
+  -->
+  <defs>
+    <radialGradient id="bg-exe" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"  stop-color="#1e3a8a"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </radialGradient>
+    <linearGradient id="ring-exe" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#7dd3fc"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="40" fill="url(#bg-exe)"/>
+
+  <!-- Outer HUD ring with breaks -->
+  <g transform="translate(128 128)">
+    <circle r="100" fill="none" stroke="url(#ring-exe)" stroke-width="3"
+            stroke-dasharray="60 30 80 30" opacity="0.8"/>
+    <circle r="92"  fill="none" stroke="url(#ring-exe)" stroke-width="2"
+            stroke-dasharray="20 8" opacity="0.5"/>
+    <!-- 4 indicator dots at cardinal points -->
+    <circle cx="0" cy="-100" r="4" fill="#7dd3fc"/>
+    <circle cx="100" cy="0" r="4" fill="#7dd3fc"/>
+    <circle cx="0" cy="100" r="4" fill="#7dd3fc"/>
+    <circle cx="-100" cy="0" r="4" fill="#7dd3fc"/>
+  </g>
+
+  <!-- Inner Q -->
+  <g transform="translate(72 64)">
+    <circle cx="60" cy="60" r="44" fill="none" stroke="url(#ring-exe)" stroke-width="14" stroke-linecap="round"/>
+    <line x1="84" y1="88" x2="104" y2="108" stroke="url(#ring-exe)" stroke-width="14" stroke-linecap="round"/>
+    <line x1="90" y1="94" x2="124" y2="94" stroke="#7dd3fc" stroke-width="6" stroke-linecap="round"/>
+    <line x1="96" y1="106" x2="128" y2="106" stroke="#7dd3fc" stroke-width="6" stroke-linecap="round"/>
+    <line x1="100" y1="118" x2="120" y2="118" stroke="#7dd3fc" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="124" cy="94" r="4" fill="#7dd3fc"/>
+    <circle cx="128" cy="106" r="4" fill="#7dd3fc"/>
+    <circle cx="120" cy="118" r="4" fill="#7dd3fc"/>
+  </g>
+</svg>

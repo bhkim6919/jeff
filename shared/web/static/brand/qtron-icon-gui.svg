@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Q-TRON GUI">
+  <!--
+    GUI app icon — clean Q on rounded blue tile. Sized for Windows
+    desktop / taskbar (256×256). Background uses solid brand blue
+    so the icon reads at small sizes in the taskbar.
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"  stop-color="#1d4ed8"/>
+      <stop offset="100%" stop-color="#1e3a8a"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="40" fill="url(#bg)"/>
+  <g transform="translate(48 40)">
+    <circle cx="84" cy="84" r="62" fill="none" stroke="#ffffff" stroke-width="20" stroke-linecap="round"/>
+    <line x1="120" y1="124" x2="148" y2="152" stroke="#ffffff" stroke-width="20" stroke-linecap="round"/>
+    <line x1="128" y1="132" x2="180" y2="132" stroke="#7dd3fc" stroke-width="10" stroke-linecap="round"/>
+    <line x1="134" y1="148" x2="184" y2="148" stroke="#7dd3fc" stroke-width="10" stroke-linecap="round"/>
+    <line x1="140" y1="164" x2="172" y2="164" stroke="#7dd3fc" stroke-width="10" stroke-linecap="round"/>
+    <circle cx="180" cy="132" r="7" fill="#7dd3fc"/>
+    <circle cx="184" cy="148" r="7" fill="#7dd3fc"/>
+    <circle cx="172" cy="164" r="7" fill="#7dd3fc"/>
+  </g>
+</svg>

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Q-TRON REST API">
+  <!--
+    REST API icon — cloud + code brackets. For the FastAPI /docs and
+    /redoc pages, or any place we want to mark "API surface" rather
+    than "trading app". Cloud reads as "service endpoint", brackets
+    as "code".
+  -->
+  <defs>
+    <linearGradient id="rest-g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"  stop-color="#7dd3fc"/>
+      <stop offset="100%" stop-color="#1e40af"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Cloud silhouette -->
+  <path d="M 60 130
+           a 30 30 0 0 1 30 -30
+           a 40 40 0 0 1 78 8
+           a 28 28 0 0 1 24 50
+           h -110
+           a 28 28 0 0 1 -22 -28
+           Z"
+        fill="url(#rest-g)" opacity="0.92"/>
+
+  <!-- Code brackets inside the cloud -->
+  <g transform="translate(80 116)" stroke="#0b1426" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <polyline points="20,0 0,18 20,36"/>
+    <polyline points="76,0 96,18 76,36"/>
+    <line x1="40" y1="6" x2="56" y2="32" stroke="#0b1426" stroke-width="5"/>
+  </g>
+
+  <!-- Wifi / signal arcs below the cloud -->
+  <g transform="translate(128 200)" fill="none" stroke="url(#rest-g)" stroke-width="6" stroke-linecap="round">
+    <path d="M -32 0 a 32 32 0 0 1 64 0"/>
+    <path d="M -18 16 a 18 18 0 0 1 36 0"/>
+    <circle cx="0" cy="32" r="4" fill="url(#rest-g)" stroke="none"/>
+  </g>
+</svg>
