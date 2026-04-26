@@ -114,11 +114,19 @@
   .tg-alerts-list { display: flex; flex-direction: column; gap: 6px; max-height: 460px; overflow-y: auto; padding-right: 4px; }
   .tg-alerts-empty { padding: 16px; text-align: center; color: var(--muted); font-size: 12px; border: 1px dashed var(--border); border-radius: 6px; }
   .tg-alert-row {
-    display: grid; grid-template-columns: 60px 70px 1fr auto;
+    display: grid; grid-template-columns: 60px 60px 56px 1fr auto;
     gap: 10px; align-items: start; padding: 8px 10px;
     background: rgba(255,255,255,0.02); border: 1px solid var(--border);
     border-left-width: 3px; border-radius: 6px; font-size: 12px;
     cursor: pointer; transition: background 0.12s ease;
+  }
+  .tg-alert-source {
+    font-size: 10px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    background: rgba(255,255,255,0.04);
+    padding: 2px 6px; border-radius: 3px;
+    text-align: center; font-weight: 600;
+    width: max-content;
   }
   .tg-alert-row:hover { background: rgba(59,130,246,0.05); }
   .tg-alert-row.lvl-info  { border-left-color: var(--accent); }
@@ -664,6 +672,7 @@ async function loadTg() {
       return `<div class="tg-alert-row lvl-${lvl} status-${status}" onclick="this.classList.toggle('expanded')">
         <span class="tg-alert-time">${esc(_tgFmtTime(it.ts))}</span>
         <span class="tg-alert-level">${esc(it.level || 'INFO')}</span>
+        <span class="tg-alert-source">${esc(it.source || '?')}</span>
         <div class="tg-alert-body">${esc(it.message || it.title || '')}</div>
         <span class="tg-alert-status">${esc(status)}</span>
       </div>`;

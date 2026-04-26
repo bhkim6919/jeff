@@ -540,6 +540,7 @@ const qcAlerts = (function () {
             return `<div class="${cls}" onclick="qcAlerts.toggleRow(this)">
                 <span class="tg-alert-time">${escapeHtml(fmtTime(it.ts))}</span>
                 <span class="tg-alert-level">${escapeHtml(it.level || 'INFO')}</span>
+                <span class="tg-alert-source">${escapeHtml(it.source || '?')}</span>
                 <div class="tg-alert-body">${escapeHtml(it.message || it.title || '')}</div>
                 <span class="tg-alert-status">${escapeHtml(status)}</span>
             </div>`;
