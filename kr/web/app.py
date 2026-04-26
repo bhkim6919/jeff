@@ -2435,15 +2435,63 @@ def create_app() -> FastAPI:
             if not live_rows:
                 return {"error": "no_live_data", "series": {}, "dates": []}
 
-            baseline_date = str(live_rows[0][0])
+            live_baseline = str(live_rows[0][0])
 
-            # 2. Date universe: from baseline through latest LIVE date, clipped to `days`
-            dates_sorted = sorted(live_map.keys())
+            # 2. Date universe — UNION of LIVE dates and the earliest
+            # strategy equity_history date. LIVE alone produced a chart
+            # x-axis of just 3 days (Jeff 2026-04-26: strategies appeared
+            # flat then jumped on the last point because forward-fill
+            # carried the only pre-LIVE strategy value across all 3 days).
+            # Extending the x-axis to the strategy inception lets the
+            # full 14-day cumulative curve render naturally; LIVE simply
+            # joins as a partial line at its real start date.
+            strategy_min_date = None
+            try:
+                states_dir_for_min = (
+                    _P(__file__).resolve().parent.parent / "data" / "lab_live" / "states"
+                )
+                if states_dir_for_min.exists():
+                    for sf in states_dir_for_min.glob("*.json"):
+                        try:
+                            sd = _json.loads(sf.read_text(encoding="utf-8"))
+                            for r in sd.get("equity_history", []) or []:
+                                d = (r or {}).get("date")
+                                if d and (strategy_min_date is None or d < strategy_min_date):
+                                    strategy_min_date = d
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+
+            chart_start = live_baseline
+            if strategy_min_date and strategy_min_date < live_baseline:
+                chart_start = strategy_min_date
+
+            # Build the date universe across [chart_start .. latest LIVE].
+            # We populate calendar days (KOSPI driver below fills any gaps)
+            # so a sparse LIVE schedule doesn't drop x-ticks. Strategies
+            # forward-fill into this range; LIVE/KOSPI carry their own.
+            try:
+                from datetime import date as _date, timedelta as _td
+                _start = _date.fromisoformat(chart_start)
+                _end_str = sorted(live_map.keys())[-1]
+                _end = _date.fromisoformat(_end_str)
+                _all_dates = []
+                _cur = _start
+                while _cur <= _end:
+                    if _cur.weekday() < 5:  # Mon-Fri only (KR market days)
+                        _all_dates.append(_cur.isoformat())
+                    _cur += _td(days=1)
+                dates_sorted = _all_dates
+            except Exception:
+                # Fallback: just LIVE dates if date parse fails
+                dates_sorted = sorted(live_map.keys())
+
             if days and len(dates_sorted) > days:
                 dates_sorted = dates_sorted[-days:]
             baseline_date = dates_sorted[0]
 
-            # 3. KOSPI close map over the same range
+            # 3. KOSPI close map over the extended range
             kospi_map: dict = {}
             try:
                 with connection() as conn:
@@ -2550,6 +2598,36 @@ def create_app() -> FastAPI:
                                 continue
                             if v > 0:
                                 lab_map[s][dt] = v
+            except Exception:
+                pass
+
+            # Runtime anchor: pin the LAST chart date to the live engine's
+            # current equity per lane. equity_history on disk is sparse
+            # for the legacy 2026-04-26 corruption window, but the live
+            # engine computes lane.equity = cash + sum(qty × price) at
+            # every state read — that's the same value the Forward
+            # Trading cards display ("누적 +26.81%"). Without this anchor
+            # the chart would render the last date as the forward-fill
+            # of the only equity_history entry (e.g., +15.25%), missing
+            # the actual current cumulative return the operator sees on
+            # the same screen.
+            try:
+                _sim = _lab_live_sim.get("sim")
+                if _sim and getattr(_sim, "_initialized", False):
+                    _state = _sim.get_state()
+                    _live_lanes = {l.get("name"): l for l in _state.get("lanes", [])}
+                    _last_chart_date = dates_sorted[-1] if dates_sorted else None
+                    if _last_chart_date:
+                        for s in strategies:
+                            ln = _live_lanes.get(s)
+                            if not ln:
+                                continue
+                            try:
+                                lv = float(ln.get("equity") or 0)
+                            except (TypeError, ValueError):
+                                continue
+                            if lv > 0:
+                                lab_map[s][_last_chart_date] = lv
             except Exception:
                 pass
 
