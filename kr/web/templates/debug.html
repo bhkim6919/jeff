@@ -6,7 +6,7 @@
     <title>Q-TRON Debug</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
         <link rel="stylesheet" href="/shared/style.css?v=1">
-<link rel="stylesheet" href="/static/style.css?v=10">
+<link rel="stylesheet" href="/static/style.css?v=14">
     <link rel="stylesheet" href="/static/nav.css?v=3">
 </head>
 <body>
@@ -100,6 +100,7 @@
                 <a href="#sec-diff" class="debug-toc-chip"><code>D-DIFF</code> <span>상태 변경 추적</span></a>
                 <a href="#sec-batch-log" class="debug-toc-chip debug-toc-chip-new"><code>D-BATCH</code> <span>배치 로그 스트림</span></a>
                 <a href="#sec-qobs" class="debug-toc-chip debug-toc-chip-new"><code>D-QOBS</code> <span>Pipeline 스냅샷</span></a>
+                <a href="#sec-telegram-alerts" class="debug-toc-chip debug-toc-chip-new"><code>D-TG</code> <span>Telegram Alerts (24h)</span></a>
             </div>
         </section>
 
@@ -326,11 +327,43 @@
             </div>
         </section>
 
+        <!-- ====== Telegram Alerts (24h) — copy-paste source for ops ====
+             In-memory ring buffer (notify.recent_alerts) of every
+             telegram_bot.send() call from THIS web process. Restarting
+             the process clears history. Click a row to expand the full
+             body — content is plain-text already (HTML stripped server
+             side) so it's safe to copy directly into a chat with Claude
+             or another debug tool. -->
+        <section id="sec-telegram-alerts" class="section">
+            <h3 class="section-title">
+                <span>Telegram Alerts (24h)</span>
+                <span class="sec-id-badge" title="이 프로세스에서 telegram_bot.send() 호출된 알림의 in-memory 24h 윈도우. 재시작 시 초기화. 에러 메시지 복붙 용도.">D-TG</span>
+            </h3>
+            <div id="tg-alerts-meta" class="tg-alerts-meta">
+                <span id="tg-alerts-count" class="tg-alerts-count">--</span>
+                <span id="tg-alerts-updated" class="tg-alerts-updated">아직 fetch 전</span>
+            </div>
+            <div id="tg-alerts-list" class="tg-alerts-list">
+                <div class="tg-alerts-empty">No Telegram alerts in last 24h</div>
+            </div>
+        </section>
+
     </main>
 
     <!-- ── Scripts ────────────────────────────────────────── -->
-    <script src="/static/dashboard.js?v=10" defer></script>
+    <script src="/static/dashboard.js?v=14" defer></script>
     <script src="/static/analytics.js?v=2" defer></script>
+
+    <!-- Telegram Alerts polling — debug page is always diagnostics, so
+         start polling on load and never stop. qcAlerts module is
+         provided by dashboard.js. -->
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        if (window.qcAlerts && typeof window.qcAlerts.start === 'function') {
+            window.qcAlerts.start();
+        }
+    });
+    </script>
 
 </body>
 </html>

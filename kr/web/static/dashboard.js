@@ -480,9 +480,6 @@ function qtronToggleDiagnostics() {
     try { localStorage.setItem('qtron_diagnostics', next ? '1' : '0'); } catch (_) {}
     const btn = document.getElementById('qtron-diag-toggle');
     if (btn) btn.textContent = next ? '⚙ Hide Diagnostics' : '⚙ Show Diagnostics';
-    // Drive the Telegram-alerts polling lifecycle off this toggle so
-    // we don't spend bandwidth fetching a panel the user isn't viewing.
-    if (next) qcAlerts.start(); else qcAlerts.stop();
 }
 // Bootstrap on first paint
 (function () {
@@ -492,7 +489,6 @@ function qtronToggleDiagnostics() {
             const apply = () => {
                 const btn = document.getElementById('qtron-diag-toggle');
                 if (btn) btn.textContent = '⚙ Hide Diagnostics';
-                qcAlerts.start();
             };
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', apply);

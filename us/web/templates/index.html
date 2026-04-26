@@ -847,21 +847,6 @@
             </div>
         </div>
 
-        <!-- Telegram Alerts 24h (P11, 2026-04-26): in-memory mirror of
-             telegram_bot.send() calls. Polled every 30s while diagnostics
-             is on; polling stops when toggle is off (see qcAlerts.start/stop). -->
-        <div class="section qtron-diag-only">
-            <div class="section-title">Telegram Alerts (24h)</div>
-            <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px;">
-                <div id="tg-alerts-meta" class="tg-alerts-meta">
-                    <span id="tg-alerts-count" class="tg-alerts-count">--</span>
-                    <span id="tg-alerts-updated" class="tg-alerts-updated">아직 fetch 전</span>
-                </div>
-                <div id="tg-alerts-list" class="tg-alerts-list">
-                    <div class="tg-alerts-empty">No Telegram alerts in last 24h</div>
-                </div>
-            </div>
-        </div>
     </div>
 
 
@@ -1141,75 +1126,16 @@ function qtronToggleDiagnostics() {
     try { localStorage.setItem('qtron_diagnostics', next ? '1' : '0'); } catch (_) {}
     const btn = document.getElementById('qtron-diag-toggle');
     if (btn) btn.textContent = next ? '⚙ Hide Diagnostics' : '⚙ Show Diagnostics';
-    if (next) qcAlerts.start(); else qcAlerts.stop();
 }
 (function () {
     try {
         if (localStorage.getItem('qtron_diagnostics') === '1') {
             document.body.classList.add('qtron-diagnostics-on');
-            const apply = () => {
-                const b = document.getElementById('qtron-diag-toggle');
-                if (b) b.textContent = '⚙ Hide Diagnostics';
-                qcAlerts.start();
-            };
+            const apply = () => { const b = document.getElementById('qtron-diag-toggle'); if (b) b.textContent = '⚙ Hide Diagnostics'; };
             if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply);
             else apply();
         }
     } catch (_) {}
-})();
-
-// ── Telegram Alerts (24h) — polling lifecycle (P11, 2026-04-26) ──
-// Mirror of KR dashboard.js qcAlerts. Polling only runs while the
-// diagnostics toggle is on (qtronToggleDiagnostics drives start/stop).
-const qcAlerts = (function () {
-    const POLL_MS = 30000;
-    let timer = null, inflight = false;
-    function escapeHtml(s) {
-        return String(s || '')
-            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-    }
-    function fmtTime(iso) {
-        try {
-            const d = new Date(iso);
-            return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
-        } catch (_) { return '--:--:--'; }
-    }
-    function render(items) {
-        const list = document.getElementById('tg-alerts-list');
-        const cnt = document.getElementById('tg-alerts-count');
-        const upd = document.getElementById('tg-alerts-updated');
-        if (!list) return;
-        if (cnt) cnt.textContent = `${items.length} alerts`;
-        if (upd) upd.textContent = `updated ${fmtTime(new Date().toISOString())}`;
-        if (!items.length) {
-            list.innerHTML = '<div class="tg-alerts-empty">No Telegram alerts in last 24h</div>';
-            return;
-        }
-        list.innerHTML = items.map(it => {
-            const lvl = (it.level || 'INFO').toLowerCase();
-            const status = it.send_status === 'failed' ? 'failed' : 'sent';
-            return `<div class="tg-alert-row lvl-${lvl} status-${status}" onclick="qcAlerts.toggleRow(this)">
-                <span class="tg-alert-time">${escapeHtml(fmtTime(it.ts))}</span>
-                <span class="tg-alert-level">${escapeHtml(it.level || 'INFO')}</span>
-                <div class="tg-alert-body">${escapeHtml(it.message || it.title || '')}</div>
-                <span class="tg-alert-status">${escapeHtml(status)}</span>
-            </div>`;
-        }).join('');
-    }
-    async function fetchOnce() {
-        if (inflight) return;
-        inflight = true;
-        try {
-            const r = await fetch(`${BASE}/api/alerts/recent`);
-            const j = await r.json();
-            render(Array.isArray(j.items) ? j.items : []);
-        } catch (e) { /* soft fail */ } finally { inflight = false; }
-    }
-    function start() { if (timer) return; fetchOnce(); timer = setInterval(fetchOnce, POLL_MS); }
-    function stop()  { if (timer) { clearInterval(timer); timer = null; } }
-    function toggleRow(el) { if (el && el.classList) el.classList.toggle('expanded'); }
-    return { start, stop, fetchOnce, toggleRow };
 })();
 
 // Expose for debug + tests
@@ -1219,7 +1145,6 @@ window.renderStatusCards = renderStatusCards;
 window.renderHeroStatus = renderHeroStatus;
 window.qcPillClick = qcPillClick;
 window.qtronToggleDiagnostics = qtronToggleDiagnostics;
-window.qcAlerts = qcAlerts;
 
 async function apiFetch(path) {
     try {

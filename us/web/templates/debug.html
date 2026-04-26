@@ -106,6 +106,43 @@
 
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+
+  /* ── Telegram Alerts (24h) panel — copy-paste source for ops ─── */
+  .tg-alerts-meta { display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+  .tg-alerts-count { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .tg-alerts-updated { font-size: 10px; opacity: 0.7; }
+  .tg-alerts-list { display: flex; flex-direction: column; gap: 6px; max-height: 460px; overflow-y: auto; padding-right: 4px; }
+  .tg-alerts-empty { padding: 16px; text-align: center; color: var(--muted); font-size: 12px; border: 1px dashed var(--border); border-radius: 6px; }
+  .tg-alert-row {
+    display: grid; grid-template-columns: 60px 70px 1fr auto;
+    gap: 10px; align-items: start; padding: 8px 10px;
+    background: rgba(255,255,255,0.02); border: 1px solid var(--border);
+    border-left-width: 3px; border-radius: 6px; font-size: 12px;
+    cursor: pointer; transition: background 0.12s ease;
+  }
+  .tg-alert-row:hover { background: rgba(59,130,246,0.05); }
+  .tg-alert-row.lvl-info  { border-left-color: var(--accent); }
+  .tg-alert-row.lvl-warn  { border-left-color: var(--yellow); }
+  .tg-alert-row.lvl-error { border-left-color: var(--red); }
+  .tg-alert-row.status-failed { opacity: 0.55; }
+  .tg-alert-time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 11px; }
+  .tg-alert-level {
+    display: inline-flex; padding: 2px 6px; border-radius: 3px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+    background: rgba(255,255,255,0.04); color: var(--text); width: max-content;
+  }
+  .tg-alert-row.lvl-info  .tg-alert-level { color: #60a5fa; }
+  .tg-alert-row.lvl-warn  .tg-alert-level { color: #fbbf24; }
+  .tg-alert-row.lvl-error .tg-alert-level { color: #fca5a5; }
+  .tg-alert-body {
+    color: var(--text); line-height: 1.4;
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 4.4em; overflow: hidden; transition: max-height 0.2s ease;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
+  }
+  .tg-alert-row.expanded .tg-alert-body { max-height: 800px; }
+  .tg-alert-status { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .tg-alert-row.status-failed .tg-alert-status { color: var(--red); }
 </style>
 </head>
 <body>
@@ -132,6 +169,7 @@
     <a href="#p-test" class="toc-chip">D-TEST</a>
     <a href="#p-log" class="toc-chip">D-LOG</a>
     <a href="#p-raw" class="toc-chip">D-RAW</a>
+    <a href="#p-tg" class="toc-chip">D-TG</a>
   </nav>
 
   <!-- D-SYS -->
@@ -306,6 +344,29 @@
       </div>
     </div>
     <div id="raw-body" class="loading">loading...</div>
+  </section>
+
+  <!-- D-TG: Telegram Alerts (24h) — copy-paste source for ops debugging.
+       In-memory ring of telegram_bot.send() calls from THIS web process
+       (notify.recent_alerts). Each row is plain-text already (HTML
+       stripped server-side) so it's safe to copy directly. -->
+  <section id="p-tg" class="panel">
+    <div class="panel-head">
+      <div class="panel-title-row">
+        <span class="panel-id">D-TG</span>
+        <span class="panel-title">Telegram Alerts (24h)</span>
+      </div>
+      <div class="panel-actions">
+        <button class="btn" onclick="loadTg()">↻</button>
+      </div>
+    </div>
+    <div id="tg-alerts-meta" class="tg-alerts-meta">
+      <span id="tg-alerts-count" class="tg-alerts-count">--</span>
+      <span id="tg-alerts-updated" class="tg-alerts-updated">아직 fetch 전</span>
+    </div>
+    <div id="tg-alerts-list" class="tg-alerts-list">
+      <div class="tg-alerts-empty">No Telegram alerts in last 24h</div>
+    </div>
   </section>
 </main>
 
@@ -575,11 +636,48 @@ function copyRaw() {
   navigator.clipboard.writeText(JSON.stringify(_rawCache.summary, null, 2));
 }
 
+// ---------- D-TG: Telegram Alerts (24h) ----------
+function _tgFmtTime(iso) {
+  try {
+    const d = new Date(iso);
+    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+  } catch (_) { return '--:--:--'; }
+}
+async function loadTg() {
+  try {
+    const r = await fetch('/api/alerts/recent');
+    const j = await r.json();
+    const items = Array.isArray(j.items) ? j.items : [];
+    const list = document.getElementById('tg-alerts-list');
+    const cnt = document.getElementById('tg-alerts-count');
+    const upd = document.getElementById('tg-alerts-updated');
+    if (cnt) cnt.textContent = `${items.length} alerts`;
+    if (upd) upd.textContent = `updated ${_tgFmtTime(new Date().toISOString())}`;
+    if (!list) return;
+    if (!items.length) {
+      list.innerHTML = '<div class="tg-alerts-empty">No Telegram alerts in last 24h</div>';
+      return;
+    }
+    list.innerHTML = items.map(it => {
+      const lvl = (it.level || 'INFO').toLowerCase();
+      const status = it.send_status === 'failed' ? 'failed' : 'sent';
+      return `<div class="tg-alert-row lvl-${lvl} status-${status}" onclick="this.classList.toggle('expanded')">
+        <span class="tg-alert-time">${esc(_tgFmtTime(it.ts))}</span>
+        <span class="tg-alert-level">${esc(it.level || 'INFO')}</span>
+        <div class="tg-alert-body">${esc(it.message || it.title || '')}</div>
+        <span class="tg-alert-status">${esc(status)}</span>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    // soft fail — leave previous render in place
+  }
+}
+
 // ---------- refresh all ----------
 function refreshAll() {
   loadSys(); loadDb(); loadMctx(); loadFresh(); loadEvt();
   loadWs(); loadTrace(); loadHist(); loadDiff(); loadTest();
-  loadLog(); loadRaw();
+  loadLog(); loadRaw(); loadTg();
   document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString();
 }
 
