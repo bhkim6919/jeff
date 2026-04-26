@@ -61,7 +61,14 @@ def can_send(event_key: str, severity: str, category: str = "") -> bool:
 
 
 def record_sent(event_key: str, severity: str, state: str = "") -> None:
-    """Record that an alert was sent."""
+    """Record that an alert was sent.
+
+    The ``state`` parameter is persisted to the ``state`` column so the
+    next evaluation cycle can detect whether the underlying condition
+    actually transitioned (e.g., regime label changed, dd recovered).
+    Migration v017 added the column; pre-v017 rows have NULL state which
+    callers treat as "no prior state".
+    """
     with connection() as conn:
         cur = conn.cursor()
 
@@ -72,40 +79,52 @@ def record_sent(event_key: str, severity: str, state: str = "") -> None:
         )
         existing = cur.fetchone()
 
+        # Always store state as empty string instead of None so
+        # get_last_state can return it directly without NULL handling.
+        _state = state or ""
         if existing:
             cur.execute("""
                 UPDATE dashboard_alert_state SET
                     last_sent = NOW(),
                     send_count = send_count + 1,
                     severity = %s,
+                    state = %s,
                     run_ts = %s,
                     updated_at = NOW()
                 WHERE alert_key = %s
-            """, (severity, now_utc(), event_key))
+            """, (severity, _state, now_utc(), event_key))
         else:
             cur.execute("""
                 INSERT INTO dashboard_alert_state
                     (alert_key, last_sent, send_count, suppressed,
-                     severity, run_ts, updated_at)
-                VALUES (%s, NOW(), 1, 0, %s, %s, NOW())
+                     severity, state, run_ts, updated_at)
+                VALUES (%s, NOW(), 1, 0, %s, %s, %s, NOW())
                 ON CONFLICT (alert_key) DO UPDATE SET
                     last_sent = NOW(),
                     send_count = dashboard_alert_state.send_count + 1,
                     severity = EXCLUDED.severity,
+                    state = EXCLUDED.state,
                     run_ts = EXCLUDED.run_ts,
                     updated_at = NOW()
-            """, (event_key, severity, now_utc()))
+            """, (event_key, severity, _state, now_utc()))
 
         conn.commit()
         cur.close()
 
 
 def get_last_state(event_key: str) -> Optional[str]:
-    """Get last known state for an event (for transition detection)."""
+    """Get last recorded state for an event (for transition detection).
+
+    Returns the value persisted by ``record_sent``'s ``state`` parameter,
+    e.g., "NEUTRAL" / "BULL" for regime alerts, "TRIGGERED" / "CLEAR"
+    for DD/recon alerts. Returns None only when no row exists at all;
+    callers using ``if prev and prev != target`` correctly treat both
+    None and "" as "no prior state".
+    """
     with connection() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT alert_key FROM dashboard_alert_state WHERE alert_key=%s",
+            "SELECT state FROM dashboard_alert_state WHERE alert_key=%s",
             (event_key,),
         )
         row = cur.fetchone()
