@@ -1,0 +1,708 @@
+{
+  "pairs": {
+    "KRW-0G": {
+      "fetched_at": "2026-04-27T14:04:58+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "32756361dbf62bd18cccbc5fbb38cac02f8da565f376a7acbf8d52d5fbdf6bc3",
+      "row_count": 217,
+      "status": "completed"
+    },
+    "KRW-AAVE": {
+      "fetched_at": "2026-04-27T14:06:05+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "f19864542f997718f67e46fefbb50d636a07cae66093e53ce0d853f691c66943",
+      "row_count": 1643,
+      "status": "completed"
+    },
+    "KRW-ADA": {
+      "fetched_at": "2026-04-27T14:05:17+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "4f3cfd633f35f51c64bebf0159dc24fa9d8ed02c04b8cc5cd2b5310943f7273e",
+      "row_count": 3038,
+      "status": "completed"
+    },
+    "KRW-AERO": {
+      "fetched_at": "2026-04-27T14:05:20+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "fcc9875212bf3c40ab34bb80a8535cd55267dacf1d8ac607d60e3509f12060ec",
+      "row_count": 248,
+      "status": "completed"
+    },
+    "KRW-API3": {
+      "fetched_at": "2026-04-27T14:05:26+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "7e7f4e8b2309435203607fb1bcb4a227f2d66c0441a540269e1c82becb6513da",
+      "row_count": 251,
+      "status": "completed"
+    },
+    "KRW-AQT": {
+      "fetched_at": "2026-04-27T14:05:22+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "9650a428c91b53613052e05d1b630116f0e6601ff4e8853a5d07bce74f239fa1",
+      "row_count": 1987,
+      "status": "completed"
+    },
+    "KRW-ARDR": {
+      "fetched_at": "2026-04-27T14:05:14+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "d084be81724b4d3043d8233d06bb644f93268b55618a3843f24ace33039a7942",
+      "row_count": 3022,
+      "status": "completed"
+    },
+    "KRW-ATH": {
+      "fetched_at": "2026-04-27T14:05:10+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "db8ab093030b497da2c80fa8b17ac2cc145c3043fd535f557fa90ce7cec52eea",
+      "row_count": 621,
+      "status": "completed"
+    },
+    "KRW-AVAX": {
+      "fetched_at": "2026-04-27T14:06:14+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "d538e512cd92f39e6941e969775a5e293cc43aaa3f421fde733a15cff1588c7b",
+      "row_count": 1539,
+      "status": "completed"
+    },
+    "KRW-AVNT": {
+      "fetched_at": "2026-04-27T14:05:02+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "7a3d6808226555e376bb9b3fc2df31fd37064cf6ce940dc8eb022c9223696a2f",
+      "row_count": 224,
+      "status": "completed"
+    },
+    "KRW-AWE": {
+      "fetched_at": "2026-04-27T14:05:09+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "33569cccff01603479c2ed658921c561850a8b436d72dda70299a4e4281a0860",
+      "row_count": 2225,
+      "status": "completed"
+    },
+    "KRW-AXL": {
+      "fetched_at": "2026-04-27T14:05:24+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "eb85280685977603160305a1d07535d8e7baeb271adce466071f5678cb4ed4c9",
+      "row_count": 321,
+      "status": "completed"
+    },
+    "KRW-AXS": {
+      "fetched_at": "2026-04-27T14:05:00+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "af7694f5aa406b2bd113e47bec25ed6a61cc9ecf121bc73155e88544c74cf925",
+      "row_count": 1848,
+      "status": "completed"
+    },
+    "KRW-BARD": {
+      "fetched_at": "2026-04-27T14:05:19+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "95e45aaa14dfad570007e5cc1db8ad4b7f718b222f6b9062ec399a123ff56f4a",
+      "row_count": 221,
+      "status": "completed"
+    },
+    "KRW-BERA": {
+      "fetched_at": "2026-04-27T14:05:26+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "f31fe6f7df0cfc57517459f3587b99a617f720e5028e9dc0578793061359559c",
+      "row_count": 445,
+      "status": "completed"
+    },
+    "KRW-BIO": {
+      "fetched_at": "2026-04-27T14:05:14+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "19e2ab5f534a9a3fc609f2e1f4e94e1d7b3b868dba4cb366c6eaa1cc2165e7bd",
+      "row_count": 189,
+      "status": "completed"
+    },
+    "KRW-BLUR": {
+      "fetched_at": "2026-04-27T14:06:03+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "a7f8fc319e16805c783c9f6dc9af686e9e9976f4b88293c82d9fb8fab3a5fd6f",
+      "row_count": 1035,
+      "status": "completed"
+    },
+    "KRW-BOUNTY": {
+      "fetched_at": "2026-04-27T14:06:02+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "1a9cf2b1c86420ac1daf8e461a14f279f58ddb712e18033f5980067880e9d08e",
+      "row_count": 2754,
+      "status": "completed"
+    },
+    "KRW-BREV": {
+      "fetched_at": "2026-04-27T14:06:06+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "93e04d9521db7a1949cf6c7a68df404149c0baeb8595da15b312b01303eac11c",
+      "row_count": 110,
+      "status": "completed"
+    },
+    "KRW-BTC": {
+      "fetched_at": "2026-04-27T14:04:48+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "8eea375cface1959eaa3e4175d72e805d135d174be4ab534e3321a5ded21b7e8",
+      "row_count": 3038,
+      "status": "completed"
+    },
+    "KRW-CARV": {
+      "fetched_at": "2026-04-27T14:05:56+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "f7c6bd5eaf85b8b970562c7f7661c6693eb183e710815134f5eac32df9902f9d",
+      "row_count": 559,
+      "status": "completed"
+    },
+    "KRW-CBK": {
+      "fetched_at": "2026-04-27T14:05:55+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "c027bc8c5c51eca867ccfed09b4560cb22bc618c1d3e8ce7ae55dea3223d1f1a",
+      "row_count": 1950,
+      "status": "completed"
+    },
+    "KRW-CFG": {
+      "fetched_at": "2026-04-27T14:05:22+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "48bd37c96f6e5c3459c6553d6a29ffff2955c471352a618d3953820cc2bceb7a",
+      "row_count": 60,
+      "status": "completed"
+    },
+    "KRW-CHIP": {
+      "fetched_at": "2026-04-27T14:04:55+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "a21f9dad78e384baf63c8ae835d945b786af1d6fa772777ae05fd5e0356ffdd9",
+      "row_count": 6,
+      "status": "completed"
+    },
+    "KRW-CHZ": {
+      "fetched_at": "2026-04-27T14:05:28+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "80c4e8d55893d50158a77740962330e3f8edf08d42e04f52f009b74ea08b686f",
+      "row_count": 2201,
+      "status": "completed"
+    },
+    "KRW-CKB": {
+      "fetched_at": "2026-04-27T14:05:56+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "66f55cfd672fa8f72a8ad6608f21560341e2170840be7f2ea52e2b7447b48822",
+      "row_count": 591,
+      "status": "completed"
+    },
+    "KRW-DOGE": {
+      "fetched_at": "2026-04-27T14:05:06+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "86c236c98ed1e024b00395e196db34c7ffa3b04311558ef94f6bd75da771ab71",
+      "row_count": 1888,
+      "status": "completed"
+    },
+    "KRW-DOOD": {
+      "fetched_at": "2026-04-27T14:05:23+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "14786e07ea3ad5d0832abb620f2bbfa889051e5f18b55fd0131fb7ee94504671",
+      "row_count": 202,
+      "status": "completed"
+    },
+    "KRW-DRIFT": {
+      "fetched_at": "2026-04-27T14:05:03+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "f450e3dc37f6fef4606dc7922ef14ca31aa334b43644fffc501fa460bc7740a7",
+      "row_count": 535,
+      "status": "completed"
+    },
+    "KRW-ELSA": {
+      "fetched_at": "2026-04-27T14:06:06+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "e214ca1568f8af7111cbb80ebfdd1c651d2af44619a19f82a5555433fd9c8f63",
+      "row_count": 95,
+      "status": "completed"
+    },
+    "KRW-ENA": {
+      "fetched_at": "2026-04-27T14:05:55+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "ab158e43b16a7355c901dda00bc415820df2434548cf0ef7e0e01efbbceb50ec",
+      "row_count": 290,
+      "status": "completed"
+    },
+    "KRW-ENS": {
+      "fetched_at": "2026-04-27T14:06:14+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "3cb99c935f96c10d90d2543b200b0c7879389706da00935bf30e6ae9d9237e67",
+      "row_count": 657,
+      "status": "completed"
+    },
+    "KRW-ENSO": {
+      "fetched_at": "2026-04-27T14:04:58+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "a44f0f8e1880cf4d8a9a4d39166b6be5140f01bb7b8fe7846602a5c018a999b5",
+      "row_count": 180,
+      "status": "completed"
+    },
+    "KRW-ETC": {
+      "fetched_at": "2026-04-27T14:05:59+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "43b9f44a4702a4ed76018a3e1a183a85c096260dfd057195339b4a41631b6a24",
+      "row_count": 3038,
+      "status": "completed"
+    },
+    "KRW-ETH": {
+      "fetched_at": "2026-04-27T14:04:51+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "0749278d654d5a3255dc3695353de38b9c73bc125e732a86d1cc273b56fdffc3",
+      "row_count": 3038,
+      "status": "completed"
+    },
+    "KRW-FLOCK": {
+      "fetched_at": "2026-04-27T14:06:16+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "3ea6878eed7d3f9ddafb4f0c4f03f55fedf1d329734244adb38b9990c320a20b",
+      "row_count": 230,
+      "status": "completed"
+    },
+    "KRW-FLUID": {
+      "fetched_at": "2026-04-27T14:05:25+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "a0637c5ccb8fe6b264b02d70bb11e54e8229a66f60e7bfa6fbf46b314cf966b6",
+      "row_count": 215,
+      "status": "completed"
+    },
+    "KRW-HOLO": {
+      "fetched_at": "2026-04-27T14:06:15+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "909afae77db429ab6f7190f119b85f11cf5be2aafa423813721ec0216e74016b",
+      "row_count": 228,
+      "status": "completed"
+    },
+    "KRW-HYPER": {
+      "fetched_at": "2026-04-27T14:05:07+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "f2096136a8be818635d3d982611f84d8d89ba861ee863383a980f93b704e4cf1",
+      "row_count": 291,
+      "status": "completed"
+    },
+    "KRW-ID": {
+      "fetched_at": "2026-04-27T14:06:06+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "ebab08d1d88084b6b625bfb7c11b2186d47fc6471432edc93c02afe9261eefe4",
+      "row_count": 810,
+      "status": "completed"
+    },
+    "KRW-IN": {
+      "fetched_at": "2026-04-27T14:06:16+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "5bb9a6af57eb6c92b357ab51fc358b91dc478009205cf2924b5539aca2a3f54c",
+      "row_count": 199,
+      "status": "completed"
+    },
+    "KRW-INJ": {
+      "fetched_at": "2026-04-27T14:05:53+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "6f4c84cd80463687848e5a483828d327345d0be74d8a43388feba484b5f6aed4",
+      "row_count": 557,
+      "status": "completed"
+    },
+    "KRW-IP": {
+      "fetched_at": "2026-04-27T14:05:11+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "f22d246162f32b8eb2369ccfa1488fdd4a7250c6882ac3fa03620866aac81d30",
+      "row_count": 262,
+      "status": "completed"
+    },
+    "KRW-JUP": {
+      "fetched_at": "2026-04-27T14:05:52+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "40b5b06bdf1f27d26199047f49d1d4e815c03096fc1a9c3c2bcd44fdac5c3f63",
+      "row_count": 662,
+      "status": "completed"
+    },
+    "KRW-KAT": {
+      "fetched_at": "2026-04-27T14:05:00+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "643d89130c3970c018a59b4d3123558081ec319757c9b0dda2126e35ced18960",
+      "row_count": 32,
+      "status": "completed"
+    },
+    "KRW-KITE": {
+      "fetched_at": "2026-04-27T14:05:28+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "d0cfea1cdd1f996fb34a23814fd2a60dbec90538ca9517bf5c26b6347f67c8ff",
+      "row_count": 175,
+      "status": "completed"
+    },
+    "KRW-LAYER": {
+      "fetched_at": "2026-04-27T14:06:15+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "5952d35c580c888a7a94dd67fdb3bf503c4b4e1527557cddd860ab59e6919a8a",
+      "row_count": 439,
+      "status": "completed"
+    },
+    "KRW-LINEA": {
+      "fetched_at": "2026-04-27T14:05:03+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "b50d382e7dfadfc97850dd555f34d47db407260fe1097431db20cf868804f3ee",
+      "row_count": 229,
+      "status": "completed"
+    },
+    "KRW-LINK": {
+      "fetched_at": "2026-04-27T14:06:08+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "67d392c179d93a887c2c27cc37b2670743dc96f0aea82f4e6bf5fae84bfcb8d4",
+      "row_count": 2092,
+      "status": "completed"
+    },
+    "KRW-MANTRA": {
+      "fetched_at": "2026-04-27T14:05:51+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "55e98390ffeadbbfb53b5898e120c9d412749bc147e0d7297ecc835bc71989b3",
+      "row_count": 341,
+      "status": "completed"
+    },
+    "KRW-MASK": {
+      "fetched_at": "2026-04-27T14:05:07+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "6ff9f41a7c1c869d13bce2bd010d862f5031f33b5ce2ce8dc9c154ae009d8496",
+      "row_count": 1147,
+      "status": "completed"
+    },
+    "KRW-ME": {
+      "fetched_at": "2026-04-27T14:06:15+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "96c2226e81371d6596a5698288422518a3574117fd7479f96c32714414f838ea",
+      "row_count": 502,
+      "status": "completed"
+    },
+    "KRW-MINA": {
+      "fetched_at": "2026-04-27T14:06:17+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "0d2fb1fb2a65ca15317413e81b99640eb2398b6db37021b0b7a1e3dc625c9753",
+      "row_count": 916,
+      "status": "completed"
+    },
+    "KRW-MIRA": {
+      "fetched_at": "2026-04-27T14:05:20+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "1c3cae3861992596636faf8710db9422647e44ae6baca8293588c9b55c6ccd5b",
+      "row_count": 213,
+      "status": "completed"
+    },
+    "KRW-MON": {
+      "fetched_at": "2026-04-27T14:06:09+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "e323d2fba972ba03c4aa4eadde7ada031cd87378366291507361ee5f0abb8527",
+      "row_count": 154,
+      "status": "completed"
+    },
+    "KRW-MOODENG": {
+      "fetched_at": "2026-04-27T14:05:32+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "5907ef598a2bb0161668b6027c1c7073de5f36ca9f32b2266ad9b45ab607e7b2",
+      "row_count": 298,
+      "status": "completed"
+    },
+    "KRW-NEAR": {
+      "fetched_at": "2026-04-27T14:06:23+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "9cafb9c2f012268f17fe3dff3b7a33d316e74499097906f79e2ea3c195d8e71e",
+      "row_count": 1594,
+      "status": "completed"
+    },
+    "KRW-ONDO": {
+      "fetched_at": "2026-04-27T14:05:20+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "e4995a553e8aa5bba45a1bf2e44fbc97b8e2ddf42529f19bb0e8d75f6a52ddef",
+      "row_count": 682,
+      "status": "completed"
+    },
+    "KRW-ONT": {
+      "fetched_at": "2026-04-27T14:06:22+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "ec43d12a8d35d2ea3a993a4395ca80a18fe755d757200fef4e541db47f88c489",
+      "row_count": 2916,
+      "status": "completed"
+    },
+    "KRW-OPEN": {
+      "fetched_at": "2026-04-27T14:05:14+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "fd458beeed2daecdde2301e0ad66f5b97801d5013eedb9861c8fd492e93f52e9",
+      "row_count": 229,
+      "status": "completed"
+    },
+    "KRW-ORBS": {
+      "fetched_at": "2026-04-27T14:06:19+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "0a202f0f72140f11c386ccc62806c0b12e4a45c0cf90eba27072b5ece7fb9b80",
+      "row_count": 2218,
+      "status": "completed"
+    },
+    "KRW-ORCA": {
+      "fetched_at": "2026-04-27T14:04:56+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "af977c2c3ecc295f11f5cc1d8c184118fd1adbf9e0ee3e8f19d600dba55abcd1",
+      "row_count": 402,
+      "status": "completed"
+    },
+    "KRW-PENGU": {
+      "fetched_at": "2026-04-27T14:05:02+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "a5bfaa2d6c5cca282295cbb5d44d09a5771a6342bcae723792d3912defb6acca",
+      "row_count": 353,
+      "status": "completed"
+    },
+    "KRW-PEPE": {
+      "fetched_at": "2026-04-27T14:05:32+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "d082a0ba34d635cea4d5b51f4efb4784c52decb337f2ffd43db9a9730863389b",
+      "row_count": 529,
+      "status": "completed"
+    },
+    "KRW-PIEVERSE": {
+      "fetched_at": "2026-04-27T14:05:03+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "eb46b4758535aa8f12e18c6b0c6ffeeb02ed8ad02f0bf8b433ee9ae7c040c41b",
+      "row_count": 7,
+      "status": "completed"
+    },
+    "KRW-PLUME": {
+      "fetched_at": "2026-04-27T14:06:09+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "6b81447dab3623517cd2537b17886a9309c1dbb94dbfa3f676af4e055ddc01a6",
+      "row_count": 152,
+      "status": "completed"
+    },
+    "KRW-PRL": {
+      "fetched_at": "2026-04-27T14:04:56+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "",
+      "row_count": 0,
+      "status": "completed"
+    },
+    "KRW-PUMP": {
+      "fetched_at": "2026-04-27T14:06:16+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "9d0700af5611a854a6b3d80ec8a789221054a87278c614dc43804f5e3a0a714d",
+      "row_count": 228,
+      "status": "completed"
+    },
+    "KRW-RAY": {
+      "fetched_at": "2026-04-27T14:05:17+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "52adb5ebbd240645a95e86cfbb20222d27f1596f44c6440f93bb5d8bf03e231f",
+      "row_count": 312,
+      "status": "completed"
+    },
+    "KRW-SAHARA": {
+      "fetched_at": "2026-04-27T14:05:04+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "825fa27a6b89cf86b1883d24c93ed916b532bc7120650433fa1b625d5ff89723",
+      "row_count": 305,
+      "status": "completed"
+    },
+    "KRW-SAND": {
+      "fetched_at": "2026-04-27T14:05:51+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "dcc7d1c978610463b88464e2e16475b81e4d56813b5f1c37ee357aa5ce775219",
+      "row_count": 1922,
+      "status": "completed"
+    },
+    "KRW-SEI": {
+      "fetched_at": "2026-04-27T14:05:25+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "0fd8338f2ffd619a81c7ab5cad42a59d716e9480192878c896889e38b7569f36",
+      "row_count": 985,
+      "status": "completed"
+    },
+    "KRW-SHIB": {
+      "fetched_at": "2026-04-27T14:05:33+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "b7a461eb55b7336fdb528acbd5f3ce3234c4adc6449f9e0a1f5eae6171071661",
+      "row_count": 1195,
+      "status": "completed"
+    },
+    "KRW-SIGN": {
+      "fetched_at": "2026-04-27T14:05:53+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "908f755e34d6ff36ab47c436cdcb0bba744ce56c8b3ee710762bb2ed74291f75",
+      "row_count": 363,
+      "status": "completed"
+    },
+    "KRW-SOL": {
+      "fetched_at": "2026-04-27T14:05:02+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "2dff78dd1efca5a2316a4aeb6b868fd36f8a992d0acc4b0674b6fc67d4ef3746",
+      "row_count": 1655,
+      "status": "completed"
+    },
+    "KRW-SOMI": {
+      "fetched_at": "2026-04-27T14:05:07+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "74510d5be5ea373a98f3d0b0f432c0834227046e55b7855ff01667854c1a14d5",
+      "row_count": 208,
+      "status": "completed"
+    },
+    "KRW-SONIC": {
+      "fetched_at": "2026-04-27T14:04:54+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "5ddcd08f8c5014ce95d3e43d32866facdea0efb83734159179aeeb21f35c418f",
+      "row_count": 474,
+      "status": "completed"
+    },
+    "KRW-SOON": {
+      "fetched_at": "2026-04-27T14:05:23+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "9b39a27a3c9aa8569ace4db1c2475d45c67ed79588875e7eaf7cb450407e139d",
+      "row_count": 10,
+      "status": "completed"
+    },
+    "KRW-SPK": {
+      "fetched_at": "2026-04-27T14:04:58+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "256a1f76e2a60843feba0195c86307b1ecf2f92f4e5645d1c927a1b233d41887",
+      "row_count": 4,
+      "status": "completed"
+    },
+    "KRW-SUI": {
+      "fetched_at": "2026-04-27T14:05:18+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "c0db30f5b2578d1f44d1770478506eb0a1d8802ec0fdd6438b8b7b0c6af77c73",
+      "row_count": 1089,
+      "status": "completed"
+    },
+    "KRW-TAIKO": {
+      "fetched_at": "2026-04-27T14:06:00+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "43a68cf48e1bfe9d1b499984284400950a4b65094dac66fd78f755c0e364699d",
+      "row_count": 690,
+      "status": "completed"
+    },
+    "KRW-TAO": {
+      "fetched_at": "2026-04-27T14:06:19+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "fd7151295c77d11ebdcc10788725442e92323963f9c4387f9f8f357290e19bbe",
+      "row_count": 70,
+      "status": "completed"
+    },
+    "KRW-TOKAMAK": {
+      "fetched_at": "2026-04-27T14:04:58+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "3fb296874838c8749cb8a26a088fd0a13ba9567bdbb8a1d297d1277a94fc5a0f",
+      "row_count": 2071,
+      "status": "completed"
+    },
+    "KRW-TREE": {
+      "fetched_at": "2026-04-27T14:06:12+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "c63cb4623d1180c513c73326ca16158b69ab6be43a82e7b0e55dd2526b2dff6a",
+      "row_count": 242,
+      "status": "completed"
+    },
+    "KRW-TRUMP": {
+      "fetched_at": "2026-04-27T14:05:10+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "b92d98dc931a372c6c88c7c199edfb9b8a90d69aa65b89fb0d86da482bc03022",
+      "row_count": 438,
+      "status": "completed"
+    },
+    "KRW-TRX": {
+      "fetched_at": "2026-04-27T14:06:12+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "3b7098302bc3515952a1b78666cdb0a519a5c3e53d5250c0272d48c336c1f034",
+      "row_count": 2944,
+      "status": "completed"
+    },
+    "KRW-USDT": {
+      "fetched_at": "2026-04-27T14:04:55+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "62a950fcf45f6bc6e9e964c624e49798d5817c4d3036a404da194cd7f1517f57",
+      "row_count": 689,
+      "status": "completed"
+    },
+    "KRW-VIRTUAL": {
+      "fetched_at": "2026-04-27T14:05:23+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "32cb57259992683676cdfc63c2bfa1e8222afaf41e28d207c9529beeb3aef40e",
+      "row_count": 451,
+      "status": "completed"
+    },
+    "KRW-WLD": {
+      "fetched_at": "2026-04-27T14:06:03+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "cb36055930a7bbd7093a4712c0ff6be0fdd67c197fddadbf8b4548db426b69b6",
+      "row_count": 230,
+      "status": "completed"
+    },
+    "KRW-WLFI": {
+      "fetched_at": "2026-04-27T14:06:12+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "f8ac7234a79107fee9e506877fb755ccae6de913c1d286a0e4dfde97bc62b1a6",
+      "row_count": 238,
+      "status": "completed"
+    },
+    "KRW-XCN": {
+      "fetched_at": "2026-04-27T14:04:56+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "",
+      "row_count": 0,
+      "status": "completed"
+    },
+    "KRW-XLM": {
+      "fetched_at": "2026-04-27T14:05:31+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "bcab25728f916fd0d56bc71a988a4061e53f321b2097b76305c8fbddacb561a0",
+      "row_count": 3038,
+      "status": "completed"
+    },
+    "KRW-XPL": {
+      "fetched_at": "2026-04-27T14:05:24+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "014dd2674e5011168f567401591b1251e2b02dafe3880f44b0c1af9a85644b75",
+      "row_count": 214,
+      "status": "completed"
+    },
+    "KRW-XRP": {
+      "fetched_at": "2026-04-27T14:04:54+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "f6de0a5f90aa68574bd8c3968bc0fd26eef7107e0ec132f4e32e817f675c3eb3",
+      "row_count": 3038,
+      "status": "completed"
+    },
+    "KRW-ZAMA": {
+      "fetched_at": "2026-04-27T14:05:51+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "96f1c2b7bcd8e976f984055cccb46c1a470edf534ca31312f8c131f2b6c2d48c",
+      "row_count": 13,
+      "status": "completed"
+    },
+    "KRW-ZBT": {
+      "fetched_at": "2026-04-27T14:04:48+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "fda1ad7220995948e16f87163b7b3f2a452a7706fe9721ec816440d3982ddea4",
+      "row_count": 192,
+      "status": "completed"
+    },
+    "KRW-ZETA": {
+      "fetched_at": "2026-04-27T14:05:19+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "09ec37938f41fb943dfe4ddf294c9002baac2e57990b1ece165a6a06ccf5d359",
+      "row_count": 724,
+      "status": "completed"
+    },
+    "KRW-ZKC": {
+      "fetched_at": "2026-04-27T14:06:06+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "ca0855d818441e3bf4455cdf3a5b2505c8f141b298ce423a7816bc0f60e39946",
+      "row_count": 224,
+      "status": "completed"
+    },
+    "KRW-ZKP": {
+      "fetched_at": "2026-04-27T14:05:33+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "e9d30ba56c92edd87c0442721cdbc3de705bbd89323bedb1678a038ce111d80e",
+      "row_count": 122,
+      "status": "completed"
+    },
+    "KRW-ZORA": {
+      "fetched_at": "2026-04-27T14:05:53+00:00",
+      "last_completed_kst": "2026-04-26",
+      "row_checksum": "8faf8083ce627fd9eaa9af286e32678530c46ff47950de21e945a95e47b661b7",
+      "row_count": 192,
+      "status": "completed"
+    }
+  },
+  "started_at": "2026-04-27T14:04:45+00:00",
+  "target_end_kst": "2026-04-26",
+  "target_start_kst": "2018-01-01",
+  "universe_source_hash": "200b72363fdab9dc2a5294e48bbdaaf161c9f371224485d194ca8802dda6d29c"
+}

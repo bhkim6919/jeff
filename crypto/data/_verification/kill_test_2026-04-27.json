@@ -1,0 +1,60 @@
+{
+  "test": "D1 PASS #10 — kill/restart resilience",
+  "executed_at_utc": "2026-04-27T14:05:35+00:00",
+  "spec": "Reset checkpoint, start full bulk fetch, hard-kill mid-run, restart without --reset, verify final state == pre-kill baseline.",
+  "phases": [
+    {
+      "phase": "T0",
+      "step": "capture pre-kill PG baseline",
+      "pg_distinct_pairs": 98,
+      "pg_total_rows": 83910
+    },
+    {
+      "phase": "T1",
+      "step": "reset checkpoint, start bulk_fetch_d1.py background",
+      "pids": [8464, 1084],
+      "started_at_utc": "2026-04-27T14:04:44+00:00"
+    },
+    {
+      "phase": "T2",
+      "step": "hard-kill via Stop-Process -Force after 51s",
+      "killed_at_utc": "2026-04-27T14:05:35+00:00",
+      "checkpoint_pairs_completed": 60,
+      "kill_signal": "SIGKILL-equivalent (Windows Stop-Process -Force)",
+      "elapsed_sec": 51
+    },
+    {
+      "phase": "T3",
+      "step": "restart bulk_fetch_d1.py without --reset",
+      "result": {
+        "skipped_via_checkpoint": 60,
+        "fetched_after_resume": 40,
+        "failed": 0,
+        "elapsed_sec": 34.4
+      }
+    },
+    {
+      "phase": "T4",
+      "step": "verify final state",
+      "checkpoint_pairs_completed": 100,
+      "pg_distinct_pairs": 98,
+      "pg_total_rows": 83910,
+      "matches_pre_kill_baseline": true
+    },
+    {
+      "phase": "T5",
+      "step": "verify PG↔parquet parity post-kill",
+      "mismatches": 0,
+      "missing_parquet_for_pg": 0,
+      "tmp_residuals": 0,
+      "verdict": "PASS"
+    }
+  ],
+  "verdict": "PASS",
+  "d1_pass_criterion_id": 10,
+  "notes": [
+    "60 pairs were committed before kill — checkpoint guard skipped them on restart.",
+    "40 pairs fetched cleanly after resume; total row count unchanged (83,910 = baseline).",
+    "Per-pair UPSERT idempotency means even mid-pair kill would not corrupt data — restart simply re-fetches and re-UPSERTs (deterministic row_checksum)."
+  ]
+}

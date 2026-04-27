@@ -1,0 +1,35 @@
+{
+  "generated_at_utc": "2026-04-27T14:03:27+00:00",
+  "elapsed_sec": 0.516,
+  "summary": {
+    "pair_count": 98,
+    "row_count": 83910,
+    "earliest_kst": "2018-01-01",
+    "latest_kst": "2026-04-26"
+  },
+  "coverage": {
+    "threshold_pct": 95.0,
+    "fail_count": 0,
+    "pass": true
+  },
+  "gap": {
+    "threshold_days": 7,
+    "fail_count": 0,
+    "pass": true,
+    "histogram": {}
+  },
+  "duplicate": {
+    "duplicate_count": 0,
+    "pass": true
+  },
+  "outlier": {
+    "big_return_count": 76,
+    "volume_p99": 946391654364.272,
+    "volume_p99_count": 840
+  },
+  "time_consistency": {
+    "mismatch_count": 0,
+    "pass": true
+  },
+  "gate_pass": true
+}

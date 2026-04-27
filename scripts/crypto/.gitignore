@@ -1,0 +1,7 @@
+# Runtime artifacts (not source). The current bulk_fetch_checkpoint.json IS
+# committed as an audit baseline; only its rotated backups and the verbose
+# log are excluded.
+_*.log
+bulk_fetch_checkpoint.reset.*.json
+bulk_fetch_checkpoint.json.tmp
+bulk_fetch_checkpoint.json.bak.*.json
