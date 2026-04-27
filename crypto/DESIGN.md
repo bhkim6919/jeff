@@ -156,24 +156,47 @@ KR snapshot_version (`{trade_date}:...`) 은 24/7 시장에 부적합. 또한 Up
 
 | 축 | 의미 | 사용처 | 저장 필드 |
 |---|---|---|---|
-| **`candle_dt_kst`** | Upbit 일봉의 KST 거래일 | OHLCV 행의 자연 키 | `crypto_ohlcv.candle_dt_kst` |
-| **`candle_dt_utc`** | 동일 캔들의 UTC 거래일 (보조) | 디버깅/검증 | `crypto_ohlcv.candle_dt_utc` |
+| **`candle_dt_kst`** | Upbit 응답 `candle_date_time_kst` 의 DATE 부분 | OHLCV 행의 자연 키 (PRIMARY KEY) | `crypto_ohlcv.candle_dt_kst` |
+| **`candle_dt_utc`** | Upbit 응답 `candle_date_time_utc` 의 DATE 부분 | mismatch 검증 (D1 PASS #13) | `crypto_ohlcv.candle_dt_utc` |
 | **`snapshot_dt_utc`** | snapshot 산출 시점 UTC 일자 | snapshot_version 산출, idempotency | per-snapshot metadata |
 
-**원칙**:
-- OHLCV 데이터는 KST 거래일 (`candle_dt_kst`) 을 자연 키로 사용 — Upbit API 의 `candle_date_time_kst` 응답 필드 기반
-- 스냅샷 (Phase 3+) 은 UTC 일자 기준 산출 — 24/7 시장의 글로벌 EOD 컷오프 명확화
-- 두 축 간 매핑: 스냅샷 `snapshot_dt_utc=D` 시점 사용 가능 데이터 = `candle_dt_kst ≤ map_kst(D)` (S4 에서 boundary 확정 후 명문화)
+**원칙 (S4 가설 B 확정 후)**:
 
-### 5.2 Upbit 일봉 boundary 확정 (S4 의무 검증)
+- D1 daily 단계에서 `candle_dt_kst` ≡ `candle_dt_utc` (불변량). 두 컬럼을 모두 저장하는 이유: **불변량 위반 감지** = 데이터 품질 알람 (D1 PASS #13).
+- OHLCV 자연 키 = `candle_dt_kst` (사용자 친숙성). 변경 시 Phase 7 hourly 진입 단계에서 재검토.
+- 스냅샷 (Phase 3+) 은 UTC 일자 기준 산출. 24/7 시장의 글로벌 EOD 컷오프 = **UTC 00:00 = KST 09:00** (§5.2 가설 B).
+- 두 축 간 매핑 (Phase 3+): 스냅샷 `snapshot_dt_utc=D` 사용 가능 데이터 = `candle_dt_utc ≤ D-1` (전일까지 마감된 캔들 only).
 
-S4 에서 BTC 1페어 fetch 시 Upbit 응답의 `candle_date_time_kst` / `candle_date_time_utc` 를 검증하여 **본 문서 §5.2 에 boundary 시각을 확정 기록** 해야 함. 검증 전까지는 가정 사용 금지. 후보:
+### 5.2 Upbit 일봉 boundary 확정 (S4 검증 결과)
 
-- 가설 A: KST 00:00 ~ 24:00 (= UTC 15:00 전일 ~ UTC 15:00 당일)
-- 가설 B: KST 09:00 ~ 09:00 익일 (= UTC 00:00 당일 ~ UTC 00:00 익일)
-- 가설 C: 그 외
+**검증 일자**: 2026-04-27 (S4 실행)
+**검증 스크립트**: [`scripts/crypto/verify_upbit_boundary.py`](../scripts/crypto/verify_upbit_boundary.py)
+**대상**: KRW-BTC, 100일치 (Upbit `/v1/candles/days`)
+**Summary 파일**: [`crypto/data/_verification/upbit_boundary_2026-04-27.json`](data/_verification/upbit_boundary_2026-04-27.json)
+**판정**: **가설 B 확정** (PASS, 100/100 candles 일관)
 
-S4 검증 후 본 문서 업데이트 → S5 진입 전 Jeff 재확인.
+#### 확정 결과
+
+| 항목 | 값 |
+|---|---|
+| 일봉 시간 범위 | **UTC 00:00 ~ UTC 23:59** (1 UTC trade day = 1 candle) |
+| KST 환산 | 동일 candle 의 KST 09:00 ~ 익일 KST 09:00 |
+| Upbit 응답 `candle_date_time_utc` | 캔들 시작 UTC 시각, 예: `2026-04-27T00:00:00` |
+| Upbit 응답 `candle_date_time_kst` | 동일 시각의 KST 표현, 예: `2026-04-27T09:00:00` |
+| KST − UTC 오프셋 | **+9h 고정 (32400s), no DST** — 100/100 일관 |
+| `date(candle_date_time_kst)` vs `date(candle_date_time_utc)` | **항상 동일** (시작 KST 시각이 09:00 < 24:00 → 날짜 변경 없음) |
+
+#### 의의 / 운용 규칙
+
+- Upbit 일봉의 자연 키 = **UTC trade day**. D1 daily 단계에서 `candle_dt_kst` 와 `candle_dt_utc` 는 **항상 같은 DATE 값** (Phase 7 hourly 진입 시 분리 의미 발생, 그 시점에 본 절 재검증 필수).
+- D1 PASS #13 (mismatch=0) = 본 가설 B 의 **불변량 검증** (페어 단위 inner join row count = 단일 테이블 row count).
+- `snapshot_dt_utc` (§5.3) = 그 UTC trade day 자체. **EOD 컷오프 = UTC 00:00 = KST 09:00**.
+- 자연 키로 `candle_dt_kst` 를 PRIMARY KEY 에 둔 이유: 사용자/운영자에게 KST 가 친숙하고, daily 단계에서는 두 값이 동치이므로 의미 손실 없음.
+
+#### 기각된 가설
+
+- 가설 A (KST 00:00 ~ 24:00 = UTC 15:00 전일 ~ UTC 15:00 당일) — 실제 응답에서 `candle_date_time_kst` 가 `09:00:00` 이므로 불일치, 기각.
+- 가설 C (기타) — 검증 불필요, 가설 B 가 100/100 일관.
 
 ### 5.3 snapshot_version 정의 (단순화)
 
@@ -378,6 +401,10 @@ CREATE TABLE crypto_universe_top100 (
 | 2026-04-27 | DB ↔ parquet atomic write 프로토콜 + checksum 검증 | Jeff (G1 #3) | §4.4 |
 | 2026-04-27 | bulk_fetch checkpoint 메커니즘 추가 | Jeff (G1 #4) | §13 |
 | 2026-04-27 | D1 PASS 기준 13개로 확장 (데이터 8 + 운영 5) | Jeff (G1) | §8.1, §8.2 |
+| 2026-04-27 | C 옵션 (worktree 유지) 확정 + sparse-checkout cone mode 적용 (crypto, scripts/crypto, shared/db) | Jeff | §3.2 |
+| 2026-04-27 | .venv64 재사용 결정, pyarrow 1개만 추가 예정 (US Live 종료 후) | Jeff | — |
+| 2026-04-27 | PR #1 local commit (`23819ebf`), push/PR 보류, S4 별도 커밋 진행 | Jeff (B안) | §9 |
+| 2026-04-27 | **S4 PASS — Upbit 일봉 boundary 가설 B 확정** (UTC 00:00~23:59, KST 09:00~익일 09:00, +9h 고정, 100/100 일관) | Claude (S4) + Jeff (검증) | §5.2 |
 
 ---
 

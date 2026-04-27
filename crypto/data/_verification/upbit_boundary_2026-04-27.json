@@ -1,0 +1,42 @@
+{
+  "verified_at_utc": "2026-04-27T13:11:08Z",
+  "market": "KRW-BTC",
+  "fetched_count": 100,
+  "target_count": 100,
+  "unique_kst_minus_utc_seconds": [
+    32400.0
+  ],
+  "hypothesis": "B",
+  "boundary_description": "Daily candle covers UTC 00:00 \u2192 23:59 (KST 09:00 \u2192 next day 09:00). candle_date_time_kst = 09:00 KST of the same calendar day as candle_date_time_utc. Trade day key = candle_date_time_utc.date().",
+  "sample_oldest": {
+    "market": "KRW-BTC",
+    "candle_date_time_utc": "2026-01-18T00:00:00",
+    "candle_date_time_kst": "2026-01-18T09:00:00",
+    "opening_price": 140526000.0,
+    "high_price": 141200000.0,
+    "low_price": 138894000.0,
+    "trade_price": 138940000.0,
+    "timestamp": 1768780799492,
+    "candle_acc_trade_price": 90130260920.1119,
+    "candle_acc_trade_volume": 642.23701912,
+    "prev_closing_price": 140527000.0,
+    "change_price": -1587000.0,
+    "change_rate": -0.0112932034
+  },
+  "sample_newest": {
+    "market": "KRW-BTC",
+    "candle_date_time_utc": "2026-04-27T00:00:00",
+    "candle_date_time_kst": "2026-04-27T09:00:00",
+    "opening_price": 116692000.0,
+    "high_price": 117736000.0,
+    "low_price": 115313000.0,
+    "trade_price": 115579000.0,
+    "timestamp": 1777295464148,
+    "candle_acc_trade_price": 135273345483.68768,
+    "candle_acc_trade_volume": 1163.27763643,
+    "prev_closing_price": 116655000.0,
+    "change_price": -1076000.0,
+    "change_rate": -0.0092237795
+  },
+  "forbidden_key_leakage": {}
+}

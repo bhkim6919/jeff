@@ -74,9 +74,9 @@ COMMENT ON TABLE crypto_ohlcv IS
 COMMENT ON COLUMN crypto_ohlcv.pair IS
     '거래쌍 (예: KRW-BTC). KRW 마켓 only.';
 COMMENT ON COLUMN crypto_ohlcv.candle_dt_kst IS
-    'Upbit 일봉의 KST 거래일 (자연 키). S4 에서 boundary 확정 후 DESIGN.md §5.2 명문화.';
+    'Upbit 응답 candle_date_time_kst 의 DATE 부분 (자연 키, PRIMARY KEY). 2026-04-27 S4 가설 B 확정: UTC trade day = KST 09:00~익일 09:00. DESIGN.md §5.2.';
 COMMENT ON COLUMN crypto_ohlcv.candle_dt_utc IS
-    '동일 캔들의 UTC 거래일 (보조, mismatch 검증용). PASS 기준 #13.';
+    'Upbit 응답 candle_date_time_utc 의 DATE 부분 (보조). D1 daily 단계에서는 candle_dt_kst 와 항상 동치 (불변량, PASS #13).';
 COMMENT ON COLUMN crypto_ohlcv.value_krw IS
     '거래대금 (KRW). Universe Top 100 산출 입력.';
 COMMENT ON COLUMN crypto_ohlcv.row_checksum IS
