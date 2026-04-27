@@ -646,7 +646,17 @@ class Win32TrayServer:
         win32gui.AppendMenu(menu, MF, ID_UNIFIED, "Open Unified Dashboard")
         win32gui.AppendMenu(menu, MF, ID_GATE_OBSERVER, "AUTO GATE Report (Latest)")
         win32gui.AppendMenu(menu, MF, ID_RESTART_ALL, "Restart All")
-        win32gui.AppendMenu(menu, MF, ID_QUIT, "Shutdown All")
+        # Visual + behavioural moat between Restart and Shutdown.
+        # Jeff 2026-04-27: 4/27 18:04 family-shared PC accidentally fired
+        # Shutdown All while Restart All was probably the intent — these
+        # were adjacent rows with no separator. The separator below + the
+        # MessageBox confirmation in _action_quit together turn a single
+        # misclick into a two-step action, mirroring the destructive-CTA
+        # treatment elsewhere in the codebase (lab_live reset removed for
+        # the same reason). Restart All is intentionally left alone — it
+        # is a recoverable action and confirming it would just add nag.
+        win32gui.AppendMenu(menu, MF_SEP, 0, "")
+        win32gui.AppendMenu(menu, MF, ID_QUIT, "Shutdown All (Confirm)")
 
         # Required for menu to work properly
         win32gui.SetForegroundWindow(self._hwnd)
@@ -963,6 +973,39 @@ class Win32TrayServer:
             self._show_balloon("Q-TRON US", "Log folder not found.")
 
     def _action_quit(self):
+        # Confirmation gate (Jeff 2026-04-27 approval, Option A+B).
+        # Shutdown All tears down KR uvicorn + US uvicorn + KR Live +
+        # US Live in one step; during 09:00–15:30 KST that would orphan
+        # the trail-stop monitor mid-session. The 4/27 18:04 incident
+        # fired during the family PC-sharing window with no confirmation
+        # to absorb a misclick. We default the dialog to NO so a stray
+        # Enter keypress closes it harmlessly.
+        try:
+            rc = win32gui.MessageBox(
+                self._hwnd,
+                ("모든 서버 (KR uvicorn, US uvicorn, KR Live, US Live) 를 "
+                 "종료합니다.\n\n계속할까요?"),
+                "Q-TRON — Shutdown All",
+                (win32con.MB_YESNO
+                 | win32con.MB_ICONWARNING
+                 | win32con.MB_DEFBUTTON2  # default = NO
+                 | win32con.MB_TOPMOST),
+            )
+        except Exception as e:
+            # If the dialog itself can't render (e.g. session 0 / RDP edge
+            # case), fall back to allowing the shutdown — the menu click
+            # still happened, and blocking on a render failure would
+            # leave the operator with no way to quit at all.
+            self._logger.warning(
+                f"[TRAY] Shutdown confirmation dialog failed: {e} — proceeding"
+            )
+            rc = win32con.IDYES
+        if rc != win32con.IDYES:
+            self._logger.info(
+                "[TRAY] Shutdown All cancelled by user (rc=%s)", rc
+            )
+            return
+
         self._logger.info("[TRAY] Shutdown All requested")
         self._send_shutdown_alert("Shutdown All requested (manual)")
         self._running = False
