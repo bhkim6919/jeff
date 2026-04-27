@@ -1,0 +1,79 @@
+{
+  "started_at_utc": "2026-04-27T23:33:29+00:00",
+  "all_pass": true,
+  "gates": [
+    {
+      "gate": "G1 idempotency",
+      "verdict": "PASS",
+      "detail": {
+        "pre": {
+          "listings_total": 306,
+          "delisted_with_date": 35,
+          "source_upbit_notice": 36,
+          "source_manual_v0": 270
+        },
+        "mid_after_run1": {
+          "listings_total": 306,
+          "delisted_with_date": 35,
+          "source_upbit_notice": 36,
+          "source_manual_v0": 270
+        },
+        "post_after_run2": {
+          "listings_total": 306,
+          "delisted_with_date": 35,
+          "source_upbit_notice": 36,
+          "source_manual_v0": 270
+        },
+        "diff_run2": {
+          "listings_total": 0,
+          "delisted_with_date": 0,
+          "source_upbit_notice": 0,
+          "source_manual_v0": 0
+        },
+        "csv_sha_unchanged": true,
+        "rc_run1": 0,
+        "rc_run2": 0
+      }
+    },
+    {
+      "gate": "G2 lockfile",
+      "verdict": "PASS",
+      "detail": {
+        "concurrent_acquire_raised_lockheld": true,
+        "concurrent_run_exit_code": 2,
+        "lock_cleaned_after_release": true,
+        "expected_rc": 2
+      }
+    },
+    {
+      "gate": "G3 partial-write",
+      "verdict": "PASS",
+      "detail": {
+        "exit_code": 1,
+        "csv_sha_unchanged": true,
+        "csv_bytes_unchanged": true,
+        "tmp_or_bak_leaks": [],
+        "expected_rc": 1
+      }
+    },
+    {
+      "gate": "G4 drift report",
+      "verdict": "PASS",
+      "detail": {
+        "evidence_path": "crypto\\data\\_verification\\_d3_scratch\\g4_run\\incremental_listings_2026-04-27.json",
+        "missing_top_keys": [],
+        "missing_baseline_keys": [],
+        "rc": 0
+      }
+    },
+    {
+      "gate": "G5 telegram fail-soft",
+      "verdict": "PASS",
+      "detail": {
+        "raised": false,
+        "returned_status": "error:http:404",
+        "expected_status_prefix": "error:"
+      }
+    }
+  ]
+}

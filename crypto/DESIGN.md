@@ -409,6 +409,9 @@ CREATE TABLE crypto_universe_top100 (
 | 2026-04-27 | D1 완료 — 13/13 PASS, PR #11 master 머지 (`6147be7e`) | Jeff | §2.1 |
 | 2026-04-27 | D2 조건부 승인 — 5개 보완 반영 (PASS 분리, partial-write 금지, structure hash, capability test, source priority) | Jeff | §14 |
 | 2026-04-27 | **D2 PASS — 자동 크롤 36 events / +30 new + 6 filled / fill ratio 64.8%** | Jeff (검증 대기) | §14 |
+| 2026-04-28 | D3 GO — Q1=A(WTS), Q2=A(21~35 전체), Q3=A+(logger 1차 + Telegram best-effort), Q4=B(3 PR), Q5=A(UTC 00:30) | Jeff | §15.1 |
+| 2026-04-28 | D3 보완 5조건 — idempotency / lockfile / partial-write 금지 / drift report / Telegram best-effort | Jeff | §15.2 |
+| 2026-04-28 | **D3-1 PASS — 5/5 게이트 (G1 idempotency, G2 lockfile, G3 partial-write, G4 drift report, G5 telegram fail-soft)** | Jeff (검증 대기) | §15.4 |
 
 ---
 
@@ -565,7 +568,67 @@ requirements.freeze.before_crypto_d2.txt
 
 ---
 
-## 15. 참조
+## 15. D3 — Daily Incremental + Reconcile + Backfill (2026-04-28~)
+
+### 15.1 Jeff 결정값 (2026-04-28)
+
+| Q | 결정 | 비고 |
+|---|---|---|
+| Q1 cron 스케줄러 | **Windows Task Scheduler** | KR/US 가 이미 사용 중 |
+| Q2 backfill 페이지 | **21~35 전체** | 1회용, 한 번에 끝내기 |
+| Q3 mismatch 알람 채널 | **logger + JSON evidence (1차) + Telegram best-effort (2차)** | Telegram 실패는 D3 FAIL 사유 ❌ |
+| Q4 PR 분할 | **3 PR** | incremental / reconcile / backfill |
+| Q5 cron 실행 시각 | **UTC 00:30 / KST 09:30** | Upbit 새 KST day + 30분 |
+
+### 15.2 D3 보완 조건 (Jeff 추가)
+
+| # | 요구사항 | 구현 |
+|---|---|---|
+| 1 | **Idempotency** — 같은 notice 재수집 시 row count 불변 | `INSERT ... ON CONFLICT DO NOTHING` + `UPDATE ... WHERE delisted_at IS NULL` (`crypto/data/listings_merge.py`) |
+| 2 | **Lock 파일** — 중복 실행 방지 | `crypto/jobs/_lockfile.py::FileLock` (PID + age stale 검출, 2h auto-reclaim) |
+| 3 | **Partial-write 금지** | PG 단일 transaction → CSV `.tmp` → fsync → rename (atomic). PG 실패 → CSV unchanged. CSV 실패 (PG commit 후) → CSV `.bak` 복원 |
+| 4 | **Drift report** | Evidence JSON `crypto/data/_verification/incremental_listings_<utc-date>.json` — `baseline_before/after` + `diff` 기록 (PR #2 에서 reconcile 강화) |
+| 5 | **Telegram best-effort** | `crypto/jobs/_telegram.py::send` — credentials 없으면 skip, network/HTTP 에러 시 logger.warning 후 status string 반환, 절대 raise 안함 |
+
+### 15.3 PR 분할
+
+| PR | 범위 | 산출물 |
+|---|---|---|
+| **#1 (D3-1)** | `incremental_listings` 잡 + Task Scheduler 등록 | `crypto/jobs/__init__.py`, `_lockfile.py`, `_telegram.py`, `incremental_listings.py`; `crypto/data/listings_merge.py` (D2 헬퍼 추출); `scripts/crypto/run_incremental_listings.py`, `scripts/crypto/verify_incremental_listings.py`, `scripts/crypto/scheduler/{incremental_listings_task.xml,install_*.ps1,README.md}` |
+| **#2 (D3-2)** | DB ↔ CSV 정합 reconcile + drift 알람 | `scripts/crypto/reconcile_db_csv.py`, drift report JSON, Telegram 통합 |
+| **#3 (D3-3)** | 페이지 21~35 backfill + DESIGN §15 종결 | `scripts/crypto/backfill_old_delistings.py`, listings.csv +N rows, Phase 2 완료 표시 |
+
+### 15.4 D3-1 PASS 게이트 (5개)
+
+`scripts/crypto/verify_incremental_listings.py` 실행 결과 (2026-04-28):
+
+| # | 게이트 | 검증 방법 | 결과 |
+|---|---|---|---|
+| G1 | Idempotency | 잡 2회 실행 → PG row count 0 변화 + CSV SHA 동일 | **PASS** |
+| G2 | Lockfile | 1번째 lock 보유 중 2번째 acquire → `LockHeld` raise + 잡 exit 2 + 정상 release 후 파일 정리 | **PASS** |
+| G3 | Partial-write | `pg_apply_delistings` 강제 raise → exit 1 + CSV bytes/SHA 동일 + `.tmp`/`.bak` leak 0 | **PASS** |
+| G4 | Drift report | Evidence JSON `baseline_before/after` + `diff` + `pg_apply_stats` 등 13개 키 모두 존재 | **PASS** |
+| G5 | Telegram fail-soft | INVALID 토큰으로 `send()` 호출 → `error:http:404` 반환 + raise 0 | **PASS** |
+
+증거: `crypto/data/_verification/d3_baseline_<utc-date>.json`
+
+### 15.5 운영 메타
+
+- **Task name**: `\Q-TRON\crypto-incremental-listings`
+- **실행 시각**: 매일 KST 09:30 (= UTC 00:30)
+- **실행 단위**: `C:\Q-TRON-32_ARCHIVE\.venv64\Scripts\python.exe scripts\crypto\run_incremental_listings.py`
+- **Working dir**: `C:\Q-TRON-32_ARCHIVE-crypto-d1` (worktree)
+- **MultipleInstancesPolicy**: `IgnoreNew` (lockfile 보강)
+- **ExecutionTimeLimit**: 15분 (정상 1초 내 완료, 비정상 시 강제 종료)
+
+### 15.6 후속 (D3-2 / D3-3)
+
+- D3-2: `scripts/crypto/reconcile_db_csv.py` 추가, mismatch 발견 시 drift JSON + Telegram alert
+- D3-3: 페이지 21~35 backfill 1회용 스크립트, listings 50+ → 70+ 목표
+
+---
+
+## 16. 참조
 
 - KR CLAUDE.md (`C:/Q-TRON-32_ARCHIVE/CLAUDE.md`) — Engine Protection Rules, Data Quality Rules, Idempotency Rules 패턴 참조
 - KR Gen4 비용 모델 사고: MEMORY.md `cost_comparison.md`

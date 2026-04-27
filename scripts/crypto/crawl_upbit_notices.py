@@ -23,15 +23,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import csv
 import json
-import os
 import shutil
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 HERE = Path(__file__).resolve()
 WORKTREE_ROOT = HERE.parents[2]
@@ -40,23 +38,20 @@ sys.path.insert(0, str(WORKTREE_ROOT))
 from crypto.data.listings_crawler import (  # noqa: E402
     DelistingNotice,
     UpbitNoticeCrawler,
-    UpbitNoticeCrawlerError,
     crawl_delistings,
+)
+from crypto.data.listings_merge import (  # noqa: E402
+    CSV_HEADER,
+    merge_fill_in_the_blanks,
+    pg_apply_delistings,
+    read_existing_csv,
+    write_csv_atomic,
 )
 from crypto.db.env import ensure_main_project_env_loaded  # noqa: E402
 
 
 CSV_PATH = WORKTREE_ROOT / "crypto" / "data" / "listings.csv"
 VERIF_DIR = WORKTREE_ROOT / "crypto" / "data" / "_verification"
-CSV_HEADER = [
-    "pair",
-    "symbol",
-    "listed_at",
-    "delisted_at",
-    "delisting_reason",
-    "source",
-    "notes",
-]
 
 
 # --- Args ---------------------------------------------------------------
@@ -84,194 +79,8 @@ def _parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-# --- CSV merge (atomic, fill-in-the-blanks) -----------------------------
-
-
-def _read_existing_csv(csv_path: Path) -> tuple[list[str], list[dict[str, str]]]:
-    if not csv_path.exists():
-        return CSV_HEADER, []
-    with csv_path.open(encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        return list(reader.fieldnames or CSV_HEADER), [dict(r) for r in reader]
-
-
-def _write_csv_atomic(csv_path: Path, rows: list[dict[str, str]]) -> None:
-    """Write rows to ``csv_path.tmp`` → fsync → rename.
-
-    Caller is expected to have rolled back PG before calling this on success.
-    """
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = csv_path.with_suffix(csv_path.suffix + ".tmp")
-    with tmp.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=CSV_HEADER)
-        w.writeheader()
-        for row in rows:
-            w.writerow({k: row.get(k, "") for k in CSV_HEADER})
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, csv_path)
-
-
-def _merge_fill_in_the_blanks(
-    existing_rows: list[dict[str, str]],
-    delistings: list[DelistingNotice],
-) -> tuple[list[dict[str, str]], dict[str, int]]:
-    """Merge crawled delistings into existing CSV under fill-in-the-blanks
-    semantics:
-
-      - For each crawled delisting where ``affects_krw=True``:
-          * If pair NOT in existing: append new row (source='upbit_notice').
-          * If pair IS in existing with delisted_at empty AND
-            crawled delisted_at is set: UPDATE delisted_at, set
-            delisting_reason and notes to the upbit_notice value, source →
-            'upbit_notice'. ``listed_at`` is preserved.
-          * If pair IS in existing with delisted_at already set: leave it
-            (don't overwrite already-populated date — Jeff #5).
-          * If existing source is 'manual_v0' AND existing delisting_reason
-            is set AND crawled delisted_at fills the date: still allowed
-            (filling NULL date).
-
-    Returns: (new_rows, stats)
-        stats = {
-            'upserted_filled_date': N,    # NULL → date
-            'inserted_new_pair': N,
-            'preserved_existing_date': N,
-            'skipped_non_krw': N,
-        }
-    """
-    by_pair: dict[str, dict[str, str]] = {r["pair"]: dict(r) for r in existing_rows}
-    stats = {
-        "upserted_filled_date": 0,
-        "inserted_new_pair": 0,
-        "preserved_existing_date": 0,
-        "skipped_non_krw": 0,
-    }
-
-    for ev in delistings:
-        if not ev.affects_krw:
-            stats["skipped_non_krw"] += 1
-            continue
-        pair = ev.pair
-        new_delisted_at = (
-            ev.delisted_at_kst.isoformat() if ev.delisted_at_kst else ""
-        )
-        new_reason = (
-            f"Upbit notice #{ev.notice_id}: {ev.title[:200]}"
-        )
-        new_notes = (
-            f"crawled_from {ev.source_url}; "
-            f"affects_krw={ev.affects_krw}; "
-            f"date_format={ev.date_format_used or 'unparsed'}"
-        )
-
-        if pair not in by_pair:
-            by_pair[pair] = {
-                "pair": pair,
-                "symbol": ev.symbol,
-                "listed_at": "",
-                "delisted_at": new_delisted_at,
-                "delisting_reason": new_reason,
-                "source": "upbit_notice",
-                "notes": new_notes,
-            }
-            stats["inserted_new_pair"] += 1
-            continue
-
-        existing = by_pair[pair]
-        existing_date = (existing.get("delisted_at") or "").strip()
-
-        if existing_date:
-            # Already populated — never overwrite. Preserve.
-            stats["preserved_existing_date"] += 1
-            continue
-
-        # Existing date is empty. Fill it if we have one.
-        if new_delisted_at:
-            existing["delisted_at"] = new_delisted_at
-            existing["delisting_reason"] = new_reason
-            existing["source"] = "upbit_notice"
-            existing["notes"] = new_notes
-            # listed_at preserved (typically NULL since /v1/market/all
-            # doesn't expose listing dates).
-            stats["upserted_filled_date"] += 1
-        else:
-            # No new date to fill — leave existing untouched.
-            stats["preserved_existing_date"] += 1
-
-    # Stable order: pair-asc.
-    out_rows = sorted(by_pair.values(), key=lambda r: r["pair"])
-    return out_rows, stats
-
-
-# --- PG UPSERT (fill-in-the-blanks, single transaction) -----------------
-
-
-_FILL_DATE_SQL = """
-UPDATE crypto_listings
-SET
-    delisted_at      = %(delisted_at)s,
-    delisting_reason = %(delisting_reason)s,
-    source           = 'upbit_notice',
-    notes            = %(notes)s,
-    updated_at       = NOW()
-WHERE pair = %(pair)s
-  AND delisted_at IS NULL
-"""
-
-_INSERT_NEW_SQL = """
-INSERT INTO crypto_listings
-    (pair, symbol, listed_at, delisted_at, delisting_reason, source, notes, updated_at)
-VALUES
-    (%(pair)s, %(symbol)s, NULL, %(delisted_at)s, %(delisting_reason)s,
-     'upbit_notice', %(notes)s, NOW())
-ON CONFLICT (pair) DO NOTHING
-"""
-
-
-def _pg_apply_delistings(conn, delistings: list[DelistingNotice]) -> dict[str, int]:
-    """Apply crawled delistings to PG under fill-in-the-blanks semantics.
-
-    Two passes inside a single transaction:
-        1. INSERT ... ON CONFLICT DO NOTHING — adds previously-unknown pairs.
-        2. UPDATE ... WHERE delisted_at IS NULL — fills NULL dates only.
-
-    The whole block runs in one transaction. On any error the caller's
-    ``with conn`` block triggers rollback (no partial writes per Jeff #2).
-    """
-    stats = {"pg_inserted_new": 0, "pg_filled_date": 0, "pg_skipped_non_krw": 0}
-
-    rows_to_insert = []
-    rows_to_fill = []
-    for ev in delistings:
-        if not ev.affects_krw:
-            stats["pg_skipped_non_krw"] += 1
-            continue
-        new_delisted_at = ev.delisted_at_kst.isoformat() if ev.delisted_at_kst else None
-        params = {
-            "pair": ev.pair,
-            "symbol": ev.symbol,
-            "delisted_at": new_delisted_at,
-            "delisting_reason": (
-                f"Upbit notice #{ev.notice_id}: {ev.title[:200]}"
-            ),
-            "notes": (
-                f"crawled_from {ev.source_url}; "
-                f"affects_krw={ev.affects_krw}; "
-                f"date_format={ev.date_format_used or 'unparsed'}"
-            ),
-        }
-        rows_to_insert.append(params)
-        if new_delisted_at:
-            rows_to_fill.append(params)
-
-    with conn.cursor() as cur:
-        cur.executemany(_INSERT_NEW_SQL, rows_to_insert)
-        stats["pg_inserted_new"] = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
-        if rows_to_fill:
-            cur.executemany(_FILL_DATE_SQL, rows_to_fill)
-            stats["pg_filled_date"] = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
-
-    return stats
+# NOTE: CSV/PG fill-in-the-blanks helpers live in crypto/data/listings_merge.py
+# (extracted in D3 for shared use with crypto.jobs.incremental_listings).
 
 
 # --- G2 sample verification --------------------------------------------
@@ -408,8 +217,8 @@ def main() -> int:
     print(f"  events: {len(events)}  errors: {len(errors)}  elapsed: {elapsed:.1f}s")
 
     # --- Compute merged CSV (in memory) ---
-    fieldnames, existing = _read_existing_csv(args.csv)
-    new_rows, csv_stats = _merge_fill_in_the_blanks(existing, events)
+    fieldnames, existing = read_existing_csv(args.csv)
+    new_rows, csv_stats = merge_fill_in_the_blanks(existing, events)
     print()
     print("[merge] CSV fill-in-the-blanks stats:")
     for k, v in csv_stats.items():
@@ -479,7 +288,7 @@ def main() -> int:
 
     try:
         with connection() as conn:
-            pg_stats = _pg_apply_delistings(conn, events)
+            pg_stats = pg_apply_delistings(conn, events)
             conn.commit()
         print(f"  PG stats: {pg_stats}")
     except Exception as exc:
@@ -489,7 +298,7 @@ def main() -> int:
 
     print("[write] CSV (atomic .tmp → rename) …")
     try:
-        _write_csv_atomic(args.csv, new_rows)
+        write_csv_atomic(args.csv, new_rows)
     except Exception as exc:
         print(f"[warn] CSV write failed after PG commit: {exc}", file=sys.stderr)
         # Restore from backup if possible.
