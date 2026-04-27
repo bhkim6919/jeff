@@ -223,6 +223,18 @@ def _check_recon(snapshot: Dict, events: List[AlertEvent]) -> None:
 
 
 def _check_rebal_countdown(snapshot: Dict, events: List[AlertEvent]) -> None:
+    """Emit a one-shot D-7 / D-3 / D-1 alert per next-rebalance cycle.
+
+    Jeff 2026-04-27: the prior implementation relied solely on the 30-min
+    DEDUP_TTL in alert_state.py. While d_day stayed at the target value
+    (e.g., D-7 across an entire trading day) the event was re-emitted on
+    every evaluator tick that fell after the TTL window — the dashboard
+    showed 5 "📅 리밸런싱 D-7" entries inside 2 hours. Now we treat the
+    state field ("D-7" / "D-3" / "D-1") as a "have we already announced
+    this milestone for THIS next_rebal?" flag. event_key embeds
+    next_rebal so the next cycle's milestones are not blocked by a stale
+    state row.
+    """
     rebal = snapshot.get("rebalance") or {}
     last = rebal.get("last", "")
     cycle = rebal.get("cycle", 21)
@@ -242,13 +254,22 @@ def _check_rebal_countdown(snapshot: Dict, events: List[AlertEvent]) -> None:
         d_day = (next_rebal - today).days
 
         for target in [7, 3, 1]:
-            if d_day == target:
-                events.append(AlertEvent(
-                    event_key=f"rebal_d{target}_{next_rebal}",
-                    category="rebal",
-                    severity="INFO",
-                    message=f"📅 <b>리밸런싱 D-{target}</b>\n예정일: {next_rebal}",
-                    state=f"D-{target}",
-                ))
+            if d_day != target:
+                continue
+            ev_key = f"rebal_d{target}_{next_rebal}"
+            target_state = f"D-{target}"
+            # One-shot gate: skip if we already announced this milestone
+            # for this specific next_rebal date. A new rebalance cycle
+            # produces a different next_rebal → different event_key →
+            # state lookup misses → alert fires again as intended.
+            if get_last_state(ev_key) == target_state:
+                continue
+            events.append(AlertEvent(
+                event_key=ev_key,
+                category="rebal",
+                severity="INFO",
+                message=f"📅 <b>리밸런싱 D-{target}</b>\n예정일: {next_rebal}",
+                state=target_state,
+            ))
     except Exception:
         pass
