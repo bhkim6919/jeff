@@ -24,8 +24,9 @@ KR Gen3 의 -57.8% / MDD -61.9% 라이브 사고의 직접 원인은 **백테스
 
 | Phase | 산출물 | 게이트 |
 |---|---|---|
-| Phase 1 (D1) | Data 인프라 (OHLCV bulk + PG schema + parquet fallback + listings v0 + quality report) | G3: 본 문서 §8 |
-| Phase 2 (D2~D3) | Listings 자동화 + incremental cron + DB ↔ CSV 정합 | G4 |
+| Phase 1 (D1) ✅ | Data 인프라 (OHLCV bulk + PG schema + parquet fallback + listings v0 + quality report) | G3 PASS (2026-04-27, PR #11 merged) |
+| **Phase 2 D2** ✅ | **Listings 자동 크롤 (Upbit `/v1/announcements`) + fill-in-the-blanks UPSERT** | **G4 PASS (2026-04-27)** |
+| Phase 2 D3 | Incremental cron + DB ↔ CSV 정합 | 미착수 |
 | Phase 3 (D4) | Backtester (cost model 단일, matrix ffill 금지) + 전략 3개 우선 | G5 |
 | Phase 4 (D5) | 전략 9개 + Defensive overlay + 동시 비교 | G6 |
 | Phase 5 (D6) | Paper Simulation engine (backtest 와 동일 엔진) | G7 |
@@ -405,6 +406,9 @@ CREATE TABLE crypto_universe_top100 (
 | 2026-04-27 | .venv64 재사용 결정, pyarrow 1개만 추가 예정 (US Live 종료 후) | Jeff | — |
 | 2026-04-27 | PR #1 local commit (`23819ebf`), push/PR 보류, S4 별도 커밋 진행 | Jeff (B안) | §9 |
 | 2026-04-27 | **S4 PASS — Upbit 일봉 boundary 가설 B 확정** (UTC 00:00~23:59, KST 09:00~익일 09:00, +9h 고정, 100/100 일관) | Claude (S4) + Jeff (검증) | §5.2 |
+| 2026-04-27 | D1 완료 — 13/13 PASS, PR #11 master 머지 (`6147be7e`) | Jeff | §2.1 |
+| 2026-04-27 | D2 조건부 승인 — 5개 보완 반영 (PASS 분리, partial-write 금지, structure hash, capability test, source priority) | Jeff | §14 |
+| 2026-04-27 | **D2 PASS — 자동 크롤 36 events / +30 new + 6 filled / fill ratio 64.8%** | Jeff (검증 대기) | §14 |
 
 ---
 
@@ -474,13 +478,101 @@ on bulk_fetch_d1.py 실행:
 
 ---
 
-## 14. 참조
+## 14. D2 Listings 자동 크롤 (Phase 2 D2 — 2026-04-27)
+
+### 14.1 데이터 소스 — Upbit notice API
+
+S2 inspection (2026-04-27) 결과 `upbit.com/service_center/notice` 는 JS-rendered SPA. 직접 호출 가능한 underlying API:
+
+- **List**: `GET https://api-manager.upbit.com/api/v1/announcements?os=web&category=trade&page=N&per_page=20`
+- **Detail**: `GET https://api-manager.upbit.com/api/v1/announcements/{id}`
+
+JSON 응답, 인증 불필요, JS 렌더링 우회. Playwright 등 헤드리스 브라우저 의존성 0.
+
+응답 schema SHA256: `crypto/data/_verification/notice_struct_hash_2026-04-27.txt` 에 baseline 저장. 후속 실행 시 schema 변경 감지 alert.
+
+### 14.2 필터 + 파서
+
+- **Title 필터**: `"거래지원 종료"` 키워드 (제외: `"신규 거래지원"`, `"유의종목"`)
+- **Symbol 추출**: `\(([A-Z0-9]{2,15})\)\s*거래지원\s*종료` regex (예: `리졸브(RESOLV)` → `RESOLV`)
+- **날짜 anchor-based 파싱** (4 포맷 지원):
+  | 포맷 | 예시 |
+  |---|---|
+  | `YYYY-MM-DD` | `2022-05-13` |
+  | `YYYY.MM.DD` | `2022.05.13` |
+  | `YYYY년 M월 D일` | `2022년 5월 13일` |
+  | `YYYY/MM/DD` | `2022/05/13` |
+- 우선 anchor (`거래지원 종료 일시/일자/일`) 근처 200자 윈도우 → 못 찾으면 listed_at 이후 가장 이른 날짜
+- **KRW 마켓 필터**: body 에 `KRW 마켓`, `원화`, `전 마켓` 토큰 검색 (모두 부재 + BTC/USDT 마켓 명시 → 제외)
+
+### 14.3 D2 PASS 기준 (Jeff 5 보완 반영)
+
+| # | 기준 | 임계값 | 결과 |
+|---|---|---|---|
+| 1 | 자동 크롤 raw delistings | ≥ 30 | 36 events |
+| 2 | listings 총 entries | ≥ 50 (delisted 기준) | 54 |
+| 3-1 | delisted candidate 추가량 | ≥ 50 | 54 (확장성 PASS) |
+| 3-2 | `delisted_at` 채워진 비율 | ≥ 50% | 64.8% (35/54, 정확성 PASS) |
+| 4 | KR/US 코드 / 테이블 touch | 0 | 0 |
+| 5 | Exchange API / 주문 / 잔고 코드 | 0 | 0 |
+| 6 | `crypto_listings` PG row count | ≥ 250 | 306 |
+| 7 | partial write 발생 | 0 | 0 (atomic CSV/PG, 단일 transaction) |
+
+### 14.4 Fill-in-the-blanks UPSERT 정책 (Jeff #5)
+
+크롤 결과를 기존 `crypto_listings` 에 병합할 때:
+
+- 신규 pair → INSERT, source = `upbit_notice`
+- 기존 pair, `delisted_at` NULL + 크롤 결과 date 있음 → UPDATE date / reason / source = `upbit_notice`
+- 기존 pair, `delisted_at` 이미 채워짐 → **보존** (절대 덮어쓰지 않음)
+- 기존 manual_v0 entry 의 `delisting_reason` / 수동 큐레이션 노트 → 보존
+- Source priority: `upbit_notice > manual_v0` (NULL 채울 때만 source 갱신)
+
+PG 한 transaction 내에서 INSERT + UPDATE 모두 실행, 실패 시 ROLLBACK → CSV 도 atomic .tmp → rename.
+
+### 14.5 G2 sample verification (Jeff #4)
+
+S4 진입 전 자동 검증:
+- **Live**: 페이지 1~2 샘플에서 ≥ 5 dates 파싱 성공
+- **Capability**: synthetic 4 포맷 입력 → ≥ 2 포맷 정확 매치 (실제 응답에 없어도 파서 capability 확인)
+
+2026-04-27 결과: live 8/8 (YYYY-MM-DD), capability 4/4 (YYYY-MM-DD, YYYY.MM.DD, YYYY년 M월 D일, YYYY/MM/DD) → PASS.
+
+### 14.6 크롤 범위 제한 (Jeff fallback)
+
+- 최대 20 페이지 (≈ 400 notices). Upbit 전체 35 페이지 archive 일부만 처리 — 시간 / rate limit 안전 우선.
+- `--max-pages` CLI 옵션으로 조정. D2 단발 실행 시 default 20 충분.
+- 더 오래된 delistings (예: 2018~2020) 은 D3 incremental cron + 별도 backfill 작업으로 추가.
+
+### 14.7 산출물
+
+```
+crypto/data/listings_crawler.py                                     (~400 lines)
+scripts/crypto/crawl_upbit_notices.py                              (~400 lines)
+crypto/data/listings.csv                                           (276 → 306 entries)
+crypto/data/_verification/notice_api_probe_2026-04-27.json
+crypto/data/_verification/notice_struct_hash_2026-04-27.txt
+crypto/data/_verification/listings_crawl_2026-04-27.json
+requirements.freeze.before_crypto_d2.txt
+```
+
+### 14.8 D3 (Phase 2 잔여)
+
+- Daily incremental cron (스케줄러 + 새 delistings 자동 발견)
+- DB ↔ CSV 정합 정기 검증
+- Backfill: 더 오래된 delistings (2018~2020) — Upbit notice 가 35 페이지 archive 갖고 있으나 D2 는 20 페이지로 제한
+- 별도 PR로 진행
+
+---
+
+## 15. 참조
 
 - KR CLAUDE.md (`C:/Q-TRON-32_ARCHIVE/CLAUDE.md`) — Engine Protection Rules, Data Quality Rules, Idempotency Rules 패턴 참조
 - KR Gen4 비용 모델 사고: MEMORY.md `cost_comparison.md`
 - KR R7 (DB = Canonical Truth): `CLAUDE.md` §Data Source 원칙
 - Upbit Quotation API 공식 문서 (Jeff 제공 링크)
+- Upbit notice API: `https://api-manager.upbit.com/api/v1/announcements` (D2 발견, undocumented public)
 
 ---
 
-**다음 단계**: G1 PASS (본 DESIGN.md 4개 보완 반영 완료 → Jeff 재확인) → S3 PG schema 작성.
+**현재 상태**: D1 PR #11 merged (`6147be7e`), D2 PR #12 진행 중.

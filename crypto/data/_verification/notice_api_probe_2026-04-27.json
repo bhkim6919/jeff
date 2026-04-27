@@ -1,0 +1,51 @@
+{
+  "probed_at_utc": "2026-04-27T14:36:42+00:00",
+  "list_endpoint": "https://api-manager.upbit.com/api/v1/announcements",
+  "list_required_params": {
+    "os": "web",
+    "category": "trade",
+    "page": 1,
+    "per_page": 20
+  },
+  "detail_endpoint_template": "https://api-manager.upbit.com/api/v1/announcements/{id}",
+  "list_total_pages": 35,
+  "list_total_count": 686,
+  "list_per_page": 20,
+  "list_response_keys": [
+    "data",
+    "data.fixed_notices",
+    "data.notices",
+    "data.notices[].category",
+    "data.notices[].first_listed_at",
+    "data.notices[].id",
+    "data.notices[].listed_at",
+    "data.notices[].need_new_badge",
+    "data.notices[].need_update_badge",
+    "data.notices[].title",
+    "data.total_count",
+    "data.total_pages",
+    "success"
+  ],
+  "detail_response_keys": [
+    "data",
+    "data.body",
+    "data.body_url",
+    "data.category",
+    "data.first_listed_at",
+    "data.id",
+    "data.listed_at",
+    "data.need_new_badge",
+    "data.need_update_badge",
+    "data.share_url",
+    "data.shared_resources",
+    "data.title",
+    "success"
+  ],
+  "structure_hash_sha256": "6bc6f3aed6e31361ae451b16b4f44e8baf8d7e6d22c8650768c575f609caeac0",
+  "sample_delisting_titles": [
+    "리졸브(RESOLV) 거래지원 종료 안내 (5/26 15:00)",
+    "나폴리(NAP) 거래지원 종료 안내(5/18 15:00)"
+  ],
+  "rendering": "JSON API (no JS, no Playwright needed)",
+  "g1_verdict": "PASS"
+}
