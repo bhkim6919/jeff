@@ -54,3 +54,8 @@ us/lab/jobs/
 
 backup/db/*.dump
 *.dump
+
+# Crypto Lab D3+ runtime artifacts (lockfiles, daily evidence, verify scratch)
+crypto/data/_locks/
+crypto/data/_verification/incremental_listings_*.json
+crypto/data/_verification/_d3_scratch/

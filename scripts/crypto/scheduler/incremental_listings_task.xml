@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<!--
+  Windows Task Scheduler definition for Crypto Lab D3-1 incremental_listings.
+
+  Schedule: Daily at 09:30 KST (Asia/Seoul) = 00:30 UTC.
+            Upbit posts new delisting notices during KST business hours; 09:30
+            is 30 minutes after their day rollover (KST 09:00) and well before
+            most KR market open activity.
+
+  Idempotency: the job is itself idempotent (Jeff D3 #1) so if Task Scheduler
+  fires a missed run on resume, no row changes are produced unless new notices
+  exist upstream.
+
+  Single-instance: ``MultipleInstancesPolicy = IgnoreNew`` plus the on-disk
+  lockfile ensures concurrent runs cannot both write.
+
+  Failure: TaskScheduler does not retry on non-zero exit; the next-day fire
+  will pick up any new notices.
+
+  Install: scripts/crypto/scheduler/install_incremental_listings_task.ps1
+-->
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Q-TRON Crypto Lab — daily Upbit delisting notice incremental crawl (D3-1). Logger-first; Telegram is best-effort.</Description>
+    <URI>\Q-TRON\crypto-incremental-listings</URI>
+  </RegistrationInfo>
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>2026-04-29T09:30:00+09:00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
+    </CalendarTrigger>
+  </Triggers>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>true</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT15M</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions>
+    <Exec>
+      <Command>C:\Q-TRON-32_ARCHIVE\.venv64\Scripts\python.exe</Command>
+      <Arguments>-X utf8 scripts\crypto\run_incremental_listings.py</Arguments>
+      <WorkingDirectory>C:\Q-TRON-32_ARCHIVE-crypto-d1</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>
