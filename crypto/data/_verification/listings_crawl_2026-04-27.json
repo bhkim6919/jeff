@@ -1,0 +1,52 @@
+{
+  "started_at_utc": "2026-04-27T14:43:21+00:00",
+  "completed_at_utc": "2026-04-27T14:43:54+00:00",
+  "max_pages": 20,
+  "events_crawled": 36,
+  "errors": [],
+  "g2": {
+    "events_total": 8,
+    "dates_parsed": 8,
+    "live_distinct_formats": [
+      "YYYY-MM-DD"
+    ],
+    "live_format_count": 1,
+    "live_ok": true,
+    "capability_test": {
+      "canonical_inputs_tried": [
+        "YYYY-MM-DD",
+        "YYYY.MM.DD",
+        "YYYY년 M월 D일",
+        "YYYY/MM/DD"
+      ],
+      "formats_matched": [
+        "YYYY-MM-DD",
+        "YYYY.MM.DD",
+        "YYYY년 M월 D일",
+        "YYYY/MM/DD"
+      ],
+      "format_count": 4,
+      "ok": true
+    },
+    "ok": true,
+    "thresholds": {
+      "min_live_parsed": 5,
+      "min_capability_formats": 2
+    }
+  },
+  "csv_merge_stats": {
+    "upserted_filled_date": 6,
+    "inserted_new_pair": 30,
+    "preserved_existing_date": 0,
+    "skipped_non_krw": 0
+  },
+  "pg_apply_stats": {
+    "pg_inserted_new": 30,
+    "pg_filled_date": 6,
+    "pg_skipped_non_krw": 0
+  },
+  "pass_3_1_delisted_total": 54,
+  "pass_3_2_fill_ratio_pct": 64.81,
+  "pass_overall": true,
+  "csv_path": "crypto\\data\\listings.csv"
+}
