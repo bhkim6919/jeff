@@ -245,16 +245,39 @@ def apply_schema(conn) -> None:
     # schema.sql contains its own COMMIT; conn is left in idle state.
 
 
-# --- Parquet write stub (S7 placeholder) -------------------------------------
+# --- PG read for parquet sync (S7) ------------------------------------------
 
 
-def parquet_write_pair_stub(pair: str, rows: list[dict[str, Any]]) -> None:
-    """Placeholder — parquet write is implemented in S7 after pyarrow install.
+_SELECT_PAIR_SQL = """
+SELECT pair, candle_dt_kst, candle_dt_utc,
+       open, high, low, close, volume, value_krw,
+       row_checksum, fetched_at
+FROM crypto_ohlcv
+WHERE pair = %s
+ORDER BY candle_dt_kst ASC
+"""
 
-    Calling this is a no-op in S6. The signature mirrors the eventual S7
-    implementation so callers can remain stable.
+
+def read_pair_rows_from_pg(conn, pair: str) -> list[dict[str, Any]]:
+    """Read all crypto_ohlcv rows for ``pair`` as parquet-ready dicts.
+
+    Returned rows match parquet_io.PARQUET_COLUMNS order/keys exactly. Numeric
+    columns are coerced from psycopg2 Decimal to float (parquet float64 schema).
+    Sorted by candle_dt_kst ASC — the canonical order for aggregate checksum.
     """
-    logger.debug(
-        "parquet_write_pair_stub: pair=%s rows=%d (no-op until S7)",
-        pair, len(rows),
-    )
+    with conn.cursor() as cur:
+        cur.execute(_SELECT_PAIR_SQL, (pair,))
+        cols = [d[0] for d in cur.description]
+        out: list[dict[str, Any]] = []
+        for raw in cur:
+            row = dict(zip(cols, raw))
+            # Decimal → float for parquet float64 columns. psycopg2 returns
+            # decimal.Decimal for NUMERIC; pyarrow accepts Decimal-via-float.
+            for k in ("open", "high", "low", "close", "volume", "value_krw"):
+                if row[k] is not None:
+                    row[k] = float(row[k])
+            # row_checksum is memoryview/bytes from psycopg2; normalize to bytes.
+            row["row_checksum"] = bytes(row["row_checksum"])
+            # fetched_at is timezone-aware datetime — pyarrow accepts as-is.
+            out.append(row)
+    return out
