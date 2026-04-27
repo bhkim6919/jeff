@@ -1308,6 +1308,26 @@ class Win32TrayServer:
         self._kr_lab_eod_fail_count += 1
         kst_today = self._now_kst().date()
         if self._kr_lab_eod_fail_count >= LAB_EOD_MAX_FAILS:
+            # False-abandon guard (Jeff 2026-04-27 P1 fix). The most
+            # common abandon trigger is the run-daily endpoint returning
+            # sim.get_state() (no ok/skipped), which the scheduler
+            # classifies as "unexpected response" while bg_run actually
+            # succeeded and committed head.json::last_run_date. Before
+            # firing the WARN telegram + permanently marking the day
+            # abandoned, re-check disk truth — if today's commit landed,
+            # downgrade to a recorded success and stay quiet.
+            disk_done = self._load_kr_lab_eod_done_date()
+            if disk_done == kst_today:
+                self._kr_lab_eod_last_done_date = kst_today
+                self._logger.info(
+                    f"[KR_LAB_EOD_AUTO_FALSE_ABANDON_SUPPRESSED] "
+                    f"fail={self._kr_lab_eod_fail_count}/{LAB_EOD_MAX_FAILS} "
+                    f"but head.json last_run_date={kst_today} — "
+                    f"recorded as success, no telegram. "
+                    f"last_reason={reason[:120]}"
+                )
+                self._log_kr_lab_done_final("disk_done_after_fail")
+                return
             self._kr_lab_eod_last_done_date = kst_today  # 포기 = 당일 처리 완료
             self._logger.warning(
                 f"[KR_LAB_EOD_AUTO_ABANDONED] "
@@ -1340,6 +1360,19 @@ class Win32TrayServer:
         self._us_lab_eod_fail_count += 1
         et_today = self._now_et().date()
         if self._us_lab_eod_fail_count >= LAB_EOD_MAX_FAILS:
+            # False-abandon guard — symmetric to KR (see _record_kr_lab_fail).
+            disk_done = self._load_us_lab_eod_done_date()
+            if disk_done == et_today:
+                self._us_lab_eod_last_done_date = et_today
+                self._logger.info(
+                    f"[US_LAB_EOD_AUTO_FALSE_ABANDON_SUPPRESSED] "
+                    f"fail={self._us_lab_eod_fail_count}/{LAB_EOD_MAX_FAILS} "
+                    f"but meta.json last_successful_eod_date={et_today} — "
+                    f"recorded as success, no telegram. "
+                    f"last_reason={reason[:120]}"
+                )
+                self._log_us_lab_done_final("disk_done_after_fail")
+                return
             self._us_lab_eod_last_done_date = et_today
             self._logger.warning(
                 f"[US_LAB_EOD_AUTO_ABANDONED] "
@@ -1377,6 +1410,25 @@ class Win32TrayServer:
         try:
             kst_today = self._now_kst().date()
             self._maybe_reset_kr_lab_eod_fail(kst_today)
+            # Disk-truth shortcut (Jeff 2026-04-27 P1 fix). If
+            # head.json::last_run_date already records today's commit,
+            # the EOD finished via another path (pipeline orchestrator,
+            # manual dashboard click, or a prior tray attempt whose
+            # bg-thread completed after our HTTP join timed out). Re-
+            # firing run-daily would either no-op via idempotency or
+            # produce a misleading "Auto-run Abandoned" alert when the
+            # task has actually succeeded — the 4/27 17:48 false
+            # positive was exactly this race.
+            disk_done = self._load_kr_lab_eod_done_date()
+            if disk_done == kst_today:
+                self._kr_lab_eod_last_done_date = kst_today
+                self._kr_lab_eod_fail_count = 0
+                self._logger.info(
+                    f"[KR_LAB_EOD_AUTO_DISK_DONE] "
+                    f"head.json last_run_date={kst_today} — skip retry"
+                )
+                self._log_kr_lab_done_final("disk_done")
+                return
             self._logger.info(
                 f"[KR_LAB_EOD_AUTO_START] fail_count={self._kr_lab_eod_fail_count}"
             )
@@ -1455,6 +1507,18 @@ class Win32TrayServer:
         try:
             et_today = self._now_et().date()
             self._maybe_reset_us_lab_eod_fail(et_today)
+            # Disk-truth shortcut — symmetric to KR. See _run_kr_lab_eod
+            # for the rationale (4/27 false-abandon incident pattern).
+            disk_done = self._load_us_lab_eod_done_date()
+            if disk_done == et_today:
+                self._us_lab_eod_last_done_date = et_today
+                self._us_lab_eod_fail_count = 0
+                self._logger.info(
+                    f"[US_LAB_EOD_AUTO_DISK_DONE] "
+                    f"meta.json last_successful_eod_date={et_today} — skip retry"
+                )
+                self._log_us_lab_done_final("disk_done")
+                return
             self._logger.info(
                 f"[US_LAB_EOD_AUTO_START] fail_count={self._us_lab_eod_fail_count}"
             )
