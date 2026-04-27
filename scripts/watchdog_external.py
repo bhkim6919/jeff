@@ -229,6 +229,31 @@ def kst_now_minutes(now_utc: datetime) -> int:
     return kst.hour * 60 + kst.minute
 
 
+def is_market_off(run_type: str, kst_d: date) -> bool:
+    """Weekend gate for batch/EOD run-type alerts.
+
+    Mapping (KST weekday → market that should run):
+      KR (KR_BATCH/KR_EOD): Mon-Fri only.
+      US (US_BATCH/US_EOD): the windows fire on KST aimed at the
+          PREVIOUS ET trading day, so:
+            KST Mon  = ET Sun  → US OFF
+            KST Sun  = ET Sat  → US OFF
+            KST Tue~Sat (else) → US ON
+
+    Holiday calendars are not handled (stdlib-only mandate). When the
+    KR/US market is closed for a public holiday on a weekday, deadman
+    will still fire MISSING_RUN — Jeff dismisses or we add a calendar
+    feed later. Weekend gating alone removes the persistent Mon-morning
+    US_EOD false positive.
+    """
+    wd = kst_d.weekday()  # Mon=0..Sun=6
+    if run_type in (RUN_KR_BATCH, RUN_KR_EOD):
+        return wd >= 5  # Sat/Sun
+    if run_type in (RUN_US_BATCH, RUN_US_EOD):
+        return wd in (0, 6)  # KST Mon (ET Sun) or KST Sun (ET Sat)
+    return False
+
+
 def evaluate_alerts(
     *, now_utc: datetime, heartbeat: Optional[dict],
     marker_today: Optional[dict], trade_date: date,
@@ -268,6 +293,11 @@ def evaluate_alerts(
     runs = (marker_today or {}).get("runs", {}) if marker_today else {}
 
     for run_type in ALL_RUN_TYPES:
+        # Weekend gate: KR off Sat/Sun; US (KST view) off Sun/Mon.
+        # Heartbeat check above is intentionally market-agnostic — the
+        # tray must be alive even on weekends to record any state.
+        if is_market_off(run_type, trade_date):
+            continue
         win = EXPECTED_WINDOWS_KST[run_type]
         run = runs.get(run_type)
 
@@ -339,16 +369,18 @@ def evaluate_alerts(
                 ))
 
     # --- R5 (2026-04-24): DB + OHLCV cache staleness ---
-    db_alert = check_db_staleness(marker_today, trade_date=trade_date)
-    if db_alert is not None:
-        alerts.append(db_alert)
+    # Both checks reflect KR data freshness; KR weekend skips them.
+    if not is_market_off(RUN_KR_BATCH, trade_date):
+        db_alert = check_db_staleness(marker_today, trade_date=trade_date)
+        if db_alert is not None:
+            alerts.append(db_alert)
 
-    if ohlcv_dir is not None:
-        cache_alert = check_ohlcv_cache_staleness(
-            ohlcv_dir, now_utc=now_utc, trade_date=trade_date,
-        )
-        if cache_alert is not None:
-            alerts.append(cache_alert)
+        if ohlcv_dir is not None:
+            cache_alert = check_ohlcv_cache_staleness(
+                ohlcv_dir, now_utc=now_utc, trade_date=trade_date,
+            )
+            if cache_alert is not None:
+                alerts.append(cache_alert)
 
     return alerts
 
@@ -550,6 +582,70 @@ def send_telegram(text: str, *, timeout: float = 8.0) -> bool:
 
 
 # ===============================================================
+# DASHBOARD ALERTS PANEL FEED (kr/us recent_alerts.jsonl)
+# ===============================================================
+# The dashboard's "Telegram Alerts (24h)" panel reads
+#   kr/data/notify/recent_alerts.jsonl   (and us/... mirror)
+# Format ref: kr/notify/recent_alerts.py docstring.
+# Deadman runs stdlib-only so we replicate just enough of that
+# contract here (one JSON object per line, append-only). No import
+# from kr/us/shared — satisfies Jeff's independence mandate.
+
+_DEADMAN_SRC_LABEL = "deadman"
+
+
+def _alerts_path_for_market(repo_root: Path, market: str) -> Path:
+    sub = "kr" if market == "KR" else "us"
+    return repo_root / sub / "data" / "notify" / "recent_alerts.jsonl"
+
+
+def _market_for_alert(a: "Alert") -> str:
+    """Route an alert to KR or US JSONL. System-wide (heartbeat,
+    stale_system) routes to KR — that's where the tray runs and where
+    Jeff watches the panel from."""
+    rt = a.run_type or ""
+    if rt.startswith("US_"):
+        return "US"
+    return "KR"
+
+
+def record_dashboard_alert(
+    a: "Alert", *, repo_root: Path, send_status: str,
+    now_utc: Optional[datetime] = None,
+) -> None:
+    """Append one row to the matching market's recent_alerts.jsonl so
+    the dashboard panel surfaces deadman alerts alongside main-bot
+    alerts. Never raises — the panel is observability, not control."""
+    try:
+        market = _market_for_alert(a)
+        path = _alerts_path_for_market(repo_root, market)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # UI taxonomy is INFO/WARN/ERROR — collapse CRITICAL → ERROR
+        # to match kr/notify/recent_alerts.py:160.
+        sev = (a.severity or "INFO").upper()
+        level = "ERROR" if sev == "CRITICAL" else sev
+        text = a.human()
+        # Strip leading severity tag from title so the panel reads
+        # "MISSING_RUN US_EOD ..." not "🔴 [CRITICAL] MISSING_RUN ...".
+        title = text.split("] ", 1)[1] if "] " in text else text
+        title = title.splitlines()[0][:80]
+        item = {
+            "ts": (now_utc or datetime.now(timezone.utc)).isoformat(),
+            "market": market,
+            "level": level,
+            "title": title,
+            "message": text,
+            "send_status": "sent" if send_status == "sent" else "failed",
+            "source": _DEADMAN_SRC_LABEL,
+        }
+        line = json.dumps(item, ensure_ascii=False) + "\n"
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line)
+    except OSError as e:
+        _log.warning("[DEADMAN_ALERT_FEED_FAIL] %s", e)
+
+
+# ===============================================================
 # INCIDENT WRITER
 # ===============================================================
 
@@ -637,6 +733,7 @@ def run_once(
 
     sent = 0
     skipped_info = 0
+    repo_root = Path(__file__).resolve().parent.parent
     if to_fire and not dry_run:
         for a in to_fire:
             # INFO severity: file only, skip Telegram to reduce DEADMAN noise.
@@ -644,8 +741,16 @@ def run_once(
             if a.severity == SEVERITY_INFO:
                 skipped_info += 1
                 continue
-            if send_telegram(a.human()):
+            ok = send_telegram(a.human())
+            if ok:
                 sent += 1
+            # Mirror to dashboard "Telegram Alerts (24h)" panel feed so
+            # deadman alerts are visible without checking incident dir.
+            record_dashboard_alert(
+                a, repo_root=repo_root,
+                send_status="sent" if ok else "failed",
+                now_utc=now_utc,
+            )
         incident_path = write_incident(to_fire, incident_dir, now_utc=now_utc)
         save_dedup(data_dir, updated_dedup)
     else:
