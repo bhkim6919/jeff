@@ -2248,19 +2248,42 @@ async function loadDbHealth() {
 // (last segment, e.g. today_open → today_close in the backend payload)
 // rather than the 14-day trend, so the line color always matches the
 // change_pct shown next to it. KR convention: up=red, down=blue.
-function rpSparkSvg(series, w = 64, h = 18) {
+//
+// `intraday=true` (Jeff 2026-04-27): the last segment is today's
+// open→current-tick move, not a sealed close. We render that segment
+// dashed and add a pulsing endpoint dot so a live look matches the
+// Bing/Yahoo "장 진행중" convention. After 15:30 KST or on weekends
+// the row falls back to the static look.
+function rpSparkSvg(series, intraday = false, w = 64, h = 18) {
     if (!series || series.length < 2) return '';
     const min = Math.min(...series), max = Math.max(...series);
     const span = (max - min) || 1;
     const step = w / (series.length - 1);
-    const pts = series.map((v, i) =>
-        `${(i * step).toFixed(1)},${(h - ((v - min) / span) * h).toFixed(1)}`
-    ).join(' ');
+    const xy = series.map((v, i) => [
+        (i * step),
+        (h - ((v - min) / span) * h),
+    ]);
+    const ptsAll = xy.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
     const last = series[series.length - 1];
     const prev = series[series.length - 2];
     const stroke = last >= prev ? '#ef5350' : '#42a5f5';
-    return `<svg class="rp-spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
-        <polyline fill="none" stroke="${stroke}" stroke-width="1.4" points="${pts}" />
+
+    if (!intraday) {
+        return `<svg class="rp-spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+            <polyline fill="none" stroke="${stroke}" stroke-width="1.4" points="${ptsAll}" />
+        </svg>`;
+    }
+
+    // Intraday: render two polylines so we can dash only the last segment
+    // (a single polyline + dash array would dash the whole line). Endpoint
+    // dot pulses via CSS keyframe defined in style.css (rpEndPulse).
+    const settledPts = xy.slice(0, -1).map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+    const lastSeg = xy.slice(-2).map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+    const [ex, ey] = xy[xy.length - 1];
+    return `<svg class="rp-spark rp-spark-live" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+        <polyline fill="none" stroke="${stroke}" stroke-width="1.4" points="${settledPts}" />
+        <polyline fill="none" stroke="${stroke}" stroke-width="1.4" stroke-dasharray="2.5 2" points="${lastSeg}" />
+        <circle class="rp-spark-pulse" cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="1.6" fill="${stroke}" />
     </svg>`;
 }
 
@@ -2274,7 +2297,7 @@ function rpRowHtml(s) {
     return `<div class="rp-row" data-payload="${payload}" onclick="rpRowClick(this)">
         <span class="rp-code">${s.code}</span>
         <span class="rp-name">${s.name || s.code}</span>
-        <span class="rp-spark-cell">${rpSparkSvg(s.spark)}</span>
+        <span class="rp-spark-cell">${rpSparkSvg(s.spark, !!s.intraday)}</span>
         <span class="rp-px">${open}→${close}</span>
         <span class="${cls}">${sign}${s.change_pct}%</span>
     </div>`;

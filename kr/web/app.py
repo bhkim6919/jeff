@@ -1024,6 +1024,19 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
 
+            # KR session-open flag for the sparkline "in progress" affordance.
+            # Mirrors core/pipeline._is_market_open semantics so the UI hint
+            # and the engine's gating use the same definition. We inline it
+            # here rather than importing because /api/rebalance/preview-compare
+            # must remain importable without the project root core/ package
+            # on sys.path (REST-only deploys).
+            from datetime import datetime as _dt_mc, time as _t_mc
+            _now_kst = _dt_mc.now()
+            _intraday_now = (
+                _now_kst.weekday() < 5
+                and _t_mc(9, 0) <= _now_kst.time() <= _t_mc(15, 30)
+            )
+
             def get_price_info(code):
                 try:
                     if _db_provider:
@@ -1098,6 +1111,12 @@ def create_app() -> FastAPI:
                     "open": price["open"], "close": price["close"],
                     "change_pct": price["change_pct"],
                     "spark": get_spark(code, 14),
+                    # Tells the frontend the last spark segment is today's
+                    # in-progress bar (open→latest tick, not a sealed close)
+                    # so it renders a "live" affordance: dashed last segment
+                    # + pulsing endpoint marker. False after 15:30 KST or on
+                    # weekends so historical reviews don't pulse.
+                    "intraday": _intraday_now,
                     "mom": round(score.get("mom_12_1", 0), 4),
                     "vol": round(score.get("vol_12m", 0), 4),
                 }

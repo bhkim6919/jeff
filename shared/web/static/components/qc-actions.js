@@ -96,6 +96,15 @@
         .qc-drawer-body .v.gain { color: #ef5350; }
         .qc-drawer-body .v.loss { color: #42a5f5; }
         .qc-drawer-spark { width: 100%; height: 56px; margin-bottom: 10px; }
+        /* Intraday "live" affordance — pulsing endpoint dot signals that
+           today's bar is still updating (matches Bing/Yahoo intraday). */
+        .qc-drawer-spark-pulse {
+            animation: qcDrawerEndPulse 1.5s ease-in-out infinite;
+        }
+        @keyframes qcDrawerEndPulse {
+            0%, 100% { opacity: 1.0; r: 3; }
+            50%      { opacity: 0.35; r: 4.5; }
+        }
 
         .qc-help-overlay {
             position: fixed; inset: 0;
@@ -242,22 +251,50 @@
         document.body.appendChild(dr);
         return ov;
     }
-    function sparkSvg(series, w, h) {
+    function sparkSvg(series, intraday, w, h) {
         if (!series || series.length < 2) return '';
         w = w || 360; h = h || 56;
         const min = Math.min(...series), max = Math.max(...series);
         const span = (max - min) || 1;
         const step = w / (series.length - 1);
-        const pts = series.map((v, i) =>
-            `${(i * step).toFixed(1)},${(h - ((v - min) / span) * h).toFixed(1)}`
-        ).join(' ');
+        const xy = series.map((v, i) => [
+            (i * step),
+            (h - ((v - min) / span) * h),
+        ]);
+        const ptsAll = xy.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
         // Color matches today's direction (last segment) so visual aligns
         // with the change_pct shown in the same drawer.
         const last = series[series.length - 1];
         const prev = series[series.length - 2];
         const stroke = last >= prev ? '#ef5350' : '#42a5f5';
-        return `<svg class="qc-drawer-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
-            <polyline fill="none" stroke="${stroke}" stroke-width="1.6" points="${pts}" />
+
+        // Yesterday's close = settled segment endpoint = series[length-2].
+        // Used as a horizontal "previous close" reference, mirroring the
+        // dashed baseline in Bing/Yahoo intraday charts. Computed even when
+        // intraday=false so historical reviews still get the reference;
+        // the live affordance (dashed last segment + pulse) is the only
+        // thing that toggles on the flag.
+        const refY = xy[xy.length - 2][1];
+        const refLine = `<line class="qc-drawer-spark-ref"
+            x1="0" x2="${w}" y1="${refY.toFixed(1)}" y2="${refY.toFixed(1)}"
+            stroke="#888" stroke-width="0.7" stroke-dasharray="3 3" opacity="0.55" />`;
+
+        if (!intraday) {
+            return `<svg class="qc-drawer-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+                ${refLine}
+                <polyline fill="none" stroke="${stroke}" stroke-width="1.6" points="${ptsAll}" />
+            </svg>`;
+        }
+
+        // Intraday: split last segment into a dashed line + pulsing endpoint.
+        const settledPts = xy.slice(0, -1).map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+        const lastSeg = xy.slice(-2).map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+        const [ex, ey] = xy[xy.length - 1];
+        return `<svg class="qc-drawer-spark qc-drawer-spark-live" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+            ${refLine}
+            <polyline fill="none" stroke="${stroke}" stroke-width="1.6" points="${settledPts}" />
+            <polyline fill="none" stroke="${stroke}" stroke-width="1.6" stroke-dasharray="4 3" points="${lastSeg}" />
+            <circle class="qc-drawer-spark-pulse" cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="3" fill="${stroke}" />
         </svg>`;
     }
     const qcDrawer = {
@@ -269,7 +306,7 @@
             const cls   = (s.change_pct || 0) >= 0 ? 'gain' : 'loss';
             const sign  = (s.change_pct || 0) >= 0 ? '+' : '';
             body.innerHTML = `
-                ${sparkSvg(s.spark)}
+                ${sparkSvg(s.spark, !!s.intraday)}
                 <div class="qc-row"><span class="k">시가</span><span class="v">${(s.open||0).toLocaleString()}</span></div>
                 <div class="qc-row"><span class="k">현재가</span><span class="v">${(s.close||0).toLocaleString()}</span></div>
                 <div class="qc-row"><span class="k">등락률</span><span class="v ${cls}">${sign}${(s.change_pct||0).toFixed(2)}%</span></div>

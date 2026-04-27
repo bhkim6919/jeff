@@ -2060,6 +2060,19 @@ footer {
 .rp-name { color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rp-spark-cell { display: inline-flex; align-items: center; justify-content: center; }
 .rp-spark { display: block; }
+/* Live (장 진행중) sparkline marker — pulsing dot at the line's tip
+   communicates "today's bar is still updating", matching Bing/Yahoo's
+   intraday convention. Dashed last segment is rendered inline via SVG
+   stroke-dasharray; only the pulse needs a CSS animation. */
+.rp-spark-pulse {
+    animation: rpEndPulse 1.5s ease-in-out infinite;
+    transform-origin: center;
+    transform-box: fill-box;
+}
+@keyframes rpEndPulse {
+    0%, 100% { opacity: 1.0; r: 1.6; }
+    50%      { opacity: 0.35; r: 2.6; }
+}
 .rp-px { color: var(--text-secondary); text-align: right; font-variant-numeric: tabular-nums; font-size: 11px; }
 .rp-change-pos { color: #ef5350; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
 .rp-change-neg { color: #42a5f5; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
