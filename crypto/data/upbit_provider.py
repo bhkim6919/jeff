@@ -43,6 +43,10 @@ DAILY_CANDLES_PATH = "/v1/candles/days"
 MARKET_ALL_PATH = "/v1/market/all"
 TICKER_PATH = "/v1/ticker"
 
+# Maximum markets per /v1/ticker call to keep URL ~< 2KB.
+# 100 × ~10 chars per market + commas → ~1.1KB, well under typical limits.
+MAX_TICKER_BATCH = 100
+
 # Allowed endpoint prefixes (defensive whitelist — runtime guard).
 # If a future change tries to call /v1/orders or /v1/accounts, _request() will refuse.
 ALLOWED_ENDPOINT_PREFIXES = (
@@ -146,6 +150,32 @@ class UpbitQuotationProvider:
         """
         all_markets = self._request(MARKET_ALL_PATH, params={"isDetails": "true"})
         return [m for m in all_markets if m.get("market", "").startswith(KRW_MARKET_PREFIX)]
+
+    def fetch_tickers(self, markets: list[str]) -> list[dict[str, Any]]:
+        """Fetch current tickers for one or more markets via /v1/ticker.
+
+        Used by the universe builder (S5) to rank by ``acc_trade_price_24h``.
+
+        Chunks the request to ``MAX_TICKER_BATCH`` markets per call to keep the
+        URL within reasonable bounds.
+
+        Returns the concatenation of per-chunk arrays in the order Upbit
+        returned them. No KRW filter is applied here — caller decides which
+        markets to query.
+        """
+        if not markets:
+            return []
+        out: list[dict[str, Any]] = []
+        for i in range(0, len(markets), MAX_TICKER_BATCH):
+            chunk = markets[i : i + MAX_TICKER_BATCH]
+            payload = self._request(TICKER_PATH, params={"markets": ",".join(chunk)})
+            if not isinstance(payload, list):
+                raise UpbitProviderError(
+                    f"Unexpected response type from {TICKER_PATH}: "
+                    f"{type(payload).__name__}"
+                )
+            out.extend(payload)
+        return out
 
     def fetch_daily_candles(
         self,
