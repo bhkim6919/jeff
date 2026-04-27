@@ -34,8 +34,15 @@ logger = logging.getLogger(__name__)
 # --- Constants ---------------------------------------------------------------
 
 UPBIT_QUOTATION_BASE_URL = "https://api.upbit.com"
-QUOTATION_RATE_LIMIT_PER_SEC = 10  # 600/min, 10/sec per IP
-MIN_REQUEST_INTERVAL_SEC = 1.0 / QUOTATION_RATE_LIMIT_PER_SEC  # 0.1s
+QUOTATION_RATE_LIMIT_PER_SEC = 10  # 600/min, 10/sec per IP (documented)
+# Empirical: 0.1s spacing still triggered 429 across back-to-back processes
+# (per-IP per-second window is shared globally). 0.15s ≈ 6.67/sec is well
+# under both per-sec and per-min ceilings.
+MIN_REQUEST_INTERVAL_SEC = 0.15
+# Maximum retry attempts when Upbit returns HTTP 429.
+MAX_429_RETRIES = 5
+# First sleep on 429 = 1.0s. Doubles each retry (1.0, 2.0, 4.0, 8.0, 16.0).
+RETRY_429_BACKOFF_BASE_SEC = 1.0
 DEFAULT_TIMEOUT_SEC = 10
 DEFAULT_USER_AGENT = "Q-TRON-Crypto-Lab/D1 (Quotation only; bhkim6919@github)"
 
@@ -123,22 +130,42 @@ class UpbitQuotationProvider:
             )
 
         url = f"{self._base_url}{path}"
-        self._throttle()
-        try:
-            resp = self._session.get(url, params=params, timeout=self._timeout_sec)
-        except requests.RequestException as exc:
-            raise UpbitProviderError(f"GET {url} failed: {exc}") from exc
 
-        if resp.status_code == 429:
-            raise UpbitRateLimitError(
-                f"Upbit rate limit hit (HTTP 429). Headers: "
-                f"{dict(resp.headers)!r}"
-            )
-        if not resp.ok:
-            raise UpbitProviderError(
-                f"GET {url} → HTTP {resp.status_code}: {resp.text[:200]}"
-            )
-        return resp.json()
+        last_429_headers: dict[str, str] = {}
+        for attempt in range(MAX_429_RETRIES + 1):
+            self._throttle()
+            try:
+                resp = self._session.get(url, params=params, timeout=self._timeout_sec)
+            except requests.RequestException as exc:
+                raise UpbitProviderError(f"GET {url} failed: {exc}") from exc
+
+            if resp.status_code == 429:
+                last_429_headers = dict(resp.headers)
+                if attempt >= MAX_429_RETRIES:
+                    break
+                wait = RETRY_429_BACKOFF_BASE_SEC * (2 ** attempt)
+                logger.warning(
+                    "Upbit 429 (attempt %d/%d). Headers: Remaining-Req=%s. "
+                    "Sleeping %.2fs.",
+                    attempt + 1,
+                    MAX_429_RETRIES + 1,
+                    last_429_headers.get("Remaining-Req", "?"),
+                    wait,
+                )
+                time.sleep(wait)
+                continue
+
+            if not resp.ok:
+                raise UpbitProviderError(
+                    f"GET {url} → HTTP {resp.status_code}: {resp.text[:200]}"
+                )
+            return resp.json()
+
+        # Exhausted retries on 429.
+        raise UpbitRateLimitError(
+            f"Upbit rate limit persists after {MAX_429_RETRIES + 1} attempts. "
+            f"Last headers: {last_429_headers!r}"
+        )
 
     # --- Public API ----------------------------------------------------------
 
