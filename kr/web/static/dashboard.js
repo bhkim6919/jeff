@@ -270,10 +270,33 @@ function synthesizeStatus(data) {
     }
 
     // BUY EFFECTIVE — synthesized priority: ENGINE > AUTO > DD > RECON
+    //
+    // AUTO interpretation (Jeff 2026-04-27 fix): the prior check
+    // `auto.enabled === false` was inverted. In the AutoTradingState
+    // contract `enabled` means "enforce mode is on" — when the gate
+    // is in P2 advisory mode (current default per
+    // p2_advisory_observation memo), enabled=false but no buying is
+    // actually blocked. The dashboard was therefore showing a red
+    // "BLOCKED (AUTO)" banner during normal operation while the
+    // top-nav AUTO GATE badge correctly read "ADVISORY".
+    //
+    // Real BLOCKED conditions, per execution_guard_hook contract:
+    //   - buy_scale === 0   (only set on enforce_blocked path)
+    //   - OR enabled=true (enforce mode) AND blockers non-empty
+    // Either signal alone is sufficient; we OR them so a backend
+    // schema bump that drops one still keeps the gate functional.
     let buy = 'OK', buyReason = '', buyDetail = '';
+    const autoBlocked = (
+        auto && (
+            auto.buy_scale === 0
+            || (auto.enabled === true
+                && Array.isArray(auto.blockers)
+                && auto.blockers.length > 0)
+        )
+    );
     if (engine === 'OFFLINE') {
         buy = 'BLOCKED'; buyReason = 'ENGINE'; buyDetail = engineReason;
-    } else if (auto.enabled === false) {
+    } else if (autoBlocked) {
         buy = 'BLOCKED';
         buyReason = (auto.highest_priority_blocker
                      || (Array.isArray(auto.blockers) && auto.blockers[0])
