@@ -109,22 +109,49 @@ class FileLock:
 # ═══════════════════════════════════════════════════════════════════
 
 def atomic_write_json(path: Path, payload: dict) -> None:
-    """Atomic JSON write: tmp -> fsync -> replace."""
+    """Atomic JSON write: tmp -> fsync -> replace.
+
+    Failure surface (Jeff 2026-04-27 hardening): the prior implementation
+    swallowed OSError raised while rotating the existing file to its
+    .bak slot. That hid two concrete failure modes from the caller:
+      1. .bak.unlink() failing because another process has the .bak open
+         → next call's .bak rotation fails again, .bak chain frozen at a
+         stale snapshot. save_state_v2 cannot detect that the safety net
+         is gone.
+      2. path.rename(bak) failing on Windows when path is held open by a
+         reader (dashboard SSE poller, debug tooling) → no .bak made,
+         os.replace still proceeds → primary advances to v=N+1 but .bak
+         stays at v=N-1 (or whatever last successful rotation produced).
+
+    With OSError now propagating, the caller (save_state_v2) sees the
+    failure synchronously and engine surfaces a DIRTY save state instead
+    of silently leaving an inconsistent .bak chain on disk.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
         f.flush()
         os.fsync(f.fileno())
-    # backup
+    # backup (must succeed or raise — see docstring)
     if path.exists():
         bak = path.with_suffix(path.suffix + ".bak")
         try:
             if bak.exists():
                 bak.unlink()
             path.rename(bak)
-        except OSError:
-            pass
+        except OSError as e:
+            # Best-effort cleanup of the orphan tmp before propagating so
+            # we don't litter the state dir with stale *.tmp files.
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            logger.error(
+                "[STATE_V2] atomic_write_json bak rotation failed for "
+                f"{path.name}: {type(e).__name__}: {e}"
+            )
+            raise
     os.replace(str(tmp), str(path))
 
 

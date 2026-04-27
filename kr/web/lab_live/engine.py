@@ -155,6 +155,13 @@ class LabLiveSimulator:
         self._start_time = None
         self._data_snapshot_id = ""
         self._missing_data_ratio = 0.0
+        # save_state observability (Jeff 2026-04-27 hardening, option 2):
+        # surfaces commit failure to the dashboard without rolling back
+        # in-memory state. "OK" once the most recent _save_state() returned
+        # cleanly; "DIRTY" if it raised (in-memory state may be ahead of
+        # disk). dirty_reason carries the exception summary for UI banner.
+        self._save_state_status = "OK"
+        self._save_dirty_reason = ""
 
     # ── Initialization ───────────────────────────────────────
 
@@ -829,7 +836,26 @@ class LabLiveSimulator:
                 self._equity_rows[-1] = equity_row
             else:
                 self._equity_rows.append(equity_row)
-            self._save_state()
+            # Wrap commit so a save failure (atomic_write_json bak rotation
+            # error, fs full, perm denied, etc.) surfaces as a DIRTY state
+            # via get_state() instead of being silently masked. We do NOT
+            # roll the in-memory state back here — Jeff option-2 directive:
+            # observability first, recovery semantics later. The exception
+            # is re-raised so /api/lab/live/run still returns Run error to
+            # the operator.
+            try:
+                self._save_state()
+            except Exception as save_err:
+                self._save_state_status = "DIRTY"
+                self._save_dirty_reason = f"{type(save_err).__name__}: {save_err}"
+                logger.error(
+                    f"[LAB_LIVE] save_state failed: {self._save_dirty_reason}",
+                    exc_info=True,
+                )
+                raise
+            else:
+                self._save_state_status = "OK"
+                self._save_dirty_reason = ""
 
             elapsed = time.time() - t0
             logger.info(f"[LAB_LIVE] Daily run complete: {today_date} "
@@ -1022,6 +1048,12 @@ class LabLiveSimulator:
                 "n_lanes": len(self._lanes),
                 "lanes": lanes,
                 "market_context": _mctx,
+                # Disk-vs-memory consistency surface (option-2 hardening).
+                # "OK" while the most recent _save_state() committed cleanly,
+                # "DIRTY" if a save_state_v2 raised — in-memory state may
+                # be ahead of disk. UI renders a banner on DIRTY.
+                "save_state": self._save_state_status,
+                "save_dirty_reason": self._save_dirty_reason,
             }
 
     def get_trades(self, limit: int = 50) -> list:

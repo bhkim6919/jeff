@@ -84,6 +84,46 @@
         });
     }
 
+    // ── Save-state DIRTY banner ─────────────────────────────
+    function renderSaveStateBanner(data) {
+        const status = (data && data.save_state) || 'OK';
+        const reason = (data && data.save_dirty_reason) || '';
+        let banner = document.getElementById('live-save-warning');
+
+        if (status !== 'DIRTY') {
+            if (banner) banner.style.display = 'none';
+            return;
+        }
+
+        // Inject lazily — keeps lab.html untouched. Anchor right above
+        // #live-cards so it sits with the strategy grid.
+        if (!banner) {
+            const cards = document.getElementById('live-cards');
+            if (!cards || !cards.parentNode) return;
+            banner = document.createElement('div');
+            banner.id = 'live-save-warning';
+            banner.style.cssText = [
+                'background:#3a1418',
+                'border:1px solid #d23c3c',
+                'color:#ff8a8a',
+                'padding:10px 14px',
+                'margin:8px 0 12px',
+                'border-radius:6px',
+                'font-size:13px',
+                'font-weight:600',
+            ].join(';');
+            cards.parentNode.insertBefore(banner, cards);
+        }
+        const safeReason = String(reason || '(no reason captured)')
+            .replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+        banner.innerHTML =
+            '⚠️ <span>SAVE DIRTY</span> &nbsp;—&nbsp; ' +
+            '메모리 상태가 disk commit 보다 앞섭니다. ' +
+            `다음 EOD 가 성공하기 전까지 복구되지 않을 수 있습니다.<br>` +
+            `<span style="font-weight:400;color:#ffb0b0">reason: ${safeReason}</span>`;
+        banner.style.display = 'block';
+    }
+
     // ── Render state ────────────────────────────────────────
     function renderState(data) {
         if (!data.initialized && (!data.lanes || data.lanes.length === 0)) {
@@ -95,6 +135,12 @@
         const badge = document.getElementById('live-status');
         badge.textContent = data.running ? 'RUNNING' : 'IDLE';
         badge.className = data.running ? 'badge badge-ok' : 'badge badge-mock';
+
+        // DIRTY save-state banner — in-memory ahead of disk after a
+        // save_state_v2 failure (atomic_write_json bak rotation, fs full,
+        // perm denied, etc.). Surfaced from engine via /api/lab/live/state.
+        // Dynamically injected so we don't touch lab.html for this hook.
+        renderSaveStateBanner(data);
 
         if (data.last_run_date) {
             const period = data.start_date

@@ -712,6 +712,23 @@ def create_app() -> FastAPI:
         docs_url="/docs",
     )
 
+    # ── Lab Live import preflight (P0, Jeff 2026-04-27) ──
+    # Imports the modules `engine.daily_run()` lazily-loads so a missing
+    # file (e.g. 2026-04-20 stash incident wiping market_context.py) is
+    # detected at boot, surfaced on /api/health, and used to gate
+    # /api/lab/live/start + /api/lab/live/run-daily. Without this the
+    # next failure mode would again be 6 silent days of skipped EODs.
+    from web.lab_live.preflight import run_preflight, is_disabled
+    if is_disabled():
+        logger.info(
+            "[LAB_PREFLIGHT_SKIP] QTRON_LAB_PREFLIGHT=0 — preflight disabled"
+        )
+        application.state.lab_preflight = {"ok": True, "disabled": True,
+                                            "ts": None, "modules": {}, "errors": {},
+                                            "missing": []}
+    else:
+        application.state.lab_preflight = run_preflight(fire_telegram=True)
+
     # IP monitor — check every 10 min in background
     import threading
     def _ip_monitor_loop():
@@ -1640,25 +1657,30 @@ def create_app() -> FastAPI:
               "tomorrow": { predicted_regime, predicted_label, ... },
               "data_quality": "OK" | "DEGRADED" }
 
-        Source: tracker.snapshot() — same data fed into SSE (data.regime_actual
-        / data.regime_prediction). Provides REST access without changing
-        the SSE flow that dashboard.js currently consumes.
+        Source: _portfolio_cache — same dict the SSE generator hydrates
+        with regime_actual (DB load + intraday refresh) and regime
+        (predict task). tracker.snapshot() does not carry regime keys;
+        an earlier draft of this endpoint read from there and always
+        returned empty objects, leaving the Lab page stuck on "미판정".
         """
         try:
-            snap = tracker.snapshot() or {}
-            today = snap.get("regime_actual") or {}
-            tomorrow = snap.get("regime_prediction") or {}
+            today = _portfolio_cache.get("regime_actual") or {}
+            tomorrow = _portfolio_cache.get("regime") or {}
             quality = "OK"
-            if today.get("unavailable") or tomorrow.get("unavailable"):
+            if not today and not tomorrow:
+                quality = "DEGRADED"
+            elif today.get("unavailable") or tomorrow.get("unavailable"):
                 quality = "DEGRADED"
             return {
-                "today": today,
+                "actual": today,                 # legacy alias used by lab.js
+                "today": today,                  # unified contract
                 "tomorrow": tomorrow,
-                "regime_prediction": tomorrow,  # SSE-style alias for components
+                "regime_prediction": tomorrow,   # SSE-style alias for components
                 "data_quality": quality,
             }
         except Exception as e:
             return {
+                "actual": {},
                 "today": {},
                 "tomorrow": {},
                 "data_quality": "DEGRADED",
@@ -1927,13 +1949,11 @@ def create_app() -> FastAPI:
         try:
             from kr.risk.auto_trading_gate import compute_auto_trading_state
             from kr.risk.strategy_health import compute_strategy_health
-            _guard = getattr(application.state, "guard", None)
             _runtime = (cache.get("runtime") or {})
             _equity_dd = float((cache.get("dd_guard") or {}).get("equity_dd_pct", 0.0) or 0.0)
             _health = compute_strategy_health(equity_dd_pct=_equity_dd)
             _auto = compute_auto_trading_state(
-                guard=_guard, runtime=_runtime,
-                strategy_health=_health,
+                runtime=_runtime, strategy_health=_health,
             )
             snap["auto_trading"] = _auto.to_dict()
             snap["strategy_health"] = _health
@@ -1966,6 +1986,12 @@ def create_app() -> FastAPI:
         case must surface as RED — not YELLOW or GREEN — so external
         monitors (Telegram alerts, uptime checks, tray icon) treat it
         as a real outage.
+
+        LAB_IMPORT_FAIL also forces RED — orchestrator's lab_eod_kr step
+        gates on `/api/health.status == GREEN`, so flipping to RED here
+        is what disables the EOD trigger. (Per Jeff 2026-04-27 P0: the
+        4/20 stash incident that wiped market_context.py would now be
+        caught at boot and surface in this same response.)
         """
         snap = tracker.snapshot()
         status = snap["health"]["status"]
@@ -1974,11 +2000,21 @@ def create_app() -> FastAPI:
         if engine["status"] == "OFFLINE":
             status = "RED"
             reason = f"ENGINE_OFFLINE: {engine['reason']}"
+
+        lab_pre = getattr(application.state, "lab_preflight", None) or {}
+        lab_import_status = "OK" if lab_pre.get("ok", True) else "FAIL"
+        if lab_import_status == "FAIL":
+            status = "RED"
+            missing = ", ".join(lab_pre.get("missing") or []) or "(unknown)"
+            reason = f"LAB_IMPORT_FAIL: {missing}"
+
         return {
             "status": status,
             "reason": reason,
             "timestamp": snap["timestamp_str"],
             "engine_status": engine["status"],
+            "lab_import_status": lab_import_status,
+            "lab_import_missing": lab_pre.get("missing") or [],
         }
 
     @application.get("/api/advisor/today")
@@ -3285,9 +3321,39 @@ def create_app() -> FastAPI:
             return sim
         return None
 
+    def _lab_preflight_block_response():
+        """Shared 503 payload when import preflight failed.
+
+        Returning a structured body (not just HTTPException) keeps the
+        pipeline's lab_eod_kr step able to log the missing modules
+        without parsing free-form error strings.
+        """
+        from fastapi.responses import JSONResponse
+        lab_pre = getattr(application.state, "lab_preflight", None) or {}
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "error": "LAB_IMPORT_FAIL",
+                "missing": lab_pre.get("missing") or [],
+                "errors": lab_pre.get("errors") or {},
+                "ts": lab_pre.get("ts"),
+                "hint": "Restart tray after restoring missing modules.",
+            },
+        )
+
     @application.post("/api/lab/live/start")
     async def lab_live_start(request: Request):
         """Initialize Lab Live simulator. Restores previous state."""
+        # Preflight gate (P0): refuse to even import the engine when one
+        # of its lazy-loaded dependencies is missing. Without this the
+        # next lab_eod_kr trigger runs daily_run() which raises
+        # ModuleNotFoundError deep inside, the same failure mode that
+        # froze state for 6 days during 4/21–4/26.
+        from web.lab_live.preflight import is_blocking_failure
+        if is_blocking_failure():
+            return _lab_preflight_block_response()
+
         body = await request.json() if request.headers.get("content-type") == "application/json" else {}
         reset = body.get("reset", False)
 
@@ -3305,6 +3371,11 @@ def create_app() -> FastAPI:
     @application.post("/api/lab/live/run-daily")
     async def lab_live_run_daily(request: Request):
         """Run daily EOD update. Updates OHLCV + generates signals + virtual execution."""
+        # Preflight gate — see /api/lab/live/start.
+        from web.lab_live.preflight import is_blocking_failure
+        if is_blocking_failure():
+            return _lab_preflight_block_response()
+
         sim = _lab_live_sim.get("sim")
         if not sim or not sim._initialized:
             # Auto-init
@@ -3364,6 +3435,22 @@ def create_app() -> FastAPI:
         t.start()
         t.join(timeout=120)  # 최대 2분 대기
         return sim.get_state()
+
+    @application.get("/api/lab/live/preflight")
+    async def lab_live_preflight():
+        """Read-only view of the import preflight result.
+
+        Identical payload shape regardless of OK / FAIL so dashboard
+        polling code doesn't have to branch. `ok=True` and empty
+        missing/errors when imports succeeded; populated when not.
+        """
+        return getattr(application.state, "lab_preflight", None) or {
+            "ok": False,
+            "ts": None,
+            "modules": {},
+            "errors": {"_internal": "preflight not run"},
+            "missing": ["_internal"],
+        }
 
     @application.get("/api/lab/live/state")
     async def lab_live_state():
@@ -4832,13 +4919,11 @@ async def _sse_generator(
             try:
                 from kr.risk.auto_trading_gate import compute_auto_trading_state
                 from kr.risk.strategy_health import compute_strategy_health
-                _guard = getattr(application.state, "guard", None)
                 _runtime = (_portfolio_cache.get("runtime") or {})
                 _equity_dd = float((_portfolio_cache.get("dd_guard") or {}).get("equity_dd_pct", 0.0) or 0.0)
                 _health = compute_strategy_health(equity_dd_pct=_equity_dd)
                 _auto = compute_auto_trading_state(
-                    guard=_guard, runtime=_runtime,
-                    strategy_health=_health,
+                    runtime=_runtime, strategy_health=_health,
                 )
                 data["auto_trading"] = _auto.to_dict()
                 data["strategy_health"] = _health
