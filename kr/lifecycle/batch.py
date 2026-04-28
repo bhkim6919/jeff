@@ -262,29 +262,50 @@ def run_batch(config, fast: bool = False):
             pass
     _markets = getattr(config, "MARKETS", None)
     logger.info(f"  Market filter: {_markets or 'ALL'}")
-    universe = build_universe_from_ohlcv(
-        ohlcv_dir, min_close=config.UNIV_MIN_CLOSE,
-        min_amount=config.UNIV_MIN_AMOUNT,
-        min_history=config.UNIV_MIN_HISTORY,
-        min_count=config.UNIV_MIN_COUNT,
-        allowed_markets=_markets,
-        sector_map=_sector_map_batch)
-    logger.info(f"  Universe: {len(universe)} stocks")
-    if not universe:
-        logger.error("Empty universe!")
-        _notify_batch_error("Empty universe — batch 중단", logger)
-        return None
 
-    # R4 Stage 1 (2026-04-23): SHADOW comparison with DB-direct universe.
-    # Default path (CSV above) UNCHANGED. DB path logs diff metrics only.
-    # 3-day shadow observation → JUG review → default switch (Stage 3).
-    # See backup/reports/work_plan_20260423.md §R4 원칙.
-    try:
-        from data.universe_builder import build_universe_from_db, compare_universes
-        from data.db_provider import DbProvider
-        _db_shadow = DbProvider()
-        _db_universe = build_universe_from_db(
-            _db_shadow,
+    # ── R4 Stage 3 (2026-04-28): DB primary + CSV fallback ──
+    #
+    # Stage 1 (2026-04-23 ~ 2026-04-28) ran CSV as primary and DB as
+    # shadow. Three consecutive business-day shadow comparisons
+    # (04-24 / 04-27 / 04-28) all logged ``diff_pct=0.0%`` with sample
+    # sizes 908 / 917 / 932, meeting the R4 protocol's transition
+    # criterion. JUG approval (Jeff 2026-04-28) authorizes the swap to
+    # DB primary as the default path.
+    #
+    # Design (J0=A / J1=D / J2=C / J3=B / J4=A / J5=C):
+    #   * env QTRON_UNIVERSE_PRIMARY = DB | CSV (default DB).
+    #     Operators flip via PowerShell to roll back without code change;
+    #     batch reads env at every invocation (no tray restart needed).
+    #   * Primary builder runs first. If empty result OR exception OR
+    #     count below ``UNIV_MIN_COUNT // 2`` (clearly degraded), fall
+    #     back to the other source. Both-source failure → empty-universe
+    #     guard fires the existing batch-error path.
+    #   * Shadow comparison still emits ``[UNIVERSE_SHADOW]`` for the
+    #     non-primary source so the monitoring stream stays alive after
+    #     the swap.
+    #   * ``[UNIVERSE_FALLBACK_TRIGGERED]`` log + Telegram WARN on every
+    #     fallback so post-hoc sparse-day analysis is feasible (Jeff
+    #     2026-04-28 보완).
+    #   * universe is ``sorted()`` at the end as a defensive guard so
+    #     downstream G6-style idempotency does not depend on the
+    #     builder's internal ordering (Jeff 2026-04-28 보완).
+    import os as _os
+    _PRIMARY = _os.environ.get("QTRON_UNIVERSE_PRIMARY", "DB").upper()
+    if _PRIMARY not in ("DB", "CSV"):
+        logger.warning(
+            f"[UNIVERSE_PRIMARY_INVALID] {_PRIMARY!r} → falling back to DB default"
+        )
+        _PRIMARY = "DB"
+    _SHADOW = "CSV" if _PRIMARY == "DB" else "DB"
+    _FALLBACK_THRESHOLD = config.UNIV_MIN_COUNT // 2
+
+    from data.universe_builder import build_universe_from_db, compare_universes
+    from data.db_provider import DbProvider
+
+    def _build_db():
+        _db = DbProvider()
+        return build_universe_from_db(
+            _db,
             min_close=config.UNIV_MIN_CLOSE,
             min_amount=config.UNIV_MIN_AMOUNT,
             min_history=config.UNIV_MIN_HISTORY,
@@ -292,19 +313,96 @@ def run_batch(config, fast: bool = False):
             allowed_markets=_markets,
             sector_map=_sector_map_batch,
         )
-        _diff = compare_universes(universe, _db_universe)
+
+    def _build_csv():
+        return build_universe_from_ohlcv(
+            ohlcv_dir,
+            min_close=config.UNIV_MIN_CLOSE,
+            min_amount=config.UNIV_MIN_AMOUNT,
+            min_history=config.UNIV_MIN_HISTORY,
+            min_count=config.UNIV_MIN_COUNT,
+            allowed_markets=_markets,
+            sector_map=_sector_map_batch,
+        )
+
+    _builder = {"DB": _build_db, "CSV": _build_csv}
+
+    universe = []
+    used_source = _PRIMARY
+    fallback_reason = None
+    try:
+        universe = _builder[_PRIMARY]()
+    except Exception as _primary_err:
+        fallback_reason = f"primary_exception: {type(_primary_err).__name__}: {_primary_err}"
+        logger.warning(
+            f"[UNIVERSE_PRIMARY_FAIL] primary={_PRIMARY} {_primary_err!r}"
+        )
+        universe = []
+
+    if (not universe) or len(universe) < _FALLBACK_THRESHOLD:
+        if fallback_reason is None:
+            fallback_reason = (
+                f"primary_empty_or_degraded: count={len(universe)} "
+                f"< threshold={_FALLBACK_THRESHOLD}"
+            )
+        logger.warning(
+            f"[UNIVERSE_FALLBACK_TRIGGERED] primary={_PRIMARY} "
+            f"reason={fallback_reason} threshold={_FALLBACK_THRESHOLD}"
+        )
+        try:
+            universe = _builder[_SHADOW]()
+            used_source = _SHADOW
+        except Exception as _fb_err:
+            logger.error(
+                f"[UNIVERSE_FALLBACK_FAIL] shadow={_SHADOW} {_fb_err!r}"
+            )
+            universe = []
+        # Telegram WARN per K4=A: every fallback occurrence.
+        try:
+            _alert_data(
+                f"⚠️ [KR] Universe fallback: {_PRIMARY}→{used_source} "
+                f"reason={fallback_reason}"
+            )
+        except Exception:
+            pass
+
+    # Defensive sort for G6-style idempotency. Both builders already
+    # return code-ascending lists today (build_universe_from_db: SQL
+    # ``ORDER BY code``; build_universe_from_ohlcv: ``sorted(glob)``),
+    # but a future refactor of either source must not silently break
+    # determinism downstream.
+    universe = sorted(universe)
+
+    logger.info(
+        f"[UNIVERSE_SOURCE] primary={_PRIMARY} used={used_source} "
+        f"fallback={fallback_reason or 'none'} count={len(universe)}"
+    )
+    logger.info(f"  Universe: {len(universe)} stocks")
+    if not universe:
+        logger.error("Empty universe!")
+        _notify_batch_error("Empty universe — batch 중단", logger)
+        return None
+
+    # Shadow comparison: emit [UNIVERSE_SHADOW] for the non-primary
+    # source so the monitoring stream survives the Stage 3 swap.
+    try:
+        _shadow_universe = sorted(_builder[_SHADOW]())
+        # compare_universes expects (csv_universe, db_universe) — pass
+        # them in the canonical (csv, db) order regardless of which is
+        # currently primary so the diff fields keep their historical
+        # meaning.
+        _csv_side = universe if used_source == "CSV" else _shadow_universe
+        _db_side = universe if used_source == "DB" else _shadow_universe
+        _diff = compare_universes(_csv_side, _db_side)
         logger.info(
-            f"[UNIVERSE_SHADOW] csv={_diff['csv_count']} db={_diff['db_count']} "
+            f"[UNIVERSE_SHADOW] primary={used_source} shadow={_SHADOW} "
+            f"csv={_diff['csv_count']} db={_diff['db_count']} "
             f"only_csv={_diff['only_csv_count']} only_db={_diff['only_db_count']} "
             f"diff_pct={_diff['diff_pct']}%"
         )
         if _diff["only_csv_count"] > 0 or _diff["only_db_count"] > 0:
-            logger.info(
-                f"  only_csv_sample: {_diff['only_csv_sample']}"
-            )
-            logger.info(
-                f"  only_db_sample:  {_diff['only_db_sample']}"
-            )
+            logger.info(f"  only_csv_sample: {_diff['only_csv_sample']}")
+            logger.info(f"  only_db_sample:  {_diff['only_db_sample']}")
     except Exception as _r4_err:
         # Shadow must never break batch
         logger.warning(f"[UNIVERSE_SHADOW_FAIL] {_r4_err!r} (non-critical)")
