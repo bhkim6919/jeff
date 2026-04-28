@@ -1271,17 +1271,41 @@ class Win32TrayServer:
         return None
 
     def _load_us_lab_eod_done_date(self) -> Optional[date]:
-        """US Lab Forward meta.json::last_successful_eod_date 기준 복원."""
+        """US Lab Forward meta.json::last_successful_eod_date 기준 복원.
+
+        Cross-TZ tolerance (Jeff 2026-04-28 hotfix): the orchestrator
+        records ``last_successful_eod_date`` using the runtime's KST
+        calendar (because kr/ is the host process), while this loader
+        runs in ET. For a single trade-day, KST-today and ET-today
+        differ for ~14 hours of every cycle — KST 00:00~14:00 maps to
+        ET (UTC-4) 11:00~01:00 of the previous calendar day — so a
+        strict ET-today equality check missed the orchestrator's
+        commit and fired spurious "EOD already DONE" warnings every
+        time the post-batch path or the auto scheduler retried.
+
+        Accept the disk record as "done" when ``last_successful_eod_date``
+        equals **either** ET-today or KST-today. This keeps the function
+        returning ``et_today`` (the caller compares against ``et_today``)
+        but widens the recognition window to both calendar conventions.
+        """
         try:
             import json as _json
+            from zoneinfo import ZoneInfo as _ZI
             et_today = self._now_et().date()
+            kst_today = datetime.now(_ZI("Asia/Seoul")).date()
             meta_path = US_BASE_DIR / "lab" / "state" / "forward" / "meta.json"
             if meta_path.exists():
                 meta = _json.loads(meta_path.read_text(encoding="utf-8"))
                 last_eod = meta.get("last_successful_eod_date", "")
-                if last_eod == et_today.strftime("%Y-%m-%d"):
+                valid_dates = {
+                    et_today.strftime("%Y-%m-%d"),
+                    kst_today.strftime("%Y-%m-%d"),
+                }
+                if last_eod in valid_dates:
                     self._logger.info(
-                        f"[US_LAB_EOD_AUTO_LOAD_DONE] persisted_date={last_eod}"
+                        f"[US_LAB_EOD_AUTO_LOAD_DONE] persisted_date={last_eod} "
+                        f"matched={'et' if last_eod == et_today.strftime('%Y-%m-%d') else 'kst'} "
+                        f"(et_today={et_today} kst_today={kst_today})"
                     )
                     return et_today
         except Exception:
