@@ -77,10 +77,117 @@ def _load_csv(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+# ── PG readers (CSV → PG migration, 2026-04-28) ──
+# Writers in db_provider.py persist to report_equity_log / report_daily_positions
+# under UNIQUE(mode, date[, code]). The CSV-fed reader below was orphaned by
+# that migration and started rendering stub reports (5,000,000 / 0종목) once
+# the CSV writers were turned off. These helpers restore parity by reading the
+# canonical PG rows; CSV files remain a fallback for environments where PG is
+# unreachable (e.g. dev machines without DB access).
+
+_PG_NUMERIC_COLS_EQUITY = (
+    "equity", "cash", "n_positions", "daily_pnl_pct", "monthly_dd_pct",
+    "price_fail_count", "reconcile_corrections",
+    "kospi_close", "kosdaq_close", "kospi_ma200", "breadth",
+)
+_PG_NUMERIC_COLS_POSITIONS = (
+    "quantity", "avg_price", "current_price", "market_value",
+    "pnl_pct", "pnl_amount", "est_cost_pct", "net_pnl_pct",
+    "high_watermark", "trail_stop_price", "hold_days", "hwm_pct",
+)
+
+
+def _coerce_numeric(df: pd.DataFrame, cols) -> pd.DataFrame:
+    """psycopg2 returns Decimal for FLOAT/NUMERIC; downstream consumers
+    expect plain numerics. Coerce on the way in so the rest of the pipeline
+    looks identical to the CSV path."""
+    for c in cols:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+    return df
+
+
+def _load_equity_from_pg(mode: str = "LIVE") -> pd.DataFrame:
+    """Read report_equity_log into a CSV-shaped DataFrame.
+
+    Returns an empty DataFrame on any failure (import error, DB down, schema
+    drift) so the caller's CSV fallback can take over without crashing the
+    EOD report path.
+    """
+    try:
+        from shared.db.pg_base import connection
+    except Exception as exc:
+        logger.warning(f"[PG_READ_SKIP] equity_log: pg_base import failed ({exc})")
+        return pd.DataFrame()
+    sql = (
+        "SELECT date, equity, cash, n_positions, daily_pnl_pct, monthly_dd_pct, "
+        "risk_mode, rebalance_executed, price_fail_count, reconcile_corrections, "
+        "monitor_only, kospi_close, kosdaq_close, regime, kospi_ma200, breadth "
+        "FROM report_equity_log WHERE mode = %s "
+        "ORDER BY date ASC, created_at ASC"
+    )
+    try:
+        with connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (mode,))
+                cols = [c.name for c in cur.description]
+                rows = cur.fetchall()
+    except Exception as exc:
+        logger.warning(f"[PG_READ_FAILED] report_equity_log: {exc}")
+        return pd.DataFrame()
+    if not rows:
+        return pd.DataFrame(columns=cols)
+    df = pd.DataFrame(rows, columns=cols)
+    return _coerce_numeric(df, _PG_NUMERIC_COLS_EQUITY)
+
+
+def _load_positions_from_pg(mode: str = "LIVE") -> pd.DataFrame:
+    """Read report_daily_positions into a CSV-shaped DataFrame. Returns the
+    full table; the caller filters by ``today_str`` exactly as it does for
+    the CSV path."""
+    try:
+        from shared.db.pg_base import connection
+    except Exception as exc:
+        logger.warning(f"[PG_READ_SKIP] daily_positions: pg_base import failed ({exc})")
+        return pd.DataFrame()
+    sql = (
+        "SELECT date, code, quantity, avg_price, current_price, market_value, "
+        "pnl_pct, pnl_amount, est_cost_pct, net_pnl_pct, "
+        "high_watermark, trail_stop_price, entry_date, hold_days, hwm_pct "
+        "FROM report_daily_positions WHERE mode = %s "
+        "ORDER BY date ASC, code ASC"
+    )
+    try:
+        with connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (mode,))
+                cols = [c.name for c in cur.description]
+                rows = cur.fetchall()
+    except Exception as exc:
+        logger.warning(f"[PG_READ_FAILED] report_daily_positions: {exc}")
+        return pd.DataFrame()
+    if not rows:
+        return pd.DataFrame(columns=cols)
+    df = pd.DataFrame(rows, columns=cols)
+    if "code" in df.columns:
+        df["code"] = df["code"].astype(str).str.zfill(6)
+    return _coerce_numeric(df, _PG_NUMERIC_COLS_POSITIONS)
+
+
 def load_daily_data(report_dir: Path, today_str: str, initial_cash: float) -> dict:
-    """Load all CSV data for a given date. today_str = 'YYYY-MM-DD'."""
-    equity_df = _load_csv(report_dir / "equity_log.csv")
-    positions_df = _load_csv(report_dir / "daily_positions.csv")
+    """Load all data for a given date. today_str = 'YYYY-MM-DD'.
+
+    Equity and daily positions are read from PG (canonical post-2026-04-28
+    migration); CSV files act as a fallback for environments without DB
+    access. Trades / closes / decisions / reconciles still use CSV — their
+    PG dual-write is a P2 follow-up.
+    """
+    equity_df = _load_equity_from_pg()
+    if equity_df.empty:
+        equity_df = _load_csv(report_dir / "equity_log.csv")
+    positions_df = _load_positions_from_pg()
+    if positions_df.empty:
+        positions_df = _load_csv(report_dir / "daily_positions.csv")
     trades_df = _load_csv(report_dir / "trades.csv")
     closes_df = _load_csv(report_dir / "close_log.csv")
     decisions_df = _load_csv(report_dir / "decision_log.csv")
