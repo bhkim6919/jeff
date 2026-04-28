@@ -1,0 +1,72 @@
+{
+  "started_at_utc": "2026-04-28T00:13:49+00:00",
+  "all_pass": true,
+  "gates": [
+    {
+      "gate": "G1 clean state",
+      "verdict": "PASS",
+      "detail": {
+        "exit_code": 0,
+        "drift_detected": false,
+        "row_count_match": true,
+        "db_total": 306,
+        "csv_total": 306,
+        "expected_rc": 0
+      }
+    },
+    {
+      "gate": "G2 synthetic drift",
+      "verdict": "PASS",
+      "detail": {
+        "drift_detected": true,
+        "row_count_diff": 0,
+        "only_in_db": [
+          "KRW-DDD"
+        ],
+        "only_in_csv": [
+          "KRW-FFF"
+        ],
+        "drift_by_field": {
+          "delisted_at": 1,
+          "source": 1
+        },
+        "drift_pairs": [
+          "KRW-CCC",
+          "KRW-EEE"
+        ]
+      }
+    },
+    {
+      "gate": "G3 read-only",
+      "verdict": "PASS",
+      "detail": {
+        "exit_code": 0,
+        "csv_sha_unchanged": true,
+        "csv_bytes_unchanged": true,
+        "pg_count_unchanged": true,
+        "tmp_or_bak_leaks": []
+      }
+    },
+    {
+      "gate": "G4 evidence schema",
+      "verdict": "PASS",
+      "detail": {
+        "evidence_path": "crypto\\data\\_verification\\_d3_scratch\\g4_run\\reconcile_db_csv_2026-04-28.json",
+        "missing_top_keys": [],
+        "missing_summary_keys": [],
+        "missing_drift_keys": [],
+        "mode": "report-only",
+        "rc": 0
+      }
+    },
+    {
+      "gate": "G5 telegram fail-soft",
+      "verdict": "PASS",
+      "detail": {
+        "raised": false,
+        "returned_status": "error:network:ConnectTimeout",
+        "expected_status_prefix": "error:"
+      }
+    }
+  ]
+}
