@@ -61,3 +61,4 @@ crypto/data/_verification/incremental_listings_*.json
 crypto/data/_verification/reconcile_db_csv_*.json
 crypto/data/_verification/backfill_old_delistings_*.json
 crypto/data/_verification/_d3_scratch/
+crypto/data/_verification/_d4_scratch/
