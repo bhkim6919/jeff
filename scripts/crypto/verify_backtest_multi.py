@@ -267,14 +267,33 @@ def gate_g4_g6_regression_inline(trading_results) -> tuple[bool, dict]:
 
 def gate_g4_g6_regression_subprocess() -> tuple[bool, dict]:
     """Run verify_backtest_engine.py as subprocess — re-exercises G4 + G6
-    full dual-run and PR #1 foundation regression in one go."""
+    full dual-run and PR #1 foundation regression in one go.
+
+    Hang guard: 1800s timeout — same pattern as step2's G10 patch."""
     print("\n[G4/G6 subprocess] verify_backtest_engine.py — full re-run")
     cmd = [
         sys.executable,
         "-X", "utf8",
         str(WORKTREE_ROOT / "scripts" / "crypto" / "verify_backtest_engine.py"),
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", timeout=1800)
+    except subprocess.TimeoutExpired as exc:
+        out_tail = "\n".join((exc.stdout or "").splitlines()[-15:]) if exc.stdout else "(empty)"
+        err_tail = "\n".join((exc.stderr or "").splitlines()[-15:]) if exc.stderr else "(empty)"
+        print(f"[TIMEOUT] verify_backtest_engine.py exceeded 1800s")
+        print(f"  cmd: {' '.join(cmd)}")
+        print(f"  stdout tail:\n{out_tail}")
+        print(f"  stderr tail:\n{err_tail}")
+        return False, {
+            "returncode": -1,
+            "tail": (
+                f"TIMEOUT after 1800s\n"
+                f"--- stdout tail ---\n{out_tail}\n"
+                f"--- stderr tail ---\n{err_tail}"
+            ),
+        }
     tail = "\n".join((proc.stdout or "").splitlines()[-15:])
     return proc.returncode == 0, {
         "returncode": proc.returncode,

@@ -327,14 +327,36 @@ def gate_step2_sanity_5y() -> tuple[bool, dict]:
 
 def gate_g10_pr19_regression_subprocess() -> tuple[bool, dict]:
     """verify_backtest_d5_step1.py exit 0 — proves the full PR #19
-    evidence chain (which itself nests PR #3's verifier) is preserved."""
+    evidence chain (which itself nests PR #3's verifier) is preserved.
+
+    Hang guard: 1800s timeout. On TimeoutExpired the subprocess is
+    killed and the gate fails with returncode=-1 + a tail string that
+    embeds TIMEOUT marker plus the captured stdout/stderr tails so the
+    failure point is diagnosable from the parent log alone."""
     print("\n[G10] PR #19 regression (verify_backtest_d5_step1.py subprocess)")
     cmd = [
         sys.executable,
         "-X", "utf8",
         str(WORKTREE_ROOT / "scripts" / "crypto" / "verify_backtest_d5_step1.py"),
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", timeout=1800)
+    except subprocess.TimeoutExpired as exc:
+        out_tail = "\n".join((exc.stdout or "").splitlines()[-15:]) if exc.stdout else "(empty)"
+        err_tail = "\n".join((exc.stderr or "").splitlines()[-15:]) if exc.stderr else "(empty)"
+        print(f"[TIMEOUT] verify_backtest_d5_step1.py exceeded 1800s")
+        print(f"  cmd: {' '.join(cmd)}")
+        print(f"  stdout tail:\n{out_tail}")
+        print(f"  stderr tail:\n{err_tail}")
+        return False, {
+            "returncode": -1,
+            "tail": (
+                f"TIMEOUT after 1800s\n"
+                f"--- stdout tail ---\n{out_tail}\n"
+                f"--- stderr tail ---\n{err_tail}"
+            ),
+        }
     tail = "\n".join((proc.stdout or "").splitlines()[-15:])
     return proc.returncode == 0, {
         "returncode": proc.returncode,

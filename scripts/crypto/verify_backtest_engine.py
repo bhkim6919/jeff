@@ -168,7 +168,9 @@ def gate_g6_idempotency(prior_payload: dict) -> tuple[bool, dict]:
 
 def gate_foundation_regression() -> tuple[bool, dict]:
     """Re-run the PR #1 foundation verifier as a sub-process. PR #2's code
-    changes (parser, engine, etc.) MUST NOT regress G1/G2/G3/G7/G9/G10."""
+    changes (parser, engine, etc.) MUST NOT regress G1/G2/G3/G7/G9/G10.
+
+    Hang guard: 1800s timeout — same pattern as step2's G10 patch."""
     print("\n[regression] PR #1 foundation verifier — must still PASS 6/6")
 
     cmd = [
@@ -179,7 +181,24 @@ def gate_foundation_regression() -> tuple[bool, dict]:
     # The path above resolves on this Windows host; fall back to ``sys.executable``
     # if the venv path moved.
     cmd[0] = sys.executable
-    proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", timeout=1800)
+    except subprocess.TimeoutExpired as exc:
+        out_tail = "\n".join((exc.stdout or "").splitlines()[-12:]) if exc.stdout else "(empty)"
+        err_tail = "\n".join((exc.stderr or "").splitlines()[-12:]) if exc.stderr else "(empty)"
+        print(f"[TIMEOUT] verify_backtest_foundation.py exceeded 1800s")
+        print(f"  cmd: {' '.join(cmd)}")
+        print(f"  stdout tail:\n{out_tail}")
+        print(f"  stderr tail:\n{err_tail}")
+        return False, {
+            "returncode": -1,
+            "tail": (
+                f"TIMEOUT after 1800s\n"
+                f"--- stdout tail ---\n{out_tail}\n"
+                f"--- stderr tail ---\n{err_tail}"
+            ),
+        }
     out_tail = "\n".join(proc.stdout.splitlines()[-12:])
     return proc.returncode == 0, {
         "returncode": proc.returncode,
