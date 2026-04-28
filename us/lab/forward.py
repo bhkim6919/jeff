@@ -641,6 +641,46 @@ class ForwardTrader:
                     if prev_file.exists():
                         shutil.copy2(prev_file, version_dir / f"{strat_name}.json")
 
+            # Phase 4-C write side: persist aggregated equity to equity_history_us.
+            # Frontend /api/charts/equity-unified reads this table; without these
+            # rows the US Analytics chart shows "Not enough US LIVE history yet".
+            # Non-fatal: any failure here must not abort the EOD commit.
+            try:
+                from data.db_provider import DbProviderUS
+                total_equity = sum(s.get("equity", 0) for s in snapshot_bundle.values())
+                total_cash = sum(
+                    _runtime_states[s].get("cash", 0) for s in processed
+                )
+                total_positions = sum(
+                    s.get("positions", 0) for s in snapshot_bundle.values()
+                )
+                spy_close = 0.0
+                if _spy_series is not None and not _spy_series.empty:
+                    try:
+                        spy_close = float(_spy_series.loc[pd.Timestamp(eod_date)])
+                    except (KeyError, IndexError):
+                        try:
+                            spy_close = float(_spy_series.iloc[-1])
+                        except (IndexError, ValueError):
+                            spy_close = 0.0
+                DbProviderUS().save_equity_snapshot(
+                    date_str=eod_date,
+                    cash=float(total_cash),
+                    equity=float(total_equity),
+                    n_pos=int(total_positions),
+                    spy=float(spy_close),
+                )
+                logger.info(
+                    f"[EOD_EQUITY_SAVED] date={eod_date} "
+                    f"equity={total_equity:.2f} cash={total_cash:.2f} "
+                    f"n_pos={total_positions} spy={spy_close:.2f} "
+                    f"strategies={len(processed)}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"[EOD_EQUITY_SAVE_FAIL] {e}", exc_info=True
+                )
+
             # 7. Commit: update HEAD pointer
             meta["last_committed_run_id"] = run_id
             meta["last_successful_eod_date"] = eod_date
