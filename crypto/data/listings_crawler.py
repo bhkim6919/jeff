@@ -68,15 +68,25 @@ DEFAULT_TIMEOUT_SEC = 10
 
 # --- Filter / parser primitives ---------------------------------------------
 
-DELISTING_KEYWORD = "거래지원 종료"
-WARNING_KEYWORD = "유의종목"  # NOT a delisting — separate event
+# Modern Upbit convention: "거래지원 종료" (no space between 거래/지원).
+# Pre-2022 archive sometimes uses "거래 지원 종료" (extra space). Both refer
+# to the same event class — D3-3 backfill needs this variant to capture old
+# delistings; D2/D3-1 incremental keep working unchanged because the new
+# pattern still matches the modern form.
+DELISTING_KEYWORD_RE = re.compile(r"거래\s*지원\s*종료")
+WARNING_KEYWORD_RE = re.compile(r"유의\s*종목")  # NOT a delisting
 NEW_LISTING_KEYWORD = "신규 거래지원"  # NOT a delisting
 
 # Symbol in title: "...(SYMBOL) 거래지원 종료...". 2~15 chars, A-Z/0-9 (Upbit
-# tickers are uppercase alnum).
+# tickers are uppercase alnum). Modern Upbit convention: KOREAN_NAME(SYMBOL).
 TITLE_SYMBOL_RE = re.compile(
-    r"\(([A-Z0-9]{2,15})\)\s*거래지원\s*종료",
+    r"\(([A-Z0-9]{2,15})\)\s*거래\s*지원\s*종료",
 )
+# Modern multi-symbol parens: any (SYMBOL) within the title.
+TITLE_PAREN_SYMBOL_RE = re.compile(r"\(([A-Z0-9]{2,15})\)")
+# Pre-2022 legacy convention: SYMBOL(KOREAN_NAME), e.g. "BLT(블룸), NGC(나가코인)".
+# The symbol sits BEFORE the paren and the paren contains the Korean name.
+TITLE_PRE_PAREN_SYMBOL_RE = re.compile(r"\b([A-Z0-9]{2,15})\(")
 
 # Body date patterns. Order = priority. Each pattern names its format for
 # Jeff's G2 verification: ≥ 2 distinct formats encountered = PASS.
@@ -98,7 +108,13 @@ DELISTING_DATE_ANCHORS = (
 
 # KRW-market presence indicators.
 KRW_AFFIRM_TOKENS = ("KRW 마켓", "KRW마켓", "원화 마켓", "원화마켓", "원화(KRW)", "전 마켓", "전체 마켓")
-KRW_NEGATE_TOKENS = ("BTC 마켓 거래지원 종료", "USDT 마켓 거래지원 종료")  # only when KRW-affirm absent
+# KRW-negate tokens: title-level scope restrictions.
+# Includes the whitespace variant ("거래 지원 종료") for pre-2022 notices.
+KRW_NEGATE_PATTERNS = (
+    re.compile(r"BTC\s*마켓\s*거래\s*지원\s*종료"),
+    re.compile(r"USDT\s*마켓\s*거래\s*지원\s*종료"),
+    re.compile(r"ETH\s*마켓\s*거래\s*지원\s*종료"),  # legacy ETH market (pre-2020)
+)
 
 
 # --- Data class -------------------------------------------------------------
@@ -140,15 +156,43 @@ class DelistingNotice:
 
 
 def parse_symbol_from_title(title: str) -> Optional[str]:
+    """First-symbol convenience wrapper. For multi-symbol titles use
+    ``parse_symbols_from_title`` (D3-3 backfill)."""
     m = TITLE_SYMBOL_RE.search(title)
     return m.group(1) if m else None
 
 
+def parse_symbols_from_title(title: str) -> list[str]:
+    """Extract all ticker symbols from a delisting title.
+
+    Two conventions are recognized:
+        * Modern: ``리졸브(RESOLV) 거래지원 종료`` — symbol inside the parens
+          (KOREAN_NAME(SYMBOL)).
+        * Pre-2022 legacy: ``BLT(블룸), NGC(나가코인) 거래 지원 종료`` — symbol
+          BEFORE the parens (SYMBOL(KOREAN_NAME)). D3-3 backfill needs this.
+
+    Returns symbols in title order, de-duplicated.
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    # Try the modern convention first; if at least one paren-internal symbol
+    # is found we take that as the source of truth (avoids accidentally
+    # picking up market-name tokens like the leading 'KRW' in headers).
+    paren_internal = TITLE_PAREN_SYMBOL_RE.findall(title)
+    candidates = paren_internal or TITLE_PRE_PAREN_SYMBOL_RE.findall(title)
+    for sym in candidates:
+        if sym in seen:
+            continue
+        seen.add(sym)
+        out.append(sym)
+    return out
+
+
 def is_delisting_title(title: str) -> bool:
     return (
-        DELISTING_KEYWORD in title
+        DELISTING_KEYWORD_RE.search(title) is not None
         and NEW_LISTING_KEYWORD not in title
-        and WARNING_KEYWORD not in title
+        and WARNING_KEYWORD_RE.search(title) is None
     )
 
 
@@ -157,8 +201,8 @@ def affects_krw_market(body: str, title: str) -> bool:
     text = (body or "") + "\n" + (title or "")
     if any(tok in text for tok in KRW_AFFIRM_TOKENS):
         return True
-    # If body explicitly limits to non-KRW markets, exclude.
-    if any(tok in text for tok in KRW_NEGATE_TOKENS):
+    # If body or title explicitly limits to non-KRW markets, exclude.
+    if any(p.search(text) for p in KRW_NEGATE_PATTERNS):
         return False
     # Default: assume KRW-affecting if the title doesn't restrict markets.
     # Most title-only delistings cover all markets.
@@ -316,9 +360,10 @@ def crawl_delistings(
     max_pages: int = 20,
     per_page: int = 20,
     fail_soft: bool = True,
+    start_page: int = 1,
 ) -> tuple[list[DelistingNotice], list[dict[str, Any]]]:
-    """Walk up to ``max_pages`` of the notice list, fetch detail of every
-    delisting-keyword title, and return the parsed events.
+    """Walk pages ``start_page..max_pages`` of the notice list, fetch detail
+    of every delisting-keyword title, and return the parsed events.
 
     Returns:
         (delistings, errors)
@@ -327,12 +372,21 @@ def crawl_delistings(
 
     fail_soft: if True, individual notice errors are logged into ``errors``
     and the crawl continues. If False, the first error aborts.
+
+    start_page (default 1) lets D3-3 backfill walk pages 21..35 without
+    re-crawling the recent pages already covered by D2 (1..20) and D3-1
+    (rolling 1..3).
     """
     errors: list[dict[str, Any]] = []
     out: list[DelistingNotice] = []
     seen_ids: set[int] = set()
 
-    for page in range(1, max_pages + 1):
+    if start_page < 1:
+        raise ValueError(f"start_page must be >= 1, got {start_page}")
+    if start_page > max_pages:
+        return (out, errors)
+
+    for page in range(start_page, max_pages + 1):
         try:
             data = crawler.list_page(page, per_page=per_page)
         except UpbitNoticeCrawlerError as exc:
@@ -349,8 +403,8 @@ def crawl_delistings(
             title = n.get("title", "")
             if not is_delisting_title(title):
                 continue
-            symbol = parse_symbol_from_title(title)
-            if not symbol:
+            symbols = parse_symbols_from_title(title)
+            if not symbols:
                 # Title contains the keyword but no parseable ticker — skip.
                 continue
             notice_id = n["id"]
@@ -376,19 +430,25 @@ def crawl_delistings(
 
             affects_krw = affects_krw_market(body, title)
             delisted_at, fmt, excerpt = parse_delisted_at_from_body(body, listed_at)
-            out.append(
-                DelistingNotice(
-                    notice_id=notice_id,
-                    title=title,
-                    listed_at_kst=listed_at,  # type: ignore[arg-type]
-                    symbol=symbol,
-                    pair=f"{KRW_MARKET_PREFIX}{symbol}",
-                    delisted_at_kst=delisted_at,
-                    date_format_used=fmt,
-                    affects_krw=affects_krw,
-                    body_excerpt=excerpt,
-                    source_url=SHARE_URL_FMT.format(id=notice_id),
+
+            # One DelistingNotice per symbol — multi-symbol pre-2022 titles
+            # produce multiple rows that share notice_id / body / dates but
+            # have distinct (pair, symbol). The merge layer (listings_merge)
+            # de-duplicates by pair under fill-in-the-blanks semantics.
+            for symbol in symbols:
+                out.append(
+                    DelistingNotice(
+                        notice_id=notice_id,
+                        title=title,
+                        listed_at_kst=listed_at,  # type: ignore[arg-type]
+                        symbol=symbol,
+                        pair=f"{KRW_MARKET_PREFIX}{symbol}",
+                        delisted_at_kst=delisted_at,
+                        date_format_used=fmt,
+                        affects_krw=affects_krw,
+                        body_excerpt=excerpt,
+                        source_url=SHARE_URL_FMT.format(id=notice_id),
+                    )
                 )
-            )
 
     return (out, errors)

@@ -413,7 +413,11 @@ CREATE TABLE crypto_universe_top100 (
 | 2026-04-28 | D3 보완 5조건 — idempotency / lockfile / partial-write 금지 / drift report / Telegram best-effort | Jeff | §15.2 |
 | 2026-04-28 | **D3-1 PASS — 5/5 게이트 (G1 idempotency, G2 lockfile, G3 partial-write, G4 drift report, G5 telegram fail-soft)** | Jeff (PR #13 merged `6c08f4e3`) | §15.4 |
 | 2026-04-28 | D3-2 GO (report-only) — row count + pair/source/delisted_at drift, logger + JSON + Telegram best-effort, **자동 수정 금지**, Task Scheduler 등록은 D3-3 종료 후 일괄 | Jeff | §15.6 |
-| 2026-04-28 | **D3-2 PASS — 5/5 게이트 (G1 clean, G2 synthetic drift, G3 read-only, G4 evidence schema, G5 telegram fail-soft)** | Jeff (검증 대기) | §15.6 |
+| 2026-04-28 | **D3-2 PASS — 5/5 게이트 (G1 clean, G2 synthetic drift, G3 read-only, G4 evidence schema, G5 telegram fail-soft)** | Jeff (PR #14 merged `428c1979`) | §15.6 |
+| 2026-04-28 | D3-3 GO — 안전 흐름: backfill 1회 → manual incremental 1회 → manual reconcile 1회 → 그 후 Task Scheduler 등록 (incremental 00:30 → reconcile 00:40 UTC, 10분 gap) | Jeff | §15.7 |
+| 2026-04-28 | Parser legacy 확장 — 화이트스페이스 변종 + SYMBOL(KOREAN) pre-paren + ETH 마켓 KRW negate 추가 (backwards-compatible, D2 modern flow 회귀 0) | Claude (D3-3) | §15.7 |
+| 2026-04-28 | **D3-3 PASS — 4/4 게이트 (delisted ≥50, source priority 보존, idempotent run #2 diff=0, post-backfill reconcile CLEAN). listings 306→329, delisted 35→59** | Jeff (검증 대기) | §15.7 |
+| 2026-04-28 | **Phase 2 종결 — D1 + D2 + D3 (D3-1/D3-2/D3-3) 완료. Crypto Lab 데이터 레이어 100%. 다음 = Phase 3 D4 Backtester** | Jeff | §16 |
 
 ---
 
@@ -680,16 +684,99 @@ NULL/empty 정규화: `None`, `""`, `whitespace-only` 모두 None 으로 환산.
 - Telegram 알람은 drift 발생 시에만 fire (clean 일 때 noise 없음)
 - `reconcile_db_csv_<utc>.json` 일자 기반 (multi-run-per-day 시 last-write-wins)
 
-### 15.7 D3-3 (다음)
+### 15.7 D3-3 — Backfill (페이지 21~35) + Task Scheduler 등록
 
-- 페이지 21~35 backfill 1회용 스크립트
-- listings 50+ → 70+ 목표
-- DESIGN.md §15 종결 + Phase 2 완료 표시
-- 본격적 task scheduler 등록 (incremental + reconcile)
+#### Jeff 안전 흐름 (2026-04-28)
+
+| 순서 | 단계 |
+|---|---|
+| 1 | backfill 1회 실행 (idempotent, 기존 데이터 overwrite 금지) |
+| 2 | manual 1회 incremental 실행 + evidence 정상 확인 |
+| 3 | manual 1회 reconcile 실행 + evidence 정상 확인 |
+| 4 | 그 후에만 Task Scheduler 두 잡 등록 |
+
+자동 등록은 PR에 포함하지 않음 — `install_all_tasks.ps1` 은 operator 가 명시적으로 실행.
+
+#### 파서 확장 (legacy archive 대응)
+
+D2 파서는 modern Upbit 컨벤션 (`KOREAN(SYMBOL) 거래지원 종료`) 만 처리. 페이지 21+ 의 pre-2022 archive 는 두 가지 다른 패턴 사용:
+
+1. **Whitespace 변종**: `거래 지원 종료` (스페이스 추가)
+2. **Legacy paren 컨벤션**: `SYMBOL(KOREAN_NAME)`, 다중 심볼, 예: `BLT(블룸), NGC(나가코인) ETH 마켓 거래 지원 종료`
+3. **ETH 마켓 delisting** (2020 이전 ETH 마켓 운영 시기, KRW 무관)
+
+Backwards-compatible 확장:
+- `DELISTING_KEYWORD_RE = re.compile(r"거래\s*지원\s*종료")` — modern + legacy 둘 다 매치
+- `parse_symbols_from_title()` — paren-internal (modern) → fallback to pre-paren (legacy), de-dup
+- `KRW_NEGATE_PATTERNS` 에 `ETH 마켓 거래 지원 종료` 추가 → KRW 무관 delisting 자동 제외
+- `crawl_delistings()` 다중 심볼 지원 — 한 notice 가 N 개 심볼 → N 개 `DelistingNotice` (notice_id 공유, pair 별)
+
+D2/D3-1 modern flow 회귀 검증: D2 `--sample-only` 8/8 events / 4/4 capability format / D3-1 verifier 5/5 PASS.
+
+#### Backfill 결과 (2026-04-28)
+
+| 항목 | 값 |
+|---|---|
+| Pages | 21..35 (15 페이지) |
+| Raw events crawled | 55 |
+| Skipped (non-KRW: ETH/BTC/USDT) | 28 |
+| New pairs inserted | 23 |
+| Existing pairs filled (NULL date → date) | 2 |
+| Existing pairs preserved (date already set) | 2 |
+| Run #2 row deltas (idempotency proof) | 0 |
+| Telegram fired | run #1 only (sent ok), run #2 skipped:no-changes |
+
+PG/CSV state transition:
+- listings_total: **306 → 329** (+23)
+- delisted_with_date: **35 → 59** (+24, 23 new + 1 fill, second fill upgraded existing)
+- source_upbit_notice: **36 → 61** (+25, 23 new + 2 promoted manual_v0 → upbit_notice)
+- source_manual_v0: **270 → 268** (-2, the two NULL→date promotions)
+
+Reconcile post-backfill: **db=329 csv=329 CLEAN** ✓
+
+#### Task Scheduler 구성 (Jeff 권장)
+
+| Task | UTC | KST | 역할 |
+|---|---|---|---|
+| `\Q-TRON\crypto-incremental-listings` | 00:30 | 09:30 | D3-1 daily incremental write |
+| `\Q-TRON\crypto-reconcile-db-csv` | 00:40 | 09:40 | D3-2 read-only drift check (10 min after) |
+
+10-minute gap = incremental → reconcile 순서 보장. Reconcile 은 read-only 이므로 lockfile 없음.
+
+산출물:
+- `scripts/crypto/scheduler/reconcile_db_csv_task.xml`
+- `scripts/crypto/scheduler/install_reconcile_db_csv_task.ps1`
+- `scripts/crypto/scheduler/install_all_tasks.ps1` (combined installer)
+- `scripts/crypto/scheduler/README.md` (안전 순서 + 운영 매뉴얼 갱신)
+
+#### D3-3 PASS 게이트 (4개)
+
+| # | 기준 | 결과 |
+|---|---|---|
+| 1 | Backfill 후 delisted_with_date | ≥ 50 → **59 PASS** |
+| 2 | Source priority 보존 (manual_v0 손실 = NULL→date promotion 만) | -2, expected (NULL date 채워진 2건만 promote) |
+| 3 | Backfill 멱등 (재실행 시 0 row 변경) | **PASS** (run #2 diff=0) |
+| 4 | DB ↔ CSV reconcile post-backfill | **CLEAN** (db=329 csv=329) |
+
+증거: `crypto/data/_verification/backfill_old_delistings_2026-04-28.json` (gitignored — daily evidence pattern), `crypto/data/_verification/d3_3_baseline_2026-04-28.json` (committed PR proof)
 
 ---
 
-## 16. 참조
+## 16. Phase 2 종결 (2026-04-28)
+
+D1 + D2 + D3 (D3-1 incremental, D3-2 reconcile, D3-3 backfill + 운영 등록) 완료. Crypto Lab 데이터 레이어는 다음 상태:
+
+- `crypto_ohlcv`: 98 pairs / 83,910 rows (2018-01-01 ~ 2026-04-26)
+- `crypto_listings`: **329 entries** (manual_v0 268 + upbit_notice 61)
+- Atomic write protocol (§4.4) 적용
+- 일자 incremental + read-only reconcile 자동화 준비 완료 (operator 등록 대기)
+- KR/US 운영 무영향 (격리 §3 검증)
+
+**다음 단계**: Phase 3 D4 = Backtester (cost model 단일, matrix ffill 금지, 전략 3개 우선 — KR Gen4 사고 패턴 회피).
+
+---
+
+## 17. 참조
 
 - KR CLAUDE.md (`C:/Q-TRON-32_ARCHIVE/CLAUDE.md`) — Engine Protection Rules, Data Quality Rules, Idempotency Rules 패턴 참조
 - KR Gen4 비용 모델 사고: MEMORY.md `cost_comparison.md`
