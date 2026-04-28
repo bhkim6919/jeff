@@ -1847,92 +1847,74 @@ def create_app() -> FastAPI:
 
     @application.get("/api/batch/status")
     async def batch_status():
-        """KR batch status. Phase 4-A.1 (2026-04-25): unified shape per
-        docs/ui_data_contract_20260424.md §5 — same fields as US side
-        so qc-badges can use one contract:
-            batch_done, business_date, snapshot_created_at, snapshot_version
+        """KR batch status — strict today-only check.
 
-        2026-04-26 fix (Jeff report): match the US semantics — report
-        the LATEST signals file as ``batch_done`` and label it with the
-        actual trade_date encoded in the filename, not today's calendar
-        date. The previous logic looked for ``target_portfolio_TODAY.json``
-        and silently returned ``done=False`` on weekends/holidays even
-        though Friday's batch had completed — so the BATCH badge stayed
-        hidden over the weekend. US already does the right thing via
-        ``get_last_closed_trading_day``.
+        2026-04-28 hotfix (Jeff report): reverts the 2026-04-26 Phase 4-A.1
+        7-day-lenient logic that silently showed BATCH ✓ on weekdays even
+        when today's batch had not run. Observed at 16:23 KST when today's
+        ``target_portfolio_20260428.json`` was missing (orchestrator had
+        skipped the batch step) yet the dashboard still rendered green
+        because yesterday's file was within the 7-day window.
 
-        Backward-compat: kr_done / kr_date kept as aliases. kr_date now
-        carries the snapshot's actual trade_date, not today, so consumers
-        comparing "today vs kr_date" should use ``business_date`` instead.
+        Strict semantics: ``batch_done`` is True iff
+        ``data/signals/target_portfolio_<KST_TODAY>.json`` exists. The
+        unified shape (``batch_done`` / ``business_date`` /
+        ``snapshot_created_at`` / ``snapshot_version``) is preserved so
+        ``shared/web/static/components/badges.js::computeBatchDone``
+        consumers stay byte-identical; legacy ``kr_done`` / ``kr_date``
+        aliases stay for the bridge period.
+
+        Weekend / holiday handling: on a non-trading day today's file
+        does not exist → ``batch_done = False`` → no badge. The previous
+        7-day leniency was introduced to keep the badge green over
+        weekends but, as a side-effect, masked weekday batch misses.
+        Weekend-aware green is the operator dashboard's job (or a
+        client-side overlay), not a server-side leniency that lies on
+        weekdays.
         """
         try:
             from datetime import datetime as _dt, timezone as _tz
             from zoneinfo import ZoneInfo
             kst_now = _dt.now(ZoneInfo("Asia/Seoul"))
+            today_compact = kst_now.strftime("%Y%m%d")
+            today_iso = kst_now.strftime("%Y-%m-%d")
             signals_dir = Path(__file__).resolve().parent.parent / "data" / "signals"
+            target_file = signals_dir / f"target_portfolio_{today_compact}.json"
+            done = target_file.exists()
 
-            # Find the most recent target_portfolio_YYYYMMDD.json file.
-            # The filename's date IS the trade_date the batch ran for.
-            latest_file = None
-            latest_compact = ""
-            if signals_dir.exists():
-                candidates = sorted(
-                    signals_dir.glob("target_portfolio_*.json"),
-                    key=lambda p: p.name,
-                    reverse=True,
-                )
-                if candidates:
-                    latest_file = candidates[0]
-                    # filename: target_portfolio_20260424.json → "20260424"
-                    stem = latest_file.stem  # "target_portfolio_20260424"
-                    latest_compact = stem.rsplit("_", 1)[-1]
-
-            # Done iff a recent (≤7 days) target_portfolio file exists.
-            # 7d ceiling so that an abandoned/stale batch doesn't keep
-            # claiming green for weeks.
-            done = False
-            business_date_iso = ""
             snapshot_created_at = ""
             snapshot_version = ""
-
-            if latest_file is not None and len(latest_compact) == 8:
+            if done:
                 try:
-                    file_dt = _dt.strptime(latest_compact, "%Y%m%d")
-                    age_days = (kst_now.replace(tzinfo=None) - file_dt).days
-                    if age_days <= 7:
-                        done = True
-                        business_date_iso = file_dt.strftime("%Y-%m-%d")
-                        mtime = latest_file.stat().st_mtime
-                        snapshot_created_at = _dt.fromtimestamp(
-                            mtime, tz=_tz.utc
-                        ).isoformat()
-                        try:
-                            import json as _json
-                            head_file = (
-                                Path(__file__).resolve().parent.parent
-                                / "data" / "lab_live" / "head.json"
-                            )
-                            if head_file.exists():
-                                head_data = _json.loads(
-                                    head_file.read_text(encoding="utf-8")
-                                )
-                                snapshot_version = head_data.get("snapshot_version", "") or ""
-                        except Exception:
-                            pass
+                    mtime = target_file.stat().st_mtime
+                    snapshot_created_at = _dt.fromtimestamp(
+                        mtime, tz=_tz.utc
+                    ).isoformat()
+                except Exception:
+                    pass
+                try:
+                    import json as _json
+                    head_file = (
+                        Path(__file__).resolve().parent.parent
+                        / "data" / "lab_live" / "head.json"
+                    )
+                    if head_file.exists():
+                        head_data = _json.loads(
+                            head_file.read_text(encoding="utf-8")
+                        )
+                        snapshot_version = head_data.get("snapshot_version", "") or ""
                 except Exception:
                     pass
 
             return {
-                # Unified shape (Phase 4-A.1) — business_date is the trade
-                # date the snapshot is FOR (Friday on a weekend), not today.
+                # Unified shape preserved (Phase 4-A.1 contract still honored).
                 "batch_done": done,
-                "business_date": business_date_iso,
+                "business_date": today_iso if done else "",
                 "snapshot_created_at": snapshot_created_at,
                 "snapshot_version": snapshot_version,
-                # Legacy aliases — kr_date now mirrors business_date in
-                # compact form (filename-style) for older consumers.
+                # Legacy aliases (kr_done / kr_date) — bridge period.
                 "kr_done": done,
-                "kr_date": latest_compact if done else None,
+                "kr_date": today_compact if done else None,
             }
         except Exception as e:
             return {
