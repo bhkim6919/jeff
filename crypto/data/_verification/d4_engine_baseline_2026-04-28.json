@@ -1,0 +1,59 @@
+{
+  "started_at_utc": "2026-04-28T02:06:06+00:00",
+  "phase": "D4 PR #2 (engine + Momentum 12-1)",
+  "all_pass": true,
+  "gates": [
+    {
+      "gate": "G4 metrics",
+      "verdict": "PASS",
+      "detail": {
+        "run_id": "momentum_12_1_2020-01-01_2020-06-30_krw_static_top100@2026-04-27_N20_cc0718d9",
+        "rebal_executed_normal": 9,
+        "rebal_executed_stress": 9,
+        "normal_metrics": {
+          "cagr": 1.6610838350693053,
+          "mdd": -0.5991312702817806,
+          "sharpe": 1.5758522614515968,
+          "calmar": 2.772487295293521,
+          "trades": 90,
+          "exposure_pct": 99.39759281315753
+        },
+        "stress_metrics": {
+          "cagr": 1.2435187604159776,
+          "mdd": -0.5993422875580737,
+          "sharpe": 1.3794889772538437,
+          "calmar": 2.074805643170116,
+          "trades": 90,
+          "exposure_pct": 99.4049406398485
+        },
+        "issues": [],
+        "normal_hash": "76d392cd9ffd110f4b44216eb7ec8b31db2242502d47bd808e819a796b71fd8d",
+        "stress_hash": "5805a9fd4ad2637f561ddbecfff0e31f0d6871a31355c0630289298d9d93a702"
+      }
+    },
+    {
+      "gate": "G6 idempotency",
+      "verdict": "PASS",
+      "detail": {
+        "normal_hash_run1": "76d392cd9ffd110f4b44216eb7ec8b31db2242502d47bd808e819a796b71fd8d",
+        "normal_hash_run2": "76d392cd9ffd110f4b44216eb7ec8b31db2242502d47bd808e819a796b71fd8d",
+        "stress_hash_run1": "5805a9fd4ad2637f561ddbecfff0e31f0d6871a31355c0630289298d9d93a702",
+        "stress_hash_run2": "5805a9fd4ad2637f561ddbecfff0e31f0d6871a31355c0630289298d9d93a702",
+        "trade_count_normal_run1": 90,
+        "trade_count_normal_run2": 90,
+        "trade_count_stress_run1": 90,
+        "trade_count_stress_run2": 90,
+        "hashes_match": true,
+        "trade_counts_match": true
+      }
+    },
+    {
+      "gate": "PR #1 foundation regression",
+      "verdict": "PASS",
+      "detail": {
+        "returncode": 0,
+        "tail": "    exposure_pct_after_first_buy: 10.000500025001251\n    cash_breach_caught: True\n    max_positions_caught: True\n    oversell_caught: True\n    missing_pair_sell_caught: True\n    exposure_in_range: True\n    positions_after: 3\n    cash_after: 87994000.0\n\n==============================================================================\nVERDICT: PASS  (summary: crypto\\data\\_verification\\d4_foundation_baseline_2026-04-28.json)\n=============================================================================="
+      }
+    }
+  ]
+}
