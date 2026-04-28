@@ -411,7 +411,9 @@ CREATE TABLE crypto_universe_top100 (
 | 2026-04-27 | **D2 PASS — 자동 크롤 36 events / +30 new + 6 filled / fill ratio 64.8%** | Jeff (검증 대기) | §14 |
 | 2026-04-28 | D3 GO — Q1=A(WTS), Q2=A(21~35 전체), Q3=A+(logger 1차 + Telegram best-effort), Q4=B(3 PR), Q5=A(UTC 00:30) | Jeff | §15.1 |
 | 2026-04-28 | D3 보완 5조건 — idempotency / lockfile / partial-write 금지 / drift report / Telegram best-effort | Jeff | §15.2 |
-| 2026-04-28 | **D3-1 PASS — 5/5 게이트 (G1 idempotency, G2 lockfile, G3 partial-write, G4 drift report, G5 telegram fail-soft)** | Jeff (검증 대기) | §15.4 |
+| 2026-04-28 | **D3-1 PASS — 5/5 게이트 (G1 idempotency, G2 lockfile, G3 partial-write, G4 drift report, G5 telegram fail-soft)** | Jeff (PR #13 merged `6c08f4e3`) | §15.4 |
+| 2026-04-28 | D3-2 GO (report-only) — row count + pair/source/delisted_at drift, logger + JSON + Telegram best-effort, **자동 수정 금지**, Task Scheduler 등록은 D3-3 종료 후 일괄 | Jeff | §15.6 |
+| 2026-04-28 | **D3-2 PASS — 5/5 게이트 (G1 clean, G2 synthetic drift, G3 read-only, G4 evidence schema, G5 telegram fail-soft)** | Jeff (검증 대기) | §15.6 |
 
 ---
 
@@ -621,10 +623,69 @@ requirements.freeze.before_crypto_d2.txt
 - **MultipleInstancesPolicy**: `IgnoreNew` (lockfile 보강)
 - **ExecutionTimeLimit**: 15분 (정상 1초 내 완료, 비정상 시 강제 종료)
 
-### 15.6 후속 (D3-2 / D3-3)
+### 15.6 D3-2 — DB ↔ CSV Reconcile (report-only)
 
-- D3-2: `scripts/crypto/reconcile_db_csv.py` 추가, mismatch 발견 시 drift JSON + Telegram alert
-- D3-3: 페이지 21~35 backfill 1회용 스크립트, listings 50+ → 70+ 목표
+#### Jeff 권장 범위 (2026-04-28)
+
+- DB ↔ CSV row count 비교
+- pair / source / delisted_at drift 감지
+- JSON evidence 저장
+- logger alert
+- Telegram best-effort
+- **자동 수정 금지, report-only**
+- Task Scheduler 자동 등록은 D3-2 검증 후로 보류
+
+#### 산출물
+
+```
+crypto/jobs/reconcile_listings.py            (~330 lines)
+scripts/crypto/reconcile_db_csv.py           thin entry
+scripts/crypto/verify_reconcile.py           5-gate verifier
+crypto/data/_verification/d3_2_baseline_<utc>.json
+```
+
+#### Exit code 정책
+
+| Code | 의미 | 결과 |
+|---|---|---|
+| 0 | CLEAN | parity 완전, telegram skipped |
+| 1 | DRIFT | mismatch 발견, evidence + logger.warning + telegram (best-effort), **no writes** |
+| 2 | ERROR | PG read fail / CSV read fail, evidence 에 fatal_error 기록 |
+
+#### 비교 로직
+
+`compare(db_rows, csv_rows, fields=("source","delisted_at"))` 는 순수 함수.
+in-memory dict 기반이므로 PG/CSV 없이 단위검증 가능.
+
+NULL/empty 정규화: `None`, `""`, `whitespace-only` 모두 None 으로 환산. 날짜 객체는 ISO 문자열로 coerce.
+
+#### D3-2 PASS 게이트 (5개)
+
+`scripts/crypto/verify_reconcile.py` 실행 결과 (2026-04-28):
+
+| # | 게이트 | 검증 방법 | 결과 |
+|---|---|---|---|
+| G1 | Clean state | live PG↔CSV reconcile → exit 0, drift_detected=false, row_count_match=true | **PASS** (db=306, csv=306) |
+| G2 | Synthetic drift | hand-crafted 5×5 row → only_in_db (KRW-DDD), only_in_csv (KRW-FFF), source drift (KRW-EEE), date drift (KRW-CCC) 모두 감지 | **PASS** |
+| G3 | Read-only | live 실행 후 CSV SHA + bytes + PG row count 모두 동일, .tmp/.bak leak 0 | **PASS** |
+| G4 | Evidence schema | top-level 7 키 + summary 10 키 + drift 3 키, mode="report-only" | **PASS** |
+| G5 | Telegram fail-soft | INVALID 토큰으로 alert 전송 시도 → `error:` prefix 반환, raise 0 | **PASS** |
+
+증거: `crypto/data/_verification/d3_2_baseline_2026-04-28.json`
+
+#### 운영 메모
+
+- 실행: `python -X utf8 scripts/crypto/reconcile_db_csv.py [--no-telegram]`
+- 빈도: D3-2 까지는 수동/필요 시 실행. Task Scheduler 등록은 **D3-3 종료 후 일괄**
+- Telegram 알람은 drift 발생 시에만 fire (clean 일 때 noise 없음)
+- `reconcile_db_csv_<utc>.json` 일자 기반 (multi-run-per-day 시 last-write-wins)
+
+### 15.7 D3-3 (다음)
+
+- 페이지 21~35 backfill 1회용 스크립트
+- listings 50+ → 70+ 목표
+- DESIGN.md §15 종결 + Phase 2 완료 표시
+- 본격적 task scheduler 등록 (incremental + reconcile)
 
 ---
 
