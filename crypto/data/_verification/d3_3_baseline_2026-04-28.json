@@ -1,0 +1,61 @@
+{
+  "started_at_utc": "2026-04-28T00:36:12+00:00",
+  "phase": "Phase 2 D3-3 backfill (PR #3)",
+  "pages_backfilled": [
+    21,
+    35
+  ],
+  "pre_backfill": {
+    "listings_total": 306,
+    "delisted_with_date": 35,
+    "source_upbit_notice": 36,
+    "source_manual_v0": 270
+  },
+  "post_backfill": {
+    "listings_total": 329,
+    "delisted_with_date": 59,
+    "source_upbit_notice": 61,
+    "source_manual_v0": 268
+  },
+  "diff": {
+    "listings_total": 23,
+    "delisted_with_date": 24,
+    "source_upbit_notice": 25,
+    "source_manual_v0": -2
+  },
+  "csv_sha256_post_backfill": "1478001096aae4782b10c1fe8a7f0e98317f1d0a013753e035a031b295125fc8",
+  "csv_row_count_post_backfill": 329,
+  "gate_results": [
+    {
+      "gate": "G1 delisted_with_date >= 50",
+      "value": 59,
+      "verdict": "PASS"
+    },
+    {
+      "gate": "G2 source priority (manual_v0 -2 = NULL-fill promotions)",
+      "value": -2,
+      "verdict": "PASS"
+    },
+    {
+      "gate": "G3 backfill idempotency (run #2 row deltas)",
+      "value": 0,
+      "verdict": "PASS"
+    },
+    {
+      "gate": "G4 reconcile post-backfill CLEAN",
+      "value": "db=329 csv=329 drift=0",
+      "verdict": "PASS"
+    }
+  ],
+  "parser_extensions_applied": [
+    "DELISTING_KEYWORD_RE handles whitespace variants",
+    "parse_symbols_from_title falls back to SYMBOL(KOREAN) pre-paren convention",
+    "KRW_NEGATE_PATTERNS adds ETH 마켓 거래 지원 종료",
+    "crawl_delistings emits one DelistingNotice per symbol for multi-symbol titles"
+  ],
+  "regression_check": {
+    "d2_sample_only": "8/8 events, capability 4/4 formats — UNCHANGED",
+    "d3_1_verifier": "5/5 gates PASS — UNCHANGED"
+  },
+  "all_pass": true
+}

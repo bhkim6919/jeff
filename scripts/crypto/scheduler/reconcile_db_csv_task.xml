@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<!--
+  Windows Task Scheduler definition for Crypto Lab D3-2 reconcile_db_csv.
+
+  Schedule: Daily at 09:40 KST (Asia/Seoul) = 00:40 UTC.
+            Fires 10 minutes after crypto-incremental-listings (00:30 UTC) so
+            any drift introduced by the day's incremental write surfaces in
+            the same window. This ordering is per Jeff's D3-3 directive
+            (incremental → reconcile).
+
+  Read-only: the reconcile job NEVER writes to PG or CSV (Jeff D3-2 scope).
+  Drift surfaces via logger + JSON evidence + best-effort Telegram alert.
+
+  Single-instance: ``MultipleInstancesPolicy = IgnoreNew``. There is no
+  on-disk lockfile because reconcile is a pure read; concurrent instances
+  cause noise but cannot corrupt state.
+
+  Failure: TaskScheduler does not retry on non-zero exit. Exit 1 (drift
+  detected) is *not* a Task Scheduler failure — the runner still wrote
+  evidence and (best-effort) telegram alerted. Exit 2 (PG/CSV read failure)
+  is operationally rare and resolves on next-day fire.
+
+  Install: scripts/crypto/scheduler/install_all_tasks.ps1
+-->
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Q-TRON Crypto Lab — daily DB↔CSV reconcile for crypto_listings (D3-2). Read-only; report-only. Logger + JSON evidence; Telegram is best-effort.</Description>
+    <URI>\Q-TRON\crypto-reconcile-db-csv</URI>
+  </RegistrationInfo>
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>2026-04-29T09:40:00+09:00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
+    </CalendarTrigger>
+  </Triggers>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>true</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT5M</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions>
+    <Exec>
+      <Command>C:\Q-TRON-32_ARCHIVE\.venv64\Scripts\python.exe</Command>
+      <Arguments>-X utf8 scripts\crypto\reconcile_db_csv.py</Arguments>
+      <WorkingDirectory>C:\Q-TRON-32_ARCHIVE-crypto-d1</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>
