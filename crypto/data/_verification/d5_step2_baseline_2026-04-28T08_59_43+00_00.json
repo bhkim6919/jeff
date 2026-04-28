@@ -1,0 +1,130 @@
+{
+  "all_pass": true,
+  "decisions": {
+    "F10": "B — RSI2 < 10 AND below LowerBB / SMA20-2σ",
+    "F11": "A — Close > SMA200 안전필터",
+    "F12": "B — z-score ascending",
+    "F13": "A — 6mo + 5y windows",
+    "F14": "A — 6mo NORMAL+STRESS dual + 5y NORMAL only",
+    "F9": "A — PR #19 머지 후 새 브랜치 from origin/master"
+  },
+  "g11_window": {
+    "end": "2020-06-30",
+    "start": "2020-01-01",
+    "top_n": 20
+  },
+  "gates": [
+    {
+      "detail": {
+        "hashes_actual": {
+          "atr_breakout": "af24c4f64d23c38d16b2fbe626666668fc6e24d6ed901d36869374250d247529",
+          "btc_hodl": "655df2ec147d50d0b53f8dfc8e3c1e1d34b44074d973289dc4b8f96586fd64e5",
+          "donchian_20d": "b5a98b256c78824963ff1d9e5a17d496587372291a2759d120faed36631478d3",
+          "momentum_12_1": "76d392cd9ffd110f4b44216eb7ec8b31db2242502d47bd808e819a796b71fd8d",
+          "rsi2_mean_reversion": "e883995251d986cf936033b1b5768cf3b8366e294b217caec88fcabb094f382a",
+          "sma_50_200_trend": "d164b15c3b1d86faa21bc2e45bfdbd63efdd940bdaab2e8ef4686c1c823449e0"
+        },
+        "hashes_expected_pr19": {
+          "atr_breakout": "af24c4f64d23c38d16b2fbe626666668fc6e24d6ed901d36869374250d247529",
+          "btc_hodl": "655df2ec147d50d0b53f8dfc8e3c1e1d34b44074d973289dc4b8f96586fd64e5",
+          "donchian_20d": "b5a98b256c78824963ff1d9e5a17d496587372291a2759d120faed36631478d3",
+          "momentum_12_1": "76d392cd9ffd110f4b44216eb7ec8b31db2242502d47bd808e819a796b71fd8d",
+          "sma_50_200_trend": "d164b15c3b1d86faa21bc2e45bfdbd63efdd940bdaab2e8ef4686c1c823449e0"
+        },
+        "issues": [],
+        "rsi2_metrics": {
+          "cagr": 0.0,
+          "calmar": 0.0,
+          "exposure_pct": 0.0,
+          "mdd": 0.0,
+          "sharpe": 0.0,
+          "trades": 0.0
+        },
+        "rsi2_rebal_executed": 0,
+        "rsi2_trades": 0
+      },
+      "gate": "G11 Core 3 + RSI2 + HODL parity",
+      "verdict": "PASS"
+    },
+    {
+      "detail": {
+        "actual_hash": "b5a98b256c78824963ff1d9e5a17d496587372291a2759d120faed36631478d3",
+        "expected_hash": "b5a98b256c78824963ff1d9e5a17d496587372291a2759d120faed36631478d3",
+        "match": true
+      },
+      "gate": "G12 STEP 1 regression (donchian_20d hash)",
+      "verdict": "PASS"
+    },
+    {
+      "detail": {
+        "issues": [],
+        "normal_hash": "e883995251d986cf936033b1b5768cf3b8366e294b217caec88fcabb094f382a",
+        "normal_metrics": {
+          "cagr": 0.0,
+          "calmar": 0.0,
+          "exposure_pct": 0.0,
+          "mdd": 0.0,
+          "sharpe": 0.0,
+          "trades": 0.0
+        },
+        "normal_rebal_executed": 0,
+        "normal_trades": 0,
+        "stress_hash": "e883995251d986cf936033b1b5768cf3b8366e294b217caec88fcabb094f382a",
+        "stress_metrics": {
+          "cagr": 0.0,
+          "calmar": 0.0,
+          "exposure_pct": 0.0,
+          "mdd": 0.0,
+          "sharpe": 0.0,
+          "trades": 0.0
+        },
+        "stress_rebal_executed": 0,
+        "stress_trades": 0
+      },
+      "gate": "STEP 2 sanity 6mo NORMAL+STRESS",
+      "verdict": "PASS"
+    },
+    {
+      "detail": {
+        "canonical_hash": "e06c37cce1db38f69cfc98408e700eb410f9f6d62b1ec398064cb9e721212b5b",
+        "final_equity_krw": 108704576.97,
+        "issues": [],
+        "metrics": {
+          "cagr": 0.015819,
+          "calmar": 0.026871,
+          "exposure_pct": 57.777385,
+          "mdd": -0.588703,
+          "sharpe": 0.243133,
+          "trades": 48.0
+        },
+        "rebal_executed": 8,
+        "rebal_skipped": 85,
+        "trades": 48
+      },
+      "gate": "STEP 2 sanity 5y NORMAL",
+      "verdict": "PASS"
+    },
+    {
+      "detail": {
+        "returncode": 0,
+        "tail": "          active_max: 100\n          pickable_min: 11\n          pickable_max: 59\n          pickable_mean: 27.38\n          pickable_threshold_pass: 20\n          first_5_anchors: [{'anchor': '2021-01-01', 'active_count': 100, 'pickable_count': 11}, {'anchor': '2021-01-22', 'active_count': 100, 'pickable_count': 13}, {'anchor': '2021-02-12', 'active_count': 100, 'pickable_count': 13}, {'anchor': '2021-03-05', 'active_count': 100, 'pickable_count': 13}, {'anchor': '2021-03-26', 'active_count': 100, 'pickable_count': 13}]\n          last_5_anchors: [{'anchor': '2026-01-23', 'active_count': 100, 'pickable_count': 50}, {'anchor': '2026-02-13', 'active_count': 100, 'pickable_count': 52}, {'anchor': '2026-03-06', 'active_count': 100, 'pickable_count': 53}, {'anchor': '2026-03-27', 'active_count': 100, 'pickable_count': 55}, {'anchor': '2026-04-17', 'active_count': 100, 'pickable_count': 59}]\n      \n      ==============================================================================\n      VERDICT: PASS  (summary: crypto\\data\\_verification\\d4_pr3_baseline_2026-04-28T08_59_43+00_00.json)\n      ==============================================================================\n\n==============================================================================\nVERDICT: PASS  (summary: crypto\\data\\_verification\\d5_step1_baseline_2026-04-28T08_59_43+00_00.json)\n=============================================================================="
+      },
+      "gate": "G10 PR #19 regression subprocess",
+      "verdict": "PASS"
+    }
+  ],
+  "phase": "D5 STEP 2 (RSI2 Mean Reversion addition)",
+  "pr19_locked_hashes_normal": {
+    "atr_breakout": "af24c4f64d23c38d16b2fbe626666668fc6e24d6ed901d36869374250d247529",
+    "btc_hodl": "655df2ec147d50d0b53f8dfc8e3c1e1d34b44074d973289dc4b8f96586fd64e5",
+    "donchian_20d": "b5a98b256c78824963ff1d9e5a17d496587372291a2759d120faed36631478d3",
+    "momentum_12_1": "76d392cd9ffd110f4b44216eb7ec8b31db2242502d47bd808e819a796b71fd8d",
+    "sma_50_200_trend": "d164b15c3b1d86faa21bc2e45bfdbd63efdd940bdaab2e8ef4686c1c823449e0"
+  },
+  "sanity_5y_window": {
+    "end": "2026-04-26",
+    "start": "2021-01-01",
+    "top_n": 20
+  },
+  "started_at_utc": "2026-04-28T08:59:43+00:00"
+}

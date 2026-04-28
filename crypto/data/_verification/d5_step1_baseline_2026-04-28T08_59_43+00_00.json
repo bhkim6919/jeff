@@ -1,0 +1,121 @@
+{
+  "all_pass": true,
+  "decisions": {
+    "F0": "A — STEP 1 single PR (20D only)",
+    "F1": "C — Cross condition + SMA50 filter",
+    "F2": "A — breakout strength rank",
+    "F3": "A — engine rebal exit only (no SL/trail/time)",
+    "F4": "C — momentum_12_1 = engine canary",
+    "F5": "C — 6mo regression + 5y sanity",
+    "F6": "A — lookback 21d signal core",
+    "F7": "A — BTC Risk Gate excluded (separate PR)",
+    "F8": "B — NORMAL + STRESS dual on 6mo window"
+  },
+  "g9_window": {
+    "end": "2020-06-30",
+    "start": "2020-01-01",
+    "top_n": 20
+  },
+  "gates": [
+    {
+      "detail": {
+        "donchian_20d_metrics": {
+          "cagr": 1.011213,
+          "calmar": 1.723086,
+          "exposure_pct": 86.151298,
+          "mdd": -0.586862,
+          "sharpe": 1.223347,
+          "trades": 4.0
+        },
+        "donchian_20d_rebal_executed": 2,
+        "donchian_20d_trades": 4,
+        "hashes_actual": {
+          "atr_breakout": "af24c4f64d23c38d16b2fbe626666668fc6e24d6ed901d36869374250d247529",
+          "btc_hodl": "655df2ec147d50d0b53f8dfc8e3c1e1d34b44074d973289dc4b8f96586fd64e5",
+          "donchian_20d": "b5a98b256c78824963ff1d9e5a17d496587372291a2759d120faed36631478d3",
+          "momentum_12_1": "76d392cd9ffd110f4b44216eb7ec8b31db2242502d47bd808e819a796b71fd8d",
+          "sma_50_200_trend": "d164b15c3b1d86faa21bc2e45bfdbd63efdd940bdaab2e8ef4686c1c823449e0"
+        },
+        "hashes_expected_pr3": {
+          "atr_breakout": "af24c4f64d23c38d16b2fbe626666668fc6e24d6ed901d36869374250d247529",
+          "btc_hodl": "655df2ec147d50d0b53f8dfc8e3c1e1d34b44074d973289dc4b8f96586fd64e5",
+          "momentum_12_1": "76d392cd9ffd110f4b44216eb7ec8b31db2242502d47bd808e819a796b71fd8d",
+          "sma_50_200_trend": "d164b15c3b1d86faa21bc2e45bfdbd63efdd940bdaab2e8ef4686c1c823449e0"
+        },
+        "issues": []
+      },
+      "gate": "G9 Core 3 + HODL parity",
+      "verdict": "PASS"
+    },
+    {
+      "detail": {
+        "issues": [],
+        "normal_hash": "b5a98b256c78824963ff1d9e5a17d496587372291a2759d120faed36631478d3",
+        "normal_metrics": {
+          "cagr": 1.011213,
+          "calmar": 1.723086,
+          "exposure_pct": 86.151298,
+          "mdd": -0.586862,
+          "sharpe": 1.223347,
+          "trades": 4.0
+        },
+        "normal_rebal_executed": 2,
+        "normal_trades": 4,
+        "stress_hash": "b1e2157839fa2fe5440352e15a3a4fefdde1c8c10bf857267821608e5b2b256e",
+        "stress_metrics": {
+          "cagr": 0.934584,
+          "calmar": 1.589584,
+          "exposure_pct": 86.402903,
+          "mdd": -0.587942,
+          "sharpe": 1.184198,
+          "trades": 4.0
+        },
+        "stress_rebal_executed": 2,
+        "stress_trades": 4
+      },
+      "gate": "STEP 1 sanity 6mo NORMAL+STRESS",
+      "verdict": "PASS"
+    },
+    {
+      "detail": {
+        "canonical_hash": "292e69b50648f4fcf9aa93b493b47682d70e39e531e5d80d459125547628db6b",
+        "final_equity_krw": 49711973.2,
+        "issues": [],
+        "metrics": {
+          "cagr": -0.12316,
+          "calmar": -0.12849,
+          "exposure_pct": 95.563068,
+          "mdd": -0.958523,
+          "sharpe": 0.33028,
+          "trades": 159.0
+        },
+        "rebal_executed": 28,
+        "rebal_skipped": 65,
+        "trades": 159
+      },
+      "gate": "STEP 1 sanity 5y NORMAL",
+      "verdict": "PASS"
+    },
+    {
+      "detail": {
+        "returncode": 0,
+        "tail": "    window_start: 2021-01-01\n    window_end: 2026-04-26\n    n_anchors: 93\n    active_min: 100\n    active_max: 100\n    pickable_min: 11\n    pickable_max: 59\n    pickable_mean: 27.38\n    pickable_threshold_pass: 20\n    first_5_anchors: [{'anchor': '2021-01-01', 'active_count': 100, 'pickable_count': 11}, {'anchor': '2021-01-22', 'active_count': 100, 'pickable_count': 13}, {'anchor': '2021-02-12', 'active_count': 100, 'pickable_count': 13}, {'anchor': '2021-03-05', 'active_count': 100, 'pickable_count': 13}, {'anchor': '2021-03-26', 'active_count': 100, 'pickable_count': 13}]\n    last_5_anchors: [{'anchor': '2026-01-23', 'active_count': 100, 'pickable_count': 50}, {'anchor': '2026-02-13', 'active_count': 100, 'pickable_count': 52}, {'anchor': '2026-03-06', 'active_count': 100, 'pickable_count': 53}, {'anchor': '2026-03-27', 'active_count': 100, 'pickable_count': 55}, {'anchor': '2026-04-17', 'active_count': 100, 'pickable_count': 59}]\n\n==============================================================================\nVERDICT: PASS  (summary: crypto\\data\\_verification\\d4_pr3_baseline_2026-04-28T08_59_43+00_00.json)\n=============================================================================="
+      },
+      "gate": "G10 PR #3 regression subprocess",
+      "verdict": "PASS"
+    }
+  ],
+  "phase": "D5 STEP 1 (Donchian 20D Breakout addition)",
+  "pr3_locked_hashes_normal": {
+    "atr_breakout": "af24c4f64d23c38d16b2fbe626666668fc6e24d6ed901d36869374250d247529",
+    "btc_hodl": "655df2ec147d50d0b53f8dfc8e3c1e1d34b44074d973289dc4b8f96586fd64e5",
+    "momentum_12_1": "76d392cd9ffd110f4b44216eb7ec8b31db2242502d47bd808e819a796b71fd8d",
+    "sma_50_200_trend": "d164b15c3b1d86faa21bc2e45bfdbd63efdd940bdaab2e8ef4686c1c823449e0"
+  },
+  "sanity_5y_window": {
+    "end": "2026-04-26",
+    "start": "2021-01-01",
+    "top_n": 20
+  },
+  "started_at_utc": "2026-04-28T08:59:43+00:00"
+}
