@@ -39,6 +39,7 @@ Dual-mode run:  run_dual(config) → both modes under one deterministic run_id.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import math
 from dataclasses import dataclass, field
@@ -560,6 +561,41 @@ def run_dual(
         "equity_curve_normal": [(d.isoformat(), eq) for d, eq in res_normal.equity_curve],
         "equity_curve_stress": [(d.isoformat(), eq) for d, eq in res_stress.equity_curve],
     }
+
+
+def run_multi(
+    base_config: BacktestConfig,
+    strategies: list[Strategy],
+    cost_mode: CostMode,
+    *,
+    connection_factory: Callable[[], object],
+) -> dict[str, BacktestResult]:
+    """Run several strategies on the SAME window/universe/cost (Jeff D4 PR #3).
+
+    Each strategy gets an independent ``Portfolio`` (separate ``run_backtest``
+    invocation) but the ``cost_config`` and ``connection_factory`` are
+    shared, so trades incur identical fees and read the same OHLCV. This is
+    the call-site pattern Jeff specified — the engine does not gain a new
+    multi-portfolio loop, it just exposes a thin wrapper around per-strategy
+    runs.
+
+    Determinism: result iteration order = ``strategies`` argument order;
+    keying is ``strategy.name`` (must be unique across the list — duplicates
+    raise ``ValueError`` here, otherwise the dict would silently drop one).
+    """
+    seen: set[str] = set()
+    out: dict[str, BacktestResult] = {}
+    for strategy in strategies:
+        if strategy.name in seen:
+            raise ValueError(
+                f"run_multi: duplicate strategy name {strategy.name!r}"
+            )
+        seen.add(strategy.name)
+        cfg = dataclasses.replace(base_config, strategy=strategy)
+        out[strategy.name] = run_backtest(
+            cfg, cost_mode, connection_factory=connection_factory
+        )
+    return out
 
 
 def _config_summary(config: BacktestConfig) -> dict:
