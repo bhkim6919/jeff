@@ -1,0 +1,224 @@
+{
+  "all_pass": true,
+  "g5_config": {
+    "end_date": "2020-06-30",
+    "start_date": "2020-01-01",
+    "strategies": [
+      "momentum_12_1",
+      "sma_50_200_trend",
+      "atr_breakout",
+      "btc_hodl"
+    ],
+    "top_n": 20
+  },
+  "gates": [
+    {
+      "detail": {
+        "benchmark_top_n": 1,
+        "hashes": {
+          "atr_breakout": "af24c4f64d23c38d16b2fbe626666668fc6e24d6ed901d36869374250d247529",
+          "btc_hodl": "655df2ec147d50d0b53f8dfc8e3c1e1d34b44074d973289dc4b8f96586fd64e5",
+          "momentum_12_1": "76d392cd9ffd110f4b44216eb7ec8b31db2242502d47bd808e819a796b71fd8d",
+          "sma_50_200_trend": "d164b15c3b1d86faa21bc2e45bfdbd63efdd940bdaab2e8ef4686c1c823449e0"
+        },
+        "issues": [],
+        "results": {
+          "atr_breakout": {
+            "canonical_hash": "af24c4f64d23c38d16b2fbe626666668fc6e24d6ed901d36869374250d247529",
+            "final_equity_krw": 203773219.6,
+            "metrics": {
+              "cagr": 3.201634,
+              "calmar": 4.830512,
+              "exposure_pct": 85.565707,
+              "mdd": -0.662794,
+              "sharpe": 1.540489,
+              "trades": 1.0
+            },
+            "rebal_executed": 1,
+            "rebal_skipped": 8,
+            "trade_count": 1
+          },
+          "btc_hodl": {
+            "canonical_hash": "655df2ec147d50d0b53f8dfc8e3c1e1d34b44074d973289dc4b8f96586fd64e5",
+            "final_equity_krw": 130667055.55,
+            "metrics": {
+              "cagr": 0.714974,
+              "calmar": 1.544855,
+              "exposure_pct": 99.14593,
+              "mdd": -0.46281,
+              "sharpe": 1.114798,
+              "trades": 9.0
+            },
+            "rebal_executed": 9,
+            "rebal_skipped": 0,
+            "trade_count": 9
+          },
+          "momentum_12_1": {
+            "canonical_hash": "76d392cd9ffd110f4b44216eb7ec8b31db2242502d47bd808e819a796b71fd8d",
+            "final_equity_krw": 162473472.43,
+            "metrics": {
+              "cagr": 1.661084,
+              "calmar": 2.772487,
+              "exposure_pct": 99.397593,
+              "mdd": -0.599131,
+              "sharpe": 1.575852,
+              "trades": 90.0
+            },
+            "rebal_executed": 9,
+            "rebal_skipped": 0,
+            "trade_count": 90
+          },
+          "sma_50_200_trend": {
+            "canonical_hash": "d164b15c3b1d86faa21bc2e45bfdbd63efdd940bdaab2e8ef4686c1c823449e0",
+            "final_equity_krw": 122080479.99,
+            "metrics": {
+              "cagr": 0.495301,
+              "calmar": 0.869338,
+              "exposure_pct": 75.772594,
+              "mdd": -0.569745,
+              "sharpe": 0.931221,
+              "trades": 45.0
+            },
+            "rebal_executed": 7,
+            "rebal_skipped": 2,
+            "trade_count": 45
+          }
+        },
+        "trading_top_n": 20,
+        "window_end": "2020-06-30",
+        "window_start": "2020-01-01"
+      },
+      "gate": "G5 multi-strategy parity",
+      "verdict": "PASS"
+    },
+    {
+      "detail": {
+        "benchmark_cagr": 0.715,
+        "benchmark_vs_strategies": {
+          "atr_breakout": {
+            "ratio_bench_to_strategy": 0.22,
+            "strategy_cagr": 3.2016
+          },
+          "momentum_12_1": {
+            "ratio_bench_to_strategy": 0.43,
+            "strategy_cagr": 1.6611
+          },
+          "sma_50_200_trend": {
+            "ratio_bench_to_strategy": 1.44,
+            "strategy_cagr": 0.4953
+          }
+        },
+        "final_equity_krw": 130667055.55,
+        "issues": [],
+        "metrics": {
+          "cagr": 0.714974,
+          "calmar": 1.544855,
+          "exposure_pct": 99.14593,
+          "mdd": -0.46281,
+          "sharpe": 1.114798,
+          "trades": 9.0
+        },
+        "rebal_executed": 9,
+        "trade_count": 9
+      },
+      "gate": "G8 BTC HODL benchmark sanity",
+      "verdict": "PASS"
+    },
+    {
+      "detail": {
+        "actual_normal_hash": "76d392cd9ffd110f4b44216eb7ec8b31db2242502d47bd808e819a796b71fd8d",
+        "expected_normal_hash": "76d392cd9ffd110f4b44216eb7ec8b31db2242502d47bd808e819a796b71fd8d",
+        "match": true
+      },
+      "gate": "G4/G6 regression (inline hash compare)",
+      "verdict": "PASS"
+    },
+    {
+      "detail": {
+        "returncode": 0,
+        "tail": "    cash_breach_caught: True\n    max_positions_caught: True\n    oversell_caught: True\n    missing_pair_sell_caught: True\n    exposure_in_range: True\n    positions_after: 3\n    cash_after: 87994000.0\n\n==============================================================================\nVERDICT: PASS  (summary: crypto\\data\\_verification\\d4_foundation_baseline_2026-04-28.json)\n==============================================================================\n\n==============================================================================\nVERDICT: PASS  (summary: crypto\\data\\_verification\\d4_engine_baseline_2026-04-28.json)\n=============================================================================="
+      },
+      "gate": "G4/G6 regression (subprocess + PR #1 foundation)",
+      "verdict": "PASS"
+    },
+    {
+      "detail": {
+        "active_max": 100,
+        "active_min": 100,
+        "first_5_anchors": [
+          {
+            "active_count": 100,
+            "anchor": "2021-01-01",
+            "pickable_count": 11
+          },
+          {
+            "active_count": 100,
+            "anchor": "2021-01-22",
+            "pickable_count": 13
+          },
+          {
+            "active_count": 100,
+            "anchor": "2021-02-12",
+            "pickable_count": 13
+          },
+          {
+            "active_count": 100,
+            "anchor": "2021-03-05",
+            "pickable_count": 13
+          },
+          {
+            "active_count": 100,
+            "anchor": "2021-03-26",
+            "pickable_count": 13
+          }
+        ],
+        "last_5_anchors": [
+          {
+            "active_count": 100,
+            "anchor": "2026-01-23",
+            "pickable_count": 50
+          },
+          {
+            "active_count": 100,
+            "anchor": "2026-02-13",
+            "pickable_count": 52
+          },
+          {
+            "active_count": 100,
+            "anchor": "2026-03-06",
+            "pickable_count": 53
+          },
+          {
+            "active_count": 100,
+            "anchor": "2026-03-27",
+            "pickable_count": 55
+          },
+          {
+            "active_count": 100,
+            "anchor": "2026-04-17",
+            "pickable_count": 59
+          }
+        ],
+        "n_anchors": 93,
+        "pickable_max": 59,
+        "pickable_mean": 27.38,
+        "pickable_min": 11,
+        "pickable_threshold_pass": 20,
+        "window_end": "2026-04-26",
+        "window_start": "2021-01-01"
+      },
+      "gate": "Sparse-universe 5-year reconfirm",
+      "verdict": "PASS"
+    }
+  ],
+  "phase": "D4 PR #3 (multi-strategy + benchmark)",
+  "pr2_locked_hashes": {
+    "momentum_12_1_normal": "76d392cd9ffd110f4b44216eb7ec8b31db2242502d47bd808e819a796b71fd8d",
+    "momentum_12_1_stress": "5805a9fd4ad2637f561ddbecfff0e31f0d6871a31355c0630289298d9d93a702"
+  },
+  "sparse_config": {
+    "end_date": "2026-04-26",
+    "start_date": "2021-01-01"
+  },
+  "started_at_utc": "2026-04-28T06:09:55+00:00"
+}
