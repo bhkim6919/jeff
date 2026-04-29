@@ -34,6 +34,15 @@
     });
 
     // ── Run daily button ────────────────────────────────────
+    // Behavior fix (Jeff 2026-04-29): the manual EOD button used to
+    // render the immediate POST response and stop. The backend
+    // continued running EOD asynchronously — the Telegram completion
+    // notification was the only signal the operator got, and the
+    // dashboard kept showing the pre-EOD state until "시작/복원"
+    // was pressed manually. ``scheduleEodRefresh`` now polls
+    // /api/lab/live/state every 10s for up to 2 minutes after the
+    // POST so the dashboard catches up automatically once the
+    // backend writes the new EOD state.
     document.getElementById('btn-live-run')?.addEventListener('click', async () => {
         const badge = document.getElementById('live-status');
         badge.textContent = 'RUNNING EOD...';
@@ -50,13 +59,66 @@
                 badge.className = 'badge badge-ok';
                 renderState(data);
             } else {
-                // state를 직접 다시 로드
                 badge.textContent = 'RUNNING';
                 badge.className = 'badge badge-ok';
                 loadState();
             }
+            // Async-completion follow-up: poll until head_date moves
+            // to today (KST) or budget expires.
+            scheduleEodRefresh(badge);
         } catch (e) { badge.textContent = 'ERROR'; }
     });
+
+    // Polls /api/lab/live/state every 10s for up to 2 minutes after
+    // the manual EOD POST. Stops as soon as the backend's head_date
+    // advances to today (KST). Idempotent — clicking the button
+    // again restarts the loop rather than stacking timers.
+    let _eodRefreshTimer = null;
+    let _eodRefreshDeadline = 0;
+    const EOD_REFRESH_INTERVAL_MS = 10_000;
+    const EOD_REFRESH_BUDGET_MS = 120_000;  // 2 minutes
+    function scheduleEodRefresh(badge) {
+        if (_eodRefreshTimer) {
+            clearInterval(_eodRefreshTimer);
+            _eodRefreshTimer = null;
+        }
+        _eodRefreshDeadline = Date.now() + EOD_REFRESH_BUDGET_MS;
+        const todayKstCompact = (() => {
+            const d = new Date();
+            // KST = UTC+9. Compute without depending on the browser's
+            // local timezone.
+            const kst = new Date(
+                d.getTime() + (9 * 60 - d.getTimezoneOffset()) * 60000
+            );
+            return kst.toISOString().slice(0, 10).replace(/-/g, '');
+        })();
+        const tick = async () => {
+            if (Date.now() > _eodRefreshDeadline) {
+                clearInterval(_eodRefreshTimer);
+                _eodRefreshTimer = null;
+                return;
+            }
+            try {
+                const r = await fetch('/api/lab/live/state');
+                const d = await r.json();
+                renderState(d);
+                const headDate =
+                    (d && (d.head_date ||
+                          (d.head && d.head.last_run_date))) || '';
+                const headCompact = headDate.replace(/-/g, '').slice(0, 8);
+                if (headCompact && headCompact === todayKstCompact) {
+                    if (badge) {
+                        badge.textContent = 'RUNNING';
+                        badge.className = 'badge badge-ok';
+                    }
+                    clearInterval(_eodRefreshTimer);
+                    _eodRefreshTimer = null;
+                }
+            } catch (_) { /* keep polling within the budget */ }
+        };
+        tick();
+        _eodRefreshTimer = setInterval(tick, EOD_REFRESH_INTERVAL_MS);
+    }
 
     // ── Reset button removed 2026-04-20 per user request ────
     // Previously: #btn-live-reset POST /api/lab/live/reset — too risky
