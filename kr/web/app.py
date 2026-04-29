@@ -4933,27 +4933,14 @@ async def _sse_generator(
                         holdings_count=_acct.get("holdings_count", 0),
                     )
 
-                    # REST_DB EOD snapshot (broker truth, 하루 1회)
-                    try:
-                        from web.rest_state_db import sync_equity_snapshot, get_eod_equity
-                        from datetime import date as _date_cls
-                        _today = _date_cls.today().isoformat()
-                        _is_eod = (_hour >= 15 and _min >= 30)
-                        if _is_eod and cur_equity > 0 and get_eod_equity(_today) is None:
-                            sync_equity_snapshot(
-                                market_date=_today,
-                                equity=cur_equity,
-                                cash=_acct.get("cash", 0),
-                                holdings_count=_acct.get("holdings_count", 0),
-                                is_eod=True,
-                                snapshot_id=_portfolio_cache.get("_last_snapshot_id", ""),
-                            )
-                            logging.getLogger("web").info(
-                                f"[REST_DB] EOD snapshot saved: date={_today} "
-                                f"equity={cur_equity:,.0f}"
-                            )
-                    except Exception as _db_err:
-                        logging.getLogger("web").debug(f"[REST_DB] equity sync: {_db_err}")
+                    # KP3 (Jeff 2026-04-29): REST_DB EOD snapshot moved to
+                    # ``kr/lifecycle/eod_phase.py`` (engine path) so write
+                    # no longer fires from a dashboard read path. The
+                    # previous SSE-side hook here referenced ``_hour``
+                    # and ``_min`` from ``_regime_running``'s local scope
+                    # — a NameError on every cycle that the bare
+                    # ``logger.debug`` swallowed silently, leaving
+                    # ``rest_equity_snapshots`` 0 rows since v004 shipped.
                 except Exception:
                     pass
 

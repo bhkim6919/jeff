@@ -642,6 +642,63 @@ def run_eod(ctx: LiveContext) -> None:
         except Exception as e:
             logger.warning(f"[OPS_METRICS] EOD persist failed (non-fatal): {e}")
 
+        # ── KP3: PG rest_equity_snapshots 1회 저장 ────────────
+        # Replaces the legacy SSE-generator-side hook in
+        # ``kr/web/app.py`` (dashboard read path; broken by a
+        # ``_hour``/``_min`` NameError that silenced every cycle into
+        # ``logger.debug`` — PG table ``rest_equity_snapshots`` had been
+        # 0 rows since the v004 migration shipped).
+        #
+        # Guards (Jeff 2026-04-29):
+        #   * heartbeat-style writes 금지 — fired once per EOD lifecycle.
+        #   * read-path writes 금지 — runs on the engine path, not SSE.
+        #   * 동일 trade_date 중복 INSERT 방지 — get_eod_equity is None
+        #     gate + ON CONFLICT (market_date, snapshot_seq) DO NOTHING
+        #     in sync_equity_snapshot (sync_equity_snapshot itself
+        #     allocates snapshot_seq via MAX+1).
+        #   * snapshot consistency — single ``portfolio.summary()`` call
+        #     after ``portfolio.end_of_day()`` so equity / cash /
+        #     n_positions all come from the same in-memory state read.
+        try:
+            from datetime import date as _date_cls
+            from web.rest_state_db import sync_equity_snapshot, get_eod_equity
+
+            _today = _date_cls.today().isoformat()
+            if get_eod_equity(_today) is not None:
+                logger.info(
+                    f"[KP3_EOD_EQUITY] skip — {_today} already saved"
+                )
+            else:
+                _eod_snap = portfolio.summary()
+                _equity = float(_eod_snap.get("equity", 0) or 0)
+                if _equity <= 0:
+                    logger.warning(
+                        f"[KP3_EOD_EQUITY] skip — equity={_equity} "
+                        f"(invalid for snapshot)"
+                    )
+                else:
+                    sync_equity_snapshot(
+                        market_date=_today,
+                        equity=_equity,
+                        cash=float(_eod_snap.get("cash", 0) or 0),
+                        holdings_count=int(_eod_snap.get("n_positions", 0) or 0),
+                        peak_equity=float(_eod_snap.get("peak_equity", 0) or 0),
+                        prev_close_equity=float(
+                            _eod_snap.get("prev_close_equity", 0) or 0
+                        ),
+                        is_eod=True,
+                    )
+                    logger.info(
+                        f"[KP3_EOD_EQUITY] saved date={_today} "
+                        f"equity={_equity:,.0f} "
+                        f"cash={_eod_snap.get('cash', 0):,.0f} "
+                        f"n_positions={_eod_snap.get('n_positions', 0)}"
+                    )
+        except Exception as e:
+            logger.warning(
+                f"[KP3_EOD_EQUITY] sync failed (non-fatal): {e}"
+            )
+
         # Shutdown cleanup
         try:
             state_mgr.mark_shutdown("eod_complete")
