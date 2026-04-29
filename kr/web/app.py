@@ -4222,6 +4222,85 @@ def create_app() -> FastAPI:
             },
         )
 
+    # ── Surge Auto-Start (T3-A1, Jeff 2026-04-29) ────────
+    #
+    # Background daemon thread that calls SurgeSimulator.start() shortly
+    # after app boot. Without this, the simulator runs only when an
+    # operator manually clicks the dashboard "시뮬레이션 시작" button.
+    # That manual-only flow had the simulator effectively unused from
+    # 2026-04-12 onward (rest_api_*.log "SURGE" matches drop to zero
+    # 04-12~) — by 04-26 the data accumulation needed for the eventual
+    # paper-30-day live entry gate had been silently stalled for ~17
+    # days. Auto-start brings the simulator back to a "always-on once
+    # the dashboard is up" lifecycle.
+    #
+    # Provider initialization is asynchronous via the existing lazy
+    # _get_provider(); we retry every 5s for up to 30s before giving up.
+    # SurgeSimulator.start() spawns its own scan + periodic-save threads,
+    # so this driver only invokes start() once.
+    #
+    # Override:
+    #   QTRON_SURGE_AUTOSTART=0  — skip (smoke test / unit test)
+
+    def _surge_autostart_loop():
+        import os
+        import time as _time
+        if os.environ.get("QTRON_SURGE_AUTOSTART", "1") == "0":
+            logger.info(
+                "[SURGE_AUTOSTART] disabled (QTRON_SURGE_AUTOSTART=0)"
+            )
+            return
+        # Retry up to 6 times (5s each = 30s max) for provider init.
+        # lab_preflight + IP monitor + REST provider boot may take
+        # several seconds.
+        for attempt in range(1, 7):
+            _time.sleep(5)
+            try:
+                provider = _get_provider()
+            except Exception as e:
+                logger.warning(
+                    f"[SURGE_AUTOSTART attempt={attempt}] "
+                    f"_get_provider() raised: {e!r}"
+                )
+                continue
+            if provider is None:
+                if attempt < 6:
+                    continue
+                logger.warning(
+                    "[SURGE_AUTOSTART] provider not ready after 30s — "
+                    "skipping (manual /api/surge/start still works)"
+                )
+                return
+            try:
+                from web.surge.engine import SurgeSimulator
+                from web.surge.config import DEFAULT_SURGE_CONFIG
+                sim = SurgeSimulator(provider, DEFAULT_SURGE_CONFIG)
+                result = sim.start()
+                if result.get("error"):
+                    logger.warning(
+                        f"[SURGE_AUTOSTART] start failed: "
+                        f"{result['error']}"
+                    )
+                    return
+                _surge_instance["sim"] = sim
+                _surge_sim_ref["sim"] = sim
+                logger.info(
+                    "[SURGE_AUTOSTART] simulation started "
+                    "(default config, lanes A/B/C)"
+                )
+                return
+            except Exception as e:
+                logger.warning(
+                    f"[SURGE_AUTOSTART attempt={attempt}] {e!r}"
+                )
+        # Loop exited without success — already logged above.
+
+    threading.Thread(
+        target=_surge_autostart_loop,
+        daemon=True,
+        name="surge-autostart",
+    ).start()
+
     # ── SSE Stream ────────────────────────────────────────
 
     @application.get("/sse/state")
