@@ -490,6 +490,16 @@ def run_live():
         if n is None:
             logger.critical("[STARTUP_CANCEL_FAIL] cancel_all returned None")
             _buy_blocked_startup = True
+            try:
+                from notify import alert_dedup as _ad, telegram_bot as _tg
+                if _ad.startup_block_should_fire():
+                    _tg.send(
+                        "<b>STARTUP_BLOCKED</b> cancel_all returned None "
+                        "— BUY blocked, SELL/trail allowed",
+                        "WARN",
+                    )
+            except Exception:
+                pass
         else:
             logger.info(f"[STARTUP_CANCEL] Cancelled {n} orders — waiting 1s...")
             time.sleep(1)
@@ -500,6 +510,17 @@ def run_live():
                 _buy_blocked_startup = True
                 for o in open_orders:
                     logger.critical(f"  [REMAINING] {o['side']} {o['code']} x{o['qty']}")
+                # Notify operator: BUY blocked at startup, SELL/trail still allowed.
+                try:
+                    from notify import alert_dedup as _ad, telegram_bot as _tg
+                    if _ad.startup_block_should_fire():
+                        _tg.send(
+                            f"<b>STARTUP_BLOCKED</b> {len(open_orders)} stale order(s) "
+                            f"not cleared — BUY blocked, SELL/trail allowed",
+                            "WARN",
+                        )
+                except Exception:
+                    pass
             else:
                 logger.info("[STARTUP_CANCEL_OK] All open orders cleared")
     else:
@@ -667,6 +688,29 @@ def run_live():
             portfolio.update_prices(prices, ts)
             runtime_data["last_price_update_at"] = ts
 
+            # 5.1 Observability: STALE summary alert (one msg, not per-symbol)
+            #     Fires when N positions have last_price_at older than 6h.
+            #     Throttle: 1h between bursts, recovery always fires once.
+            if market_open:
+                try:
+                    from notify import alert_dedup as _ad, telegram_bot as _tg
+                    _stale_n, _stale_syms = _ad.count_stale_positions(
+                        portfolio.positions, ts)
+                    if _ad.stale_should_fire(_stale_n):
+                        if _stale_n > 0:
+                            _shown = ", ".join(_stale_syms[:20])
+                            _more = f" (+{_stale_n - 20} more)" if _stale_n > 20 else ""
+                            _tg.send(
+                                f"<b>STALE</b> {_stale_n} position(s) stale "
+                                f"≥{_ad.STALE_AGE_THRESHOLD_SEC // 3600}h\n"
+                                f"symbols: {_shown}{_more}",
+                                "WARN",
+                            )
+                        else:
+                            _tg.send("STALE positions recovered — all fresh", "INFO")
+                except Exception:
+                    pass
+
             # 5.4 Startup block release check (2-pass to prevent late fill race)
             if _buy_blocked_startup:
                 _still_open = provider.query_open_orders() or []
@@ -710,6 +754,41 @@ def run_live():
             if _dd_label != "NORMAL":
                 logger.warning(f"[DD_GUARD] {_dd_label} daily={_daily_pnl:.2%} "
                                f"monthly={_monthly_dd:.2%} buy_scale={_buy_scale:.0%}")
+
+            # 5.5.1 Observability: DD label transition alert (no spam)
+            try:
+                from notify import alert_dedup as _ad, telegram_bot as _tg
+                _fired, _prev_label, _new_label = _ad.dd_transition(_dd_label)
+                if _fired:
+                    if _new_label != "NORMAL":
+                        _tg.send(
+                            f"<b>DD_GUARD {_new_label}</b> "
+                            f"daily={_daily_pnl:.2%} monthly={_monthly_dd:.2%} "
+                            f"buy_scale={_buy_scale:.0%}",
+                            "WARN",
+                        )
+                    else:
+                        _tg.send(
+                            f"DD_GUARD recovered to NORMAL (was {_prev_label}) "
+                            f"daily={_daily_pnl:.2%} monthly={_monthly_dd:.2%}",
+                            "INFO",
+                        )
+            except Exception:
+                pass
+
+            # 5.5.2 Observability: single-loop equity drop alert
+            try:
+                from notify import alert_dedup as _ad, telegram_bot as _tg
+                _e_fired, _e_prev, _e_curr = _ad.equity_drop_should_fire(_equity)
+                if _e_fired and _e_prev > 0:
+                    _drop_pct = (_e_curr - _e_prev) / _e_prev * 100
+                    _tg.send(
+                        f"<b>equity drop {_drop_pct:.2f}%</b> in single loop "
+                        f"(${_e_prev:,.0f} → ${_e_curr:,.0f}) — verify broker truth",
+                        "CRITICAL",
+                    )
+            except Exception:
+                pass
 
             # Persist DD state for dashboard / future rebalance
             runtime_data["dd_label"] = _dd_label
