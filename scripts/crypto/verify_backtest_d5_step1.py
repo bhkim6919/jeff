@@ -701,6 +701,16 @@ def main(argv: list[str] | None = None) -> int:
              "subprocess hits step2's 1800s G10 timeout. Equivalent to "
              "setting D5_EXTENDED_5Y_CONTINUOUS=1 in the environment.",
     )
+    parser.add_argument(
+        "--with-multi", action="store_true",
+        help="Re-attach the legacy G10 PR #3 regression gate "
+             "(verify_backtest_multi.py subprocess) to step1's chain. "
+             "Default OFF — step2 now runs the multi verifier as a "
+             "sibling gate so the step1 chain stays inside step2's "
+             "subprocess timeout. This flag exists for nightly / "
+             "on-demand parity runs that want the old single-process "
+             "topology.",
+    )
     args = parser.parse_args(argv)
 
     if args.shard_mode:
@@ -736,9 +746,21 @@ def main(argv: list[str] | None = None) -> int:
         gates.append(
             ("STEP 1 sanity 5y CONTINUOUS (extended)", gate_step1_sanity_5y)
         )
-    gates.append(
-        ("G10 PR #3 regression subprocess", gate_g10_pr3_regression_subprocess)
-    )
+    # NOTE (Jeff 2026-04-29): the previous G10 PR #3 regression gate
+    # (verify_backtest_multi.py subprocess) has been moved out of
+    # step1's chain. step2 now runs the multi PR #3 verifier as a
+    # sibling gate alongside its own G11 / G12 / STEP2 6mo / STEP2
+    # 5y / G10(step1-chain) gates. Rationale: nesting verify_backtest_
+    # multi inside step1 inside step2 stacked timeouts and made the
+    # step1 chain too long to clear step2's subprocess timeout
+    # (4 consecutive Phase 2 attempts on 2026-04-29 all hit the
+    # ceiling here). Keeping the function defined for the
+    # ``--with-multi`` opt-in below + extended/nightly use.
+    if args.with_multi:
+        gates.append(
+            ("G10 PR #3 regression subprocess (legacy nested)",
+             gate_g10_pr3_regression_subprocess)
+        )
 
     results: list[dict] = []
     all_ok = True
