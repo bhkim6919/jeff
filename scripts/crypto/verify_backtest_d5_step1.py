@@ -105,9 +105,13 @@ SANITY_TOP_N = 20
 # (Jeff 2026-04-29: replace single 5y subprocess with yearly shards so a
 # slow / hanging shard cannot block the whole verifier chain).
 SHARD_TIMEOUT_SEC = 900       # per-shard hang guard (Jeff bound: 600~900)
-SHARDED_GATE_BUDGET_SEC = 1500  # whole-gate budget so step1 stays well under
-                                # step2's 1800s G10 timeout. Remaining shards
-                                # are marked SKIPPED once budget is exhausted.
+SHARDED_GATE_BUDGET_SEC = 3000  # whole-gate budget. Empirical 2026-04-29
+                                # run: 4 shards completed in ~16 min (240s
+                                # avg) → 6 shards ~24 min, plus headroom
+                                # for the slowest year. step2's matching
+                                # G10 subprocess timeout is now 5400s so
+                                # step1's full chain (G9 + 6mo dual +
+                                # sharded + G10_nested) fits inside.
 
 REQUIRED_METRIC_KEYS = ("cagr", "mdd", "sharpe", "calmar", "trades", "exposure_pct")
 

@@ -333,6 +333,14 @@ def gate_g10_pr19_regression_subprocess() -> tuple[bool, dict]:
     killed and the gate fails with returncode=-1 + a tail string that
     embeds TIMEOUT marker plus the captured stdout/stderr tails so the
     failure point is diagnosable from the parent log alone."""
+    # G10 timeout = 5400s (90 min). Empirical run on 2026-04-29 had
+    # step1's chain (G9 + 6mo dual + 5y_sharded(6) + G10_nested) hit
+    # ~30 min from G9~6mo alone; the original 1800s ceiling killed
+    # step1 mid-shard. Raised to 5400s with the corresponding
+    # step1 SHARDED_GATE_BUDGET_SEC bumped to 3000s — both still
+    # bounded so a hung leaf cannot cost the whole afternoon.
+    G10_SUBPROCESS_TIMEOUT_SEC = 5400
+
     print("\n[G10] PR #19 regression (verify_backtest_d5_step1.py subprocess)")
     cmd = [
         sys.executable,
@@ -341,18 +349,22 @@ def gate_g10_pr19_regression_subprocess() -> tuple[bool, dict]:
     ]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True,
-                              encoding="utf-8", timeout=1800)
+                              encoding="utf-8",
+                              timeout=G10_SUBPROCESS_TIMEOUT_SEC)
     except subprocess.TimeoutExpired as exc:
         out_tail = "\n".join((exc.stdout or "").splitlines()[-15:]) if exc.stdout else "(empty)"
         err_tail = "\n".join((exc.stderr or "").splitlines()[-15:]) if exc.stderr else "(empty)"
-        print(f"[TIMEOUT] verify_backtest_d5_step1.py exceeded 1800s")
+        print(
+            f"[TIMEOUT] verify_backtest_d5_step1.py exceeded "
+            f"{G10_SUBPROCESS_TIMEOUT_SEC}s"
+        )
         print(f"  cmd: {' '.join(cmd)}")
         print(f"  stdout tail:\n{out_tail}")
         print(f"  stderr tail:\n{err_tail}")
         return False, {
             "returncode": -1,
             "tail": (
-                f"TIMEOUT after 1800s\n"
+                f"TIMEOUT after {G10_SUBPROCESS_TIMEOUT_SEC}s\n"
                 f"--- stdout tail ---\n{out_tail}\n"
                 f"--- stderr tail ---\n{err_tail}"
             ),
