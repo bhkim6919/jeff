@@ -587,14 +587,20 @@ def run_simulation(ranking: List[Dict], params: Optional[Dict] = None) -> Dict:
     # trading expansion). Lab simulate is ~instant compared to
     # realtime, but we still capture both so downstream analysis
     # has a uniform schema across modes.
-    _start_dt = datetime.now()
+    # Timezone-aware (KST +09:00) so the PG TIMESTAMPTZ column
+    # persists the offset explicitly — queries don't depend on the
+    # PG server's session timezone.
+    from datetime import timezone as _tz, timedelta as _td
+    _kst = _tz(_td(hours=9))
+    _fmt = "%Y-%m-%d %H:%M:%S%z"
+    _start_dt = datetime.now(_kst)
     result_a = _simulate_strategy_a(ranking, params)
     result_b = _simulate_strategy_b(ranking, params)
     result_c = _simulate_strategy_c(ranking, params)
-    _stop_dt = datetime.now()
+    _stop_dt = datetime.now(_kst)
 
-    _started_at = _start_dt.strftime("%Y-%m-%d %H:%M:%S")
-    _stopped_at = _stop_dt.strftime("%Y-%m-%d %H:%M:%S")
+    _started_at = _start_dt.strftime(_fmt)
+    _stopped_at = _stop_dt.strftime(_fmt)
     result = {
         "timestamp": _stopped_at,  # legacy alias for stopped_at
         "started_at": _started_at,

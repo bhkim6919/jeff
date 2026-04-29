@@ -1847,44 +1847,96 @@ def create_app() -> FastAPI:
 
     @application.get("/api/batch/status")
     async def batch_status():
-        """KR batch status — strict today-only check.
+        """KR batch status — runtime-truth gated.
 
-        2026-04-28 hotfix (Jeff report): reverts the 2026-04-26 Phase 4-A.1
-        7-day-lenient logic that silently showed BATCH ✓ on weekdays even
-        when today's batch had not run. Observed at 16:23 KST when today's
-        ``target_portfolio_20260428.json`` was missing (orchestrator had
-        skipped the batch step) yet the dashboard still rendered green
-        because yesterday's file was within the 7-day window.
+        Two evidence requirements (2026-04-29 Jeff escalation): a
+        ``BATCH ✓`` badge must mean the **whole** batch finished, not
+        just that the next-day target portfolio file was written.
 
-        Strict semantics: ``batch_done`` is True iff
-        ``data/signals/target_portfolio_<KST_TODAY>.json`` exists. The
-        unified shape (``batch_done`` / ``business_date`` /
-        ``snapshot_created_at`` / ``snapshot_version``) is preserved so
-        ``shared/web/static/components/badges.js::computeBatchDone``
-        consumers stay byte-identical; legacy ``kr_done`` / ``kr_date``
-        aliases stay for the bridge period.
+        Today's run revealed the gap: at 16:27 ``batch.run_batch()``
+        finished step 4 (target_portfolio_20260429.json saved) and the
+        badge flipped green, but step 5 (Fundamental + Lab Live +
+        Advisor) was still in progress (~23% at the time of report).
+        Operators saw "batch complete" while the engine was still 60+
+        minutes from finishing. ``batch.py`` already calls
+        ``state_manager.save_batch_completion`` once the very last step
+        of the chain ends (line 549-553 fast / 628-635 full), and that
+        write lands ``last_batch_completed_at`` in
+        ``runtime_state_live.json`` — that timestamp is now the second
+        gate.
 
-        Weekend / holiday handling: on a non-trading day today's file
-        does not exist → ``batch_done = False`` → no badge. The previous
-        7-day leniency was introduced to keep the badge green over
-        weekends but, as a side-effect, masked weekday batch misses.
-        Weekend-aware green is the operator dashboard's job (or a
-        client-side overlay), not a server-side leniency that lies on
-        weekdays.
+        Definition:
+            ``batch_done`` is True iff **both**
+            (a) ``data/signals/target_portfolio_<KST_TODAY>.json`` exists, AND
+            (b) ``runtime_state.last_batch_completed_at`` parses to a
+                date-of-KST equal to today.
+
+        (a) without (b) is reported as
+        ``batch_partial=True`` so the frontend can tell the difference
+        between "no batch yet" and "target written, lifecycle still
+        running". This keeps the legacy unified shape working for
+        ``shared/web/static/components/badges.js::computeBatchDone``.
+
+        Weekend / holiday handling: on a non-trading day neither (a)
+        nor (b) trigger → ``batch_done = False`` → no badge.
         """
         try:
-            from datetime import datetime as _dt, timezone as _tz
+            from datetime import datetime as _dt, timezone as _tz, date as _date
             from zoneinfo import ZoneInfo
-            kst_now = _dt.now(ZoneInfo("Asia/Seoul"))
+            kst = ZoneInfo("Asia/Seoul")
+            kst_now = _dt.now(kst)
             today_compact = kst_now.strftime("%Y%m%d")
             today_iso = kst_now.strftime("%Y-%m-%d")
+            today_kst_date = kst_now.date()
             signals_dir = Path(__file__).resolve().parent.parent / "data" / "signals"
             target_file = signals_dir / f"target_portfolio_{today_compact}.json"
-            done = target_file.exists()
+            target_present = target_file.exists()
+
+            # Gate (b): runtime_state's last_batch_completed_at must be
+            # today (KST). batch.py writes this from the very end of the
+            # chain via state_manager.save_batch_completion (line 549
+            # fast / 634 full), so it's the ground truth of "the whole
+            # batch lifecycle finished".
+            runtime_completed_today = False
+            last_batch_completed_at = ""
+            last_batch_business_date = ""
+            try:
+                import json as _json
+                runtime_file = (
+                    Path(__file__).resolve().parent.parent
+                    / "state" / "runtime_state_live.json"
+                )
+                if runtime_file.exists():
+                    rt = _json.loads(runtime_file.read_text(encoding="utf-8"))
+                    last_batch_completed_at = rt.get("last_batch_completed_at", "") or ""
+                    last_batch_business_date = rt.get("last_batch_business_date", "") or ""
+                    if last_batch_completed_at:
+                        # last_batch_completed_at is UTC ISO from
+                        # state_manager (datetime.now(timezone.utc)).
+                        # Convert to KST and compare on the date only —
+                        # a batch that finishes around midnight KST must
+                        # not slide into yesterday or tomorrow.
+                        try:
+                            _ts = _dt.fromisoformat(last_batch_completed_at)
+                            if _ts.tzinfo is None:
+                                _ts = _ts.replace(tzinfo=_tz.utc)
+                            runtime_completed_today = (
+                                _ts.astimezone(kst).date() == today_kst_date
+                            )
+                        except Exception:
+                            runtime_completed_today = False
+            except Exception:
+                # Read failure does NOT collapse the gate to False on its
+                # own — but combined with target_present=False below it
+                # naturally yields done=False.
+                pass
+
+            done = target_present and runtime_completed_today
+            partial = target_present and not runtime_completed_today
 
             snapshot_created_at = ""
             snapshot_version = ""
-            if done:
+            if target_present:
                 try:
                     mtime = target_file.stat().st_mtime
                     snapshot_created_at = _dt.fromtimestamp(
@@ -1909,9 +1961,13 @@ def create_app() -> FastAPI:
             return {
                 # Unified shape preserved (Phase 4-A.1 contract still honored).
                 "batch_done": done,
+                "batch_partial": partial,
                 "business_date": today_iso if done else "",
                 "snapshot_created_at": snapshot_created_at,
                 "snapshot_version": snapshot_version,
+                "last_batch_completed_at": last_batch_completed_at,
+                "last_batch_business_date": last_batch_business_date,
+                "target_present": target_present,
                 # Legacy aliases (kr_done / kr_date) — bridge period.
                 "kr_done": done,
                 "kr_date": today_compact if done else None,
@@ -1919,9 +1975,13 @@ def create_app() -> FastAPI:
         except Exception as e:
             return {
                 "batch_done": False,
+                "batch_partial": False,
                 "business_date": "",
                 "snapshot_created_at": "",
                 "snapshot_version": "",
+                "last_batch_completed_at": "",
+                "last_batch_business_date": "",
+                "target_present": False,
                 "kr_done": False,
                 "kr_date": None,
                 "error": str(e),
@@ -4873,27 +4933,14 @@ async def _sse_generator(
                         holdings_count=_acct.get("holdings_count", 0),
                     )
 
-                    # REST_DB EOD snapshot (broker truth, 하루 1회)
-                    try:
-                        from web.rest_state_db import sync_equity_snapshot, get_eod_equity
-                        from datetime import date as _date_cls
-                        _today = _date_cls.today().isoformat()
-                        _is_eod = (_hour >= 15 and _min >= 30)
-                        if _is_eod and cur_equity > 0 and get_eod_equity(_today) is None:
-                            sync_equity_snapshot(
-                                market_date=_today,
-                                equity=cur_equity,
-                                cash=_acct.get("cash", 0),
-                                holdings_count=_acct.get("holdings_count", 0),
-                                is_eod=True,
-                                snapshot_id=_portfolio_cache.get("_last_snapshot_id", ""),
-                            )
-                            logging.getLogger("web").info(
-                                f"[REST_DB] EOD snapshot saved: date={_today} "
-                                f"equity={cur_equity:,.0f}"
-                            )
-                    except Exception as _db_err:
-                        logging.getLogger("web").debug(f"[REST_DB] equity sync: {_db_err}")
+                    # KP3 (Jeff 2026-04-29): REST_DB EOD snapshot moved to
+                    # ``kr/lifecycle/eod_phase.py`` (engine path) so write
+                    # no longer fires from a dashboard read path. The
+                    # previous SSE-side hook here referenced ``_hour``
+                    # and ``_min`` from ``_regime_running``'s local scope
+                    # — a NameError on every cycle that the bare
+                    # ``logger.debug`` swallowed silently, leaving
+                    # ``rest_equity_snapshots`` 0 rows since v004 shipped.
                 except Exception:
                     pass
 
