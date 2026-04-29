@@ -23,7 +23,26 @@ logger = logging.getLogger("gen4.rest.ws")
 WS_URL_REAL = "wss://api.kiwoom.com:10000/api/dostk/websocket"
 WS_URL_MOCK = "wss://mockapi.kiwoom.com:10000/api/dostk/websocket"
 
-MAX_RECONNECT = 5
+# Reconnect strategy (Jeff 2026-04-29 — incident: 15:20:23 KST WS hit
+# MAX_RECONNECT=5 mid-session and flipped to REST fallback even though
+# the underlying connection was recoverable; Surge tick_count froze and
+# Lab realtime ticks dropped to 0 for the rest of the day).
+#
+# Two-tier policy:
+#   * MAX_RECONNECT_MARKET_HOURS — generous during market hours so a
+#     transient API hiccup doesn't lose the rest of the trading day.
+#   * MAX_RECONNECT_OFF_HOURS — tighter when there's nothing to lose
+#     by giving up; an idle WS doesn't need to retry forever.
+#
+# Korean market open window (Kiwoom REST WebSocket lifetime that
+# matters): 09:00~15:30 KST. Pre-market 08:30~09:00 also bursty. We
+# treat 08:00~16:00 KST as "market hours" for the retry budget.
+MAX_RECONNECT_MARKET_HOURS = 60   # ~5 minutes at RECONNECT_DELAY=5
+MAX_RECONNECT_OFF_HOURS = 5
+MAX_RECONNECT = MAX_RECONNECT_MARKET_HOURS  # legacy alias for any
+                                            # external readers; the
+                                            # actual budget is computed
+                                            # at retry time below.
 RECONNECT_DELAY = 5  # seconds
 PING_INTERVAL = 30  # seconds
 
@@ -245,16 +264,33 @@ class KiwoomWebSocket:
                 break
 
             self._reconnect_count += 1
-            if self._reconnect_count > MAX_RECONNECT:
+            # Market-hours-aware budget (Jeff 2026-04-29). KST 08:00~16:00
+            # gets a generous retry budget (MAX_RECONNECT_MARKET_HOURS,
+            # ~5 min of attempts) so a transient API hiccup doesn't lose
+            # the trading day. Off hours fall back to the original tight
+            # budget — there's no liquidity to chase after 16:00 KST.
+            try:
+                from datetime import datetime as _dt
+                from zoneinfo import ZoneInfo
+                _kst_hour = _dt.now(ZoneInfo("Asia/Seoul")).hour
+                _within_market = 8 <= _kst_hour < 16
+            except Exception:
+                _within_market = False  # safe default — tighter budget
+            budget = (
+                MAX_RECONNECT_MARKET_HOURS if _within_market
+                else MAX_RECONNECT_OFF_HOURS
+            )
+            if self._reconnect_count > budget:
                 logger.error(
-                    f"[WS_FALLBACK_REST] Max reconnect ({MAX_RECONNECT}) exceeded. "
+                    f"[WS_FALLBACK_REST] Max reconnect ({budget}) exceeded "
+                    f"(market_hours={_within_market}). "
                     f"WS permanently down - switching to REST fallback mode."
                 )
                 self._permanently_down = True
                 break
             logger.warning(
-                f"[WS] Reconnecting {self._reconnect_count}/{MAX_RECONNECT} "
-                f"in {RECONNECT_DELAY}s..."
+                f"[WS] Reconnecting {self._reconnect_count}/{budget} "
+                f"in {RECONNECT_DELAY}s (market_hours={_within_market})..."
             )
             await asyncio.sleep(RECONNECT_DELAY)
 
