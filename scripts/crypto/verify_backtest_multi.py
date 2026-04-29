@@ -381,11 +381,26 @@ def _summarize(res) -> dict:
 # --- Driver -------------------------------------------------------------
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="D4 PR #3 multi-strategy verification."
+    )
+    parser.add_argument(
+        "--with-engine", action="store_true",
+        help="Re-attach the legacy G4/G6 verify_backtest_engine.py "
+             "subprocess gate (default OFF — step2 runs it as a "
+             "sibling gate so its 1800s budget no longer stacks on "
+             "top of multi's other gates). Used by nightly / "
+             "extended parity runs.",
+    )
+    args = parser.parse_args(argv)
+
     print("=" * 78)
     print(f"D4 PR #3 multi-strategy verification @ {_now()}")
     print(f"  G5 window: {G5_START} ~ {G5_END}  top_n={G5_TOP_N}")
     print(f"  sparse window: {SPARSE_START} ~ {SPARSE_END}")
+    print(f"  engine subprocess: {'attached (--with-engine)' if args.with_engine else 'detached (step2 sibling)'}")
     print("=" * 78)
 
     results: list[dict] = []
@@ -427,20 +442,25 @@ def main() -> int:
     if not reg_inline_ok:
         all_ok = False
 
-    reg_sub_ok, reg_sub_detail = gate_g4_g6_regression_subprocess()
-    results.append({"gate": "G4/G6 regression (subprocess + PR #1 foundation)",
-                    "verdict": "PASS" if reg_sub_ok else "FAIL",
-                    "detail": reg_sub_detail})
-    print(f"\n[{'PASS' if reg_sub_ok else 'FAIL'}] G4/G6 regression (subprocess)")
-    for k, v in reg_sub_detail.items():
-        if k == "tail":
-            print(f"    {k}:")
-            for line in v.splitlines():
-                print(f"      {line}")
-        else:
-            print(f"    {k}: {v}")
-    if not reg_sub_ok:
-        all_ok = False
+    # Engine-subprocess gate moved to step2 as sibling (Jeff 2026-04-29).
+    # Run inline only when ``--with-engine`` is passed (nightly/extended
+    # parity). Default chain skips it so multi finishes inside its own
+    # short window and step2 owns the engine budget directly.
+    if args.with_engine:
+        reg_sub_ok, reg_sub_detail = gate_g4_g6_regression_subprocess()
+        results.append({"gate": "G4/G6 regression (subprocess + PR #1 foundation)",
+                        "verdict": "PASS" if reg_sub_ok else "FAIL",
+                        "detail": reg_sub_detail})
+        print(f"\n[{'PASS' if reg_sub_ok else 'FAIL'}] G4/G6 regression (subprocess)")
+        for k, v in reg_sub_detail.items():
+            if k == "tail":
+                print(f"    {k}:")
+                for line in v.splitlines():
+                    print(f"      {line}")
+            else:
+                print(f"    {k}: {v}")
+        if not reg_sub_ok:
+            all_ok = False
 
     # 5-year sparse-universe reconfirm
     sparse_ok, sparse_detail = gate_sparse_universe_5yr()
