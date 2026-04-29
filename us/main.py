@@ -265,6 +265,72 @@ def run_batch():
     # Telegram
     notify_batch_complete(len(universe), len(top))
 
+    # ── snapshot_version 저장 (Step 7 앞으로 이동 — 2026-04-29 fix) ──
+    # US-P0-001/002 + batch 폭주 방지: research ingestion (Step 7) 이 600s
+    # subprocess timeout 을 초과하면 main.py 가 외부에서 kill 되어 snapshot
+    # 저장이 안 됨. 그러면 runtime_state.last_batch_business_date 가 어제 날짜로
+    # 남고, tray 의 auto-batch 가 매 30s tick 마다 재트리거 → 매 ~10분마다
+    # batch 재실행 (28 alerts/24h 관찰됨). 저장을 research 앞으로 옮기면
+    # research 실패/timeout 무관하게 batch 메타데이터는 정상 commit.
+    try:
+        from core.state_manager import (
+            get_last_closed_trading_day, get_current_trading_day,
+            is_post_market_close, US_ET,
+        )
+        from zoneinfo import ZoneInfo
+
+        try:
+            from data.alpaca_provider import AlpacaProvider
+            prov = AlpacaProvider(config)
+        except Exception:
+            prov = None
+
+        et_now = datetime.now(ZoneInfo("US/Eastern"))
+        post_close = is_post_market_close(et_now)
+
+        if post_close:
+            # 정규 post-close batch — 오늘 거래일로 기록
+            today_bd = get_current_trading_day(prov) if prov else get_current_trading_day()
+            bd_marker = "POST_CLOSE"
+        else:
+            # pre-market / 장중 수동 실행 — 직전 종가일로 기록
+            today_bd = get_last_closed_trading_day(prov) if prov else get_last_closed_trading_day()
+            bd_marker = "PRE_MARKET"
+
+        sv = f"{today_bd}_batch_{int(et_now.timestamp())}_{bd_marker}"
+
+        # 직접 파일 저장 (서버가 안 떠있을 때 대비)
+        import json as _json
+        rt_path = config.STATE_DIR / f"runtime_state_us_{config.TRADING_MODE}.json"
+        rt = {}
+        if rt_path.exists():
+            with open(rt_path, "r", encoding="utf-8") as f:
+                rt = _json.load(f)
+        rt["snapshot_version"] = sv
+        rt["snapshot_created_at"] = et_now.isoformat()
+        rt["last_batch_business_date"] = today_bd
+        rt["last_batch_post_close"] = post_close  # P0-001 marker
+        # batch_fresh는 compute_batch_fresh가 post-close 여부까지 검증하므로
+        # 여기서는 단순 참값만 저장 (execute 쪽에서 재평가).
+        rt["batch_fresh"] = bool(post_close)
+        rt["rebal_phase"] = "BATCH_DONE"
+        # 새 배치: attempt tracking 초기화
+        rt["last_rebal_attempt_snapshot"] = ""
+        rt["last_rebal_attempt_at"] = ""
+        rt["last_rebal_attempt_result"] = ""
+        rt["last_rebal_attempt_count"] = 0
+        rt["last_rebal_attempt_reason"] = ""
+        with open(rt_path, "w", encoding="utf-8") as f:
+            _json.dump(rt, f, ensure_ascii=False, indent=2, default=str)
+
+        print(f"  [US_BATCH_OK] snapshot={sv} post_close={post_close}")
+        # P1-5: explicit marker for post-close confirmed batches (UI badge gate)
+        if post_close:
+            print(f"  [BATCH_POST_CLOSE_CONFIRMED] bd={today_bd} "
+                  f"created_et={et_now.isoformat()} snapshot={sv}")
+    except Exception as e:
+        print(f"  [US_BATCH_SNAPSHOT_FAIL] {e}")
+
     # Step 7: Research universe OHLCV ingestion (Lab/Forward EOD 의존)
     # Invariant: Strategy uses Universe U → Data(U) must exist.
     # 운영(ohlcv_us)과 분리된 ohlcv_us_research 테이블에 R1000 + R3000 small-cap ingestion.
@@ -356,69 +422,6 @@ def run_batch():
                          severity="WARNING")
             except Exception:
                 pass
-
-    # ── snapshot_version 저장 (서버 API 경유 — 프로세스 간 충돌 방지) ──
-    # US-P0-001/002: pre-market 배치는 last_batch_business_date를 오늘이 아닌
-    # 직전 종가일(get_last_closed_trading_day)로 기록 → post-close 배치가
-    # 이후에 다시 실행 가능.
-    try:
-        from core.state_manager import (
-            get_last_closed_trading_day, get_current_trading_day,
-            is_post_market_close, US_ET,
-        )
-        from zoneinfo import ZoneInfo
-
-        try:
-            from data.alpaca_provider import AlpacaProvider
-            prov = AlpacaProvider(config)
-        except Exception:
-            prov = None
-
-        et_now = datetime.now(ZoneInfo("US/Eastern"))
-        post_close = is_post_market_close(et_now)
-
-        if post_close:
-            # 정규 post-close batch — 오늘 거래일로 기록
-            today_bd = get_current_trading_day(prov) if prov else get_current_trading_day()
-            bd_marker = "POST_CLOSE"
-        else:
-            # pre-market / 장중 수동 실행 — 직전 종가일로 기록
-            today_bd = get_last_closed_trading_day(prov) if prov else get_last_closed_trading_day()
-            bd_marker = "PRE_MARKET"
-
-        sv = f"{today_bd}_batch_{int(et_now.timestamp())}_{bd_marker}"
-
-        # 직접 파일 저장 (서버가 안 떠있을 때 대비)
-        import json as _json
-        rt_path = config.STATE_DIR / f"runtime_state_us_{config.TRADING_MODE}.json"
-        rt = {}
-        if rt_path.exists():
-            with open(rt_path, "r", encoding="utf-8") as f:
-                rt = _json.load(f)
-        rt["snapshot_version"] = sv
-        rt["snapshot_created_at"] = et_now.isoformat()
-        rt["last_batch_business_date"] = today_bd
-        rt["last_batch_post_close"] = post_close  # P0-001 marker
-        # batch_fresh는 compute_batch_fresh가 post-close 여부까지 검증하므로
-        # 여기서는 단순 참값만 저장 (execute 쪽에서 재평가).
-        rt["batch_fresh"] = bool(post_close)
-        rt["rebal_phase"] = "BATCH_DONE"
-        # 새 배치: attempt tracking 초기화
-        rt["last_rebal_attempt_snapshot"] = ""
-        rt["last_rebal_attempt_at"] = ""
-        rt["last_rebal_attempt_result"] = ""
-        rt["last_rebal_attempt_count"] = 0
-        rt["last_rebal_attempt_reason"] = ""
-        with open(rt_path, "w", encoding="utf-8") as f:
-            _json.dump(rt, f, ensure_ascii=False, indent=2, default=str)
-
-        print(f"  [US_BATCH_OK] snapshot={sv} post_close={post_close}")
-        # P1-5: explicit marker for post-close confirmed batches (UI badge gate)
-        if post_close:
-            print(f"  [BATCH_POST_CLOSE_CONFIRMED] bd={today_bd} "
-                  f"created_et={et_now.isoformat()} snapshot={sv}")
-    except Exception as e:
-        print(f"  [US_BATCH_SNAPSHOT_FAIL] {e}")
 
     print(f"\n{'='*50}")
     print(f"Batch complete!")
