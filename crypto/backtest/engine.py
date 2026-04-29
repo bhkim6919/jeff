@@ -109,6 +109,16 @@ class BacktestResult:
     final_positions: dict[str, float]        # pair → qty
     rebal_dates_executed: list[date]
     rebal_dates_skipped: list[tuple[date, str]]  # (date, reason)
+    # D6 Stage 1 (Jeff 2026-04-29): when run_backtest is called with a
+    # non-None ``btc_gate`` and the gate decides ``is_active=False`` on
+    # a rebal date, the BUY phase of that rebal is suppressed. SELLs /
+    # trail / max-hold / forced exits keep firing as usual. Each entry
+    # is ``(rebal_date, reason)`` where reason carries the suppressed
+    # BUY count and pair list so the BUY skip is auditable post-hoc.
+    # Default empty list — when ``btc_gate=None`` (the default) the
+    # field stays empty and downstream metric / hash calculations are
+    # byte-identical to the pre-gate behavior.
+    btc_gate_blocked_buys: list[tuple[date, str]] = field(default_factory=list)
 
 
 # --- Rebal date / warmup ------------------------------------------------
@@ -274,6 +284,7 @@ def run_backtest(
     cost_mode: CostMode,
     *,
     connection_factory: Callable[[], object],
+    btc_gate: Optional["BTCRiskGate"] = None,
 ) -> BacktestResult:
     """Run one backtest end-to-end for a single cost mode.
 
@@ -285,8 +296,49 @@ def run_backtest(
         - trade_log entries appended in execution order (SELL→BUY,
           pair-asc within each)
         - canonical_hash excludes timestamps
+
+    Optional ``btc_gate`` (D6 Stage 1, Jeff 2026-04-29):
+        Coarse market-regime filter. When provided, the BUY phase of
+        each rebal is suppressed on dates where ``btc_gate.is_active``
+        returns False — typical use is a BTC weekly EMA200 cross gate
+        (BEAR → no new alt buys). SELL / rebal exit / trail / max-hold
+        are NEVER affected; only fresh BUYs are blocked.
+
+        Default is ``None`` (no gating); the engine's behavior in that
+        case is byte-identical to pre-D6 — same canonical_hash, same
+        trade_log, same metrics. The non-None path adds an audit row
+        per blocked rebal to ``BacktestResult.btc_gate_blocked_buys``.
     """
     loader = OhlcvLoader(connection_factory)
+
+    # Pre-load BTC OHLCV once when gating is enabled — avoids per-rebal
+    # PG hits and lets the gate run on a stable in-memory frame. The
+    # window is bounded by the strategy lookback so the weekly EMA200
+    # has enough warmup. ``None`` here keeps the engine 0-cost when
+    # the caller didn't pass a gate.
+    btc_ohlcv: Optional[pd.DataFrame] = None
+    if btc_gate is not None:
+        # 200-week EMA needs ~4 years of weekly data; pull a generous
+        # 5-year buffer before config.start_date so even early rebal
+        # dates have enough history.
+        gate_load_start = config.start_date - timedelta(days=365 * 5)
+        try:
+            btc_ohlcv = loader.load_pair(
+                "KRW-BTC", gate_load_start, config.end_date
+            )
+            if btc_ohlcv.empty:
+                logger.warning(
+                    "[engine] btc_gate provided but KRW-BTC OHLCV is empty "
+                    "in [%s, %s]; gate will safe-default to True (no gating).",
+                    gate_load_start, config.end_date,
+                )
+        except Exception as exc:
+            logger.warning(
+                "[engine] btc_gate provided but KRW-BTC load failed (%s); "
+                "gate will safe-default to True (no gating).",
+                exc,
+            )
+            btc_ohlcv = None
     portfolio = Portfolio(
         cash_krw=config.initial_cash_krw,
         max_positions=config.top_n,
@@ -311,6 +363,7 @@ def run_backtest(
     market_curve: list[tuple[date, float]] = []
     rebal_executed: list[date] = []
     rebal_skipped: list[tuple[date, str]] = []
+    btc_gate_blocked_buys: list[tuple[date, str]] = []
 
     # Daily walk — mark-to-market every day, rebal on grid.
     rebal_set = set(rebal_dates)
@@ -344,6 +397,9 @@ def run_backtest(
                     portfolio=portfolio,
                     loader=loader,
                     trade_log=trade_log,
+                    btc_gate=btc_gate,
+                    btc_ohlcv=btc_ohlcv,
+                    btc_gate_blocked_buys=btc_gate_blocked_buys,
                 )
                 rebal_executed.append(cur)
             except _RebalSkipped as exc:
@@ -373,10 +429,42 @@ def run_backtest(
         final_positions={p.pair: p.qty for p in portfolio.positions.values()},
         rebal_dates_executed=rebal_executed,
         rebal_dates_skipped=rebal_skipped,
+        btc_gate_blocked_buys=btc_gate_blocked_buys,
     )
 
 
 # --- Rebal execution ---------------------------------------------------
+
+
+def _btc_gate_decide(
+    btc_gate: Optional["BTCRiskGate"],
+    btc_ohlcv: Optional[pd.DataFrame],
+    rebal_date: date,
+) -> bool:
+    """Decide whether BUYs are allowed at ``rebal_date``.
+
+    Three branches (D6 Stage 1):
+
+    1. ``btc_gate is None``        → True (no gating, default).
+    2. gate raises an exception    → True (defensive: never silently
+       turn the engine into permanent cash mode because of a flaky
+       gate). The exception is logged at WARNING.
+    3. otherwise                   → ``bool(gate.is_active(...))``.
+
+    Pulled out of ``_execute_rebal`` so the decision is unit-testable
+    without spinning up a Portfolio + OhlcvLoader. SELL phase calls
+    this function never — only BUYs are gated.
+    """
+    if btc_gate is None:
+        return True
+    try:
+        return bool(btc_gate.is_active(btc_ohlcv, rebal_date))
+    except Exception as exc:
+        logger.warning(
+            "[engine] %s btc_gate raised %r; defaulting gate_active=True",
+            rebal_date, exc,
+        )
+        return True
 
 
 class _RebalSkipped(Exception):
@@ -392,8 +480,19 @@ def _execute_rebal(
     portfolio: Portfolio,
     loader: OhlcvLoader,
     trade_log: list[TradeLogEntry],
+    btc_gate: Optional["BTCRiskGate"] = None,
+    btc_ohlcv: Optional[pd.DataFrame] = None,
+    btc_gate_blocked_buys: Optional[list[tuple[date, str]]] = None,
 ) -> None:
-    """Run one rebalance: signal asof D-1, trade at D close, SELL→BUY."""
+    """Run one rebalance: signal asof D-1, trade at D close, SELL→BUY.
+
+    When ``btc_gate`` is provided, the gate is consulted **after**
+    SELLs are executed and **before** BUYs run. A False decision
+    suppresses BUYs only — SELL exits and held positions are
+    untouched (``btc_gate`` is a market-regime filter, not a risk
+    kill-switch). Suppression is recorded in
+    ``btc_gate_blocked_buys`` for audit.
+    """
     asof = _signal_asof(rebal_date)
     universe_pairs = config.universe.active_pairs(asof)
     if not universe_pairs:
@@ -455,6 +554,27 @@ def _execute_rebal(
                 slippage_krw=cb.slippage_krw,
             )
         )
+
+    # D6 Stage 1: BTC market-regime gate. Consulted between SELLs and
+    # BUYs so today's exits / trail / max-hold all complete before any
+    # BUY suppression decision. SELLs above this point have already
+    # executed regardless of the gate decision.
+    gate_active = _btc_gate_decide(btc_gate, btc_ohlcv, rebal_date) if buys else True
+    if not gate_active and buys:
+        suppressed_pairs = sorted(p for p, _ in buys)
+        suppressed_notional = sum(
+            qty * prices_today[p]
+            for p, qty in buys
+            if p in prices_today
+        )
+        reason = (
+            f"btc_gate=False suppressed_buys={len(buys)} "
+            f"pairs={suppressed_pairs} notional_krw={suppressed_notional:.0f}"
+        )
+        logger.info("[engine] %s %s", rebal_date, reason)
+        if btc_gate_blocked_buys is not None:
+            btc_gate_blocked_buys.append((rebal_date, reason))
+        buys = []  # drop BUY phase; SELLs above already executed.
 
     # Execute BUYs.
     for pair, qty in buys:
