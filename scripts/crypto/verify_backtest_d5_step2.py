@@ -325,16 +325,93 @@ def gate_step2_sanity_5y() -> tuple[bool, dict]:
 # --- G10 PR #19 regression (subprocess) ---------------------------------
 
 
+# --- G11 multi PR #3 regression (sibling gate, Jeff 2026-04-29) ---------
+#
+# Previously this verifier was nested inside step1's chain (step2 →
+# step1 → multi). Stacking subprocess timeouts that way left the step1
+# chain too long to clear step2's outer timeout — the 2026-04-29
+# Phase 2 attempts ran into that ceiling four times in a row. Pulling
+# multi up to step2 gives each verifier its own budget and own
+# evidence file, and a partial PASS is recoverable.
+
+
+def gate_multi_pr3_regression_subprocess() -> tuple[bool, dict]:
+    """verify_backtest_multi.py exit 0 — proves D4 + PR #3 lock fully
+    preserved. Independent timeout (1800s) sibling to G10."""
+    print("\n[G11_MULTI] PR #3 regression (verify_backtest_multi.py subprocess)")
+    cmd = [
+        sys.executable, "-X", "utf8",
+        str(WORKTREE_ROOT / "scripts" / "crypto" / "verify_backtest_multi.py"),
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", timeout=1800)
+    except subprocess.TimeoutExpired as exc:
+        out_tail = "\n".join((exc.stdout or "").splitlines()[-15:]) if exc.stdout else "(empty)"
+        err_tail = "\n".join((exc.stderr or "").splitlines()[-15:]) if exc.stderr else "(empty)"
+        print(f"[TIMEOUT] verify_backtest_multi.py exceeded 1800s")
+        print(f"  cmd: {' '.join(cmd)}")
+        print(f"  stdout tail:\n{out_tail}")
+        print(f"  stderr tail:\n{err_tail}")
+        return False, {
+            "returncode": -1,
+            "tail": (
+                f"TIMEOUT after 1800s\n"
+                f"--- stdout tail ---\n{out_tail}\n"
+                f"--- stderr tail ---\n{err_tail}"
+            ),
+        }
+    tail = "\n".join((proc.stdout or "").splitlines()[-15:])
+    return proc.returncode == 0, {
+        "returncode": proc.returncode,
+        "tail": tail,
+    }
+
+
 def gate_g10_pr19_regression_subprocess() -> tuple[bool, dict]:
     """verify_backtest_d5_step1.py exit 0 — proves the full PR #19
-    evidence chain (which itself nests PR #3's verifier) is preserved."""
+    evidence chain (which itself nests PR #3's verifier) is preserved.
+
+    Hang guard: 1800s timeout. On TimeoutExpired the subprocess is
+    killed and the gate fails with returncode=-1 + a tail string that
+    embeds TIMEOUT marker plus the captured stdout/stderr tails so the
+    failure point is diagnosable from the parent log alone."""
+    # G10 timeout = 5400s (90 min). Empirical run on 2026-04-29 had
+    # step1's chain (G9 + 6mo dual + 5y_sharded(6) + G10_nested) hit
+    # ~30 min from G9~6mo alone; the original 1800s ceiling killed
+    # step1 mid-shard. Raised to 5400s with the corresponding
+    # step1 SHARDED_GATE_BUDGET_SEC bumped to 3000s — both still
+    # bounded so a hung leaf cannot cost the whole afternoon.
+    G10_SUBPROCESS_TIMEOUT_SEC = 5400
+
     print("\n[G10] PR #19 regression (verify_backtest_d5_step1.py subprocess)")
     cmd = [
         sys.executable,
         "-X", "utf8",
         str(WORKTREE_ROOT / "scripts" / "crypto" / "verify_backtest_d5_step1.py"),
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8",
+                              timeout=G10_SUBPROCESS_TIMEOUT_SEC)
+    except subprocess.TimeoutExpired as exc:
+        out_tail = "\n".join((exc.stdout or "").splitlines()[-15:]) if exc.stdout else "(empty)"
+        err_tail = "\n".join((exc.stderr or "").splitlines()[-15:]) if exc.stderr else "(empty)"
+        print(
+            f"[TIMEOUT] verify_backtest_d5_step1.py exceeded "
+            f"{G10_SUBPROCESS_TIMEOUT_SEC}s"
+        )
+        print(f"  cmd: {' '.join(cmd)}")
+        print(f"  stdout tail:\n{out_tail}")
+        print(f"  stderr tail:\n{err_tail}")
+        return False, {
+            "returncode": -1,
+            "tail": (
+                f"TIMEOUT after {G10_SUBPROCESS_TIMEOUT_SEC}s\n"
+                f"--- stdout tail ---\n{out_tail}\n"
+                f"--- stderr tail ---\n{err_tail}"
+            ),
+        }
     tail = "\n".join((proc.stdout or "").splitlines()[-15:])
     return proc.returncode == 0, {
         "returncode": proc.returncode,
@@ -408,7 +485,9 @@ def main() -> int:
     if not s5_ok:
         all_ok = False
 
-    # G10 subprocess (PR #19 verifier)
+    # G10 subprocess (PR #19 verifier — step1's chain only, multi
+    # has been moved to its own sibling gate below to keep timeouts
+    # additive rather than nested)
     reg_ok, reg_detail = gate_g10_pr19_regression_subprocess()
     results.append({
         "gate": "G10 PR #19 regression subprocess",
@@ -424,6 +503,27 @@ def main() -> int:
         else:
             print(f"    {k}: {v}")
     if not reg_ok:
+        all_ok = False
+
+    # G11_MULTI sibling: PR #3 regression (verify_backtest_multi.py).
+    # Independent 1800s timeout — formerly nested inside step1 (Jeff
+    # 2026-04-29 separation: 4 consecutive Phase 2 attempts had hit
+    # the stacked-timeout ceiling at this point of the chain).
+    multi_ok, multi_detail = gate_multi_pr3_regression_subprocess()
+    results.append({
+        "gate": "G11_MULTI PR #3 regression subprocess",
+        "verdict": "PASS" if multi_ok else "FAIL",
+        "detail": multi_detail,
+    })
+    print(f"\n[{'PASS' if multi_ok else 'FAIL'}] G11_MULTI PR #3 regression subprocess")
+    for k, v in multi_detail.items():
+        if k == "tail":
+            print(f"    {k}:")
+            for line in str(v).splitlines():
+                print(f"      {line}")
+        else:
+            print(f"    {k}: {v}")
+    if not multi_ok:
         all_ok = False
 
     summary_path = VERIF_DIR / f"d5_step2_baseline_{_now().replace(':', '_')}.json"
