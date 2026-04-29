@@ -102,7 +102,11 @@ class RealtimeSimulator:
         self._start_time = time.time()
         # ISO wall-clock for backdata (Jeff 2026-04-29 — start/stop time
         # capture for downstream live-trading expansion analysis).
-        self._start_dt = datetime.now()
+        # Timezone-aware (Asia/Seoul, +09:00) so the PG TIMESTAMPTZ
+        # column carries the right offset even if the PG server's
+        # session timezone is ever migrated off ``Asia/Seoul``.
+        from datetime import timezone as _tz, timedelta as _td
+        self._start_dt = datetime.now(_tz(_td(hours=9)))
         self._stop_dt = None
         self._tick_count = 0
         self._events = []
@@ -166,7 +170,10 @@ class RealtimeSimulator:
 
         self.running = False
         self._stop_time = time.time()
-        self._stop_dt = datetime.now()
+        # Match the start_dt timezone so both ends of the run window
+        # are in KST and the PG TIMESTAMPTZ stores +09:00 explicitly.
+        from datetime import timezone as _tz, timedelta as _td
+        self._stop_dt = datetime.now(_tz(_td(hours=9)))
 
         # Close all open positions at current price
         with self._lock:
@@ -450,15 +457,21 @@ class RealtimeSimulator:
         # Wall-clock start/stop (Jeff 2026-04-29 — backdata for live
         # trading expansion). Falls back to current time if stop()
         # wasn't called (defensive — _build_result is also reachable
-        # mid-flight via /api/lab/realtime/state).
+        # mid-flight via /api/lab/realtime/state). Timezone-aware
+        # (KST +09:00) so the PG TIMESTAMPTZ column persists the
+        # offset explicitly and downstream queries don't depend on
+        # the PG server's session timezone setting.
+        from datetime import timezone as _tz, timedelta as _td
+        _kst = _tz(_td(hours=9))
+        _fmt = "%Y-%m-%d %H:%M:%S%z"
         _started_at = (
-            self._start_dt.strftime("%Y-%m-%d %H:%M:%S")
+            self._start_dt.strftime(_fmt)
             if self._start_dt is not None else ""
         )
         _stopped_at = (
-            self._stop_dt.strftime("%Y-%m-%d %H:%M:%S")
+            self._stop_dt.strftime(_fmt)
             if self._stop_dt is not None
-            else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            else datetime.now(_kst).strftime(_fmt)
         )
         return {
             "timestamp": _stopped_at,  # legacy alias for stopped_at
