@@ -306,12 +306,31 @@ class StateManagerUS:
 
     def save_all(self, portfolio_data: dict, runtime_data: dict) -> bool:
         """Save portfolio + runtime with shared saved_at and version_seq.
-        Preserves rebal fields written by batch process."""
+
+        Rebal fields are **disk-wins**: the web rebalance executor writes
+        ``last_execute_*`` / ``rebal_phase`` / ``last_rebalance_date`` to
+        disk via ``transition_phase_with_updates``, but the main loop's
+        ``runtime_data`` dict is initialised from disk at process start
+        and never re-reads. Without this merge the periodic save_all
+        would clobber freshly-written rebal results with the stale
+        in-memory copy, making the engine "forget" today's executed
+        rebalance after the next save tick (Jeff 2026-04-29 — caused
+        ``BATCH_DONE`` regression after restart, ``Execute: Ready``
+        ready to fire a duplicate rebalance against the same broker).
+
+        The previous merge only copied disk → memory when the key was
+        *missing* from ``runtime_data``. Since ``runtime_data`` is
+        always seeded from disk at startup, the keys are always
+        present, so the disk write was never honoured.
+
+        ``main.py`` never writes any field in ``_REBAL_DEFAULTS``, so
+        unconditionally preferring disk is safe — there is no
+        memory-side update to lose.
+        """
         with self._lock:
-            # Merge: preserve rebal fields from disk (batch writes directly)
             existing_rt = self._load_json(self._runtime_path) or {}
             for key in _REBAL_DEFAULTS:
-                if key in existing_rt and key not in runtime_data:
+                if key in existing_rt:
                     runtime_data[key] = existing_rt[key]
 
             ts = _now_iso()
