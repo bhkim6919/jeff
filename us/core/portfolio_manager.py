@@ -150,7 +150,34 @@ class PortfolioManagerUS:
     # ── Price Update ────────────────────────────────────────
 
     def update_prices(self, prices: Dict[str, float], timestamp: str) -> None:
-        """Update current prices. Stale/jump guard included."""
+        """Update current prices. Stale/jump guard included.
+
+        Stale-guard semantics (Jeff 2026-04-30 P0 fix)
+        ----------------------------------------------
+        Previously this function rejected any update for a position
+        whose ``last_price_at`` was older than ``STALE_PRICE_MAX_GAP``
+        seconds. The check used ``last_price_at`` (the position's prior
+        update time) compared to ``timestamp`` (now), which made the
+        guard a one-way latch: once a position fell behind by 10
+        minutes — e.g. across an overnight quote-feed gap or after a
+        transient Alpaca hiccup — the next update was rejected, which
+        meant ``last_price_at`` was never advanced, which meant *every*
+        subsequent update was rejected too. Live evidence (broker
+        truth diag) showed 16 of 20 positions stuck at the
+        2026-04-21 ET close timestamp for 7+ trading days, with the
+        engine quietly reading INTC at $66 while the broker quoted
+        $91 (a 37.58% gap that the trail-stop machinery never saw).
+
+        The fix: detect the same "long gap" condition but treat it as
+        a *recovery event*, not a rejection. The fresh quote is
+        accepted; the jump-guard tolerance is widened (one-shot, just
+        for this update) to absorb the multi-day cumulative move that
+        prompted the recovery; the warning becomes
+        ``[STALE_RECOVERY]`` so the operator can correlate with the
+        ``[STALE]`` summary alert. Once the position resumes normal
+        ticking the recovery flag clears and the standard 25% / 30%
+        jump bounds apply again.
+        """
         self.last_price_update_at = timestamp
 
         for sym, pos in self.positions.items():
@@ -158,20 +185,42 @@ class PortfolioManagerUS:
             if price <= 0 or pos.quantity <= 0:
                 continue
 
-            # Stale guard: first update (last_price_at="") always allowed
-            if pos.last_price_at and _is_stale(pos.last_price_at, timestamp, STALE_PRICE_MAX_GAP):
-                logger.warning(f"[STALE] {sym}: last={pos.last_price_at}, now={timestamp}")
-                continue
+            # Stale-recovery detection: was this position previously
+            # locked out by a quote-feed gap? Only flag the FIRST
+            # update after the gap; subsequent updates run with the
+            # standard jump guards.
+            stale_recovery = (
+                bool(pos.last_price_at)
+                and _is_stale(pos.last_price_at, timestamp, STALE_PRICE_MAX_GAP)
+            )
 
-            # Jump guard: vs previous price
+            if stale_recovery:
+                gap_h = _seconds_since(pos.last_price_at) / 3600
+                logger.warning(
+                    f"[STALE_RECOVERY] {sym}: refreshing after {gap_h:.1f}h gap — "
+                    f"accepting ${price:.2f} (prev cached ${pos.current_price:.2f})"
+                )
+
+            # Jump guards. Recovery widens the tolerance one-shot to
+            # absorb multi-day cumulative moves while still rejecting
+            # obvious typos (>2x or <0.5x of the cached price).
+            jump_prev_ratio = 1.0 if stale_recovery else JUMP_GUARD_PREV_RATIO
+            jump_hwm_ratio  = 1.0 if stale_recovery else JUMP_GUARD_HWM_RATIO
+
             prev = pos.current_price
-            if prev > 0 and abs(price - prev) / prev > JUMP_GUARD_PREV_RATIO:
-                logger.warning(f"[JUMP_PREV] {sym}: {prev:.2f} → {price:.2f}, skip")
+            if prev > 0 and abs(price - prev) / prev > jump_prev_ratio:
+                logger.warning(
+                    f"[JUMP_PREV] {sym}: {prev:.2f} → {price:.2f} "
+                    f"(ratio {abs(price - prev) / prev:.2%}, cap {jump_prev_ratio:.0%}) — skip"
+                )
                 continue
 
-            # Jump guard: vs HWM
-            if pos.high_watermark > 0 and abs(price - pos.high_watermark) / pos.high_watermark > JUMP_GUARD_HWM_RATIO:
-                logger.warning(f"[JUMP_HWM] {sym}: HWM={pos.high_watermark:.2f} → {price:.2f}, skip")
+            if pos.high_watermark > 0 and abs(price - pos.high_watermark) / pos.high_watermark > jump_hwm_ratio:
+                logger.warning(
+                    f"[JUMP_HWM] {sym}: HWM={pos.high_watermark:.2f} → {price:.2f} "
+                    f"(ratio {abs(price - pos.high_watermark) / pos.high_watermark:.2%}, "
+                    f"cap {jump_hwm_ratio:.0%}) — skip"
+                )
                 continue
 
             pos.current_price = price
