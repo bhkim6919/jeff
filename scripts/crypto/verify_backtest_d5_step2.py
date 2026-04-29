@@ -325,19 +325,69 @@ def gate_step2_sanity_5y() -> tuple[bool, dict]:
 # --- G10 PR #19 regression (subprocess) ---------------------------------
 
 
-# --- G11 multi PR #3 regression (sibling gate, Jeff 2026-04-29) ---------
+# --- G11 multi PR #3 + G11_ENGINE PR #1 sibling gates (Jeff 2026-04-29)
 #
-# Previously this verifier was nested inside step1's chain (step2 →
-# step1 → multi). Stacking subprocess timeouts that way left the step1
-# chain too long to clear step2's outer timeout — the 2026-04-29
-# Phase 2 attempts ran into that ceiling four times in a row. Pulling
-# multi up to step2 gives each verifier its own budget and own
-# evidence file, and a partial PASS is recoverable.
+# History of the split:
+#   1. Phase 2 was step2 → step1 → multi → engine (4-deep nest). Each
+#      subprocess.run timeout stacked on top of the others, and a hang
+#      anywhere deep down bubbled up as a step2-side TIMEOUT with no
+#      evidence about which level of the chain was actually slow.
+#   2. First split (commit 01229623): multi was lifted up to step2 as
+#      a sibling of G10. step1 chain shrank, G10 step1 chain finally
+#      PASSed in Phase 2 5차. But multi's own G4/G6 engine subprocess
+#      then hit the 1800s ceiling (multi's inline checks finished in
+#      seconds — the engine subproc was the inner bottleneck).
+#   3. Second split (this commit): engine.py is now also a step2
+#      sibling. multi runs G5 / G8 / G4_G6_inline / sparse only with
+#      --with-engine OFF (its new default). engine.py owns its own
+#      1800s budget at the step2 level.
+#
+# Resulting step2 sibling layout:
+#       G11 / G12 / STEP2 6mo / STEP2 5y / G10(step1) / G11_MULTI / G11_ENGINE
+# Each gate's failure is isolated and produces its own evidence row.
+
+
+def gate_engine_pr1_regression_subprocess() -> tuple[bool, dict]:
+    """verify_backtest_engine.py exit 0 — re-exercises G4 + G6 dual-run
+    + PR #1 foundation regression. Sibling to G10 / G11_MULTI with
+    its own 1800s budget. Pulled out of multi by Jeff 2026-04-29
+    second-level split."""
+    print("\n[G11_ENGINE] PR #1 foundation regression (verify_backtest_engine.py subprocess)")
+    cmd = [
+        sys.executable, "-X", "utf8",
+        str(WORKTREE_ROOT / "scripts" / "crypto" / "verify_backtest_engine.py"),
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", timeout=1800)
+    except subprocess.TimeoutExpired as exc:
+        out_tail = "\n".join((exc.stdout or "").splitlines()[-15:]) if exc.stdout else "(empty)"
+        err_tail = "\n".join((exc.stderr or "").splitlines()[-15:]) if exc.stderr else "(empty)"
+        print(f"[TIMEOUT] verify_backtest_engine.py exceeded 1800s")
+        print(f"  cmd: {' '.join(cmd)}")
+        print(f"  stdout tail:\n{out_tail}")
+        print(f"  stderr tail:\n{err_tail}")
+        return False, {
+            "returncode": -1,
+            "tail": (
+                f"TIMEOUT after 1800s\n"
+                f"--- stdout tail ---\n{out_tail}\n"
+                f"--- stderr tail ---\n{err_tail}"
+            ),
+        }
+    tail = "\n".join((proc.stdout or "").splitlines()[-15:])
+    return proc.returncode == 0, {
+        "returncode": proc.returncode,
+        "tail": tail,
+    }
 
 
 def gate_multi_pr3_regression_subprocess() -> tuple[bool, dict]:
     """verify_backtest_multi.py exit 0 — proves D4 + PR #3 lock fully
-    preserved. Independent timeout (1800s) sibling to G10."""
+    preserved. Independent timeout (1800s) sibling to G10. With
+    ``--with-engine`` detached (default since 2026-04-29) multi runs
+    G5 / G8 / G4_G6_inline / sparse only — engine.py is a separate
+    sibling (gate_engine_pr1_regression_subprocess)."""
     print("\n[G11_MULTI] PR #3 regression (verify_backtest_multi.py subprocess)")
     cmd = [
         sys.executable, "-X", "utf8",
@@ -507,8 +557,10 @@ def main() -> int:
 
     # G11_MULTI sibling: PR #3 regression (verify_backtest_multi.py).
     # Independent 1800s timeout — formerly nested inside step1 (Jeff
-    # 2026-04-29 separation: 4 consecutive Phase 2 attempts had hit
-    # the stacked-timeout ceiling at this point of the chain).
+    # 2026-04-29 first split: 4 consecutive Phase 2 attempts had hit
+    # the stacked-timeout ceiling at this point of the chain). Now
+    # also runs without the engine subprocess inline (second split):
+    # multi handles G5 / G8 / G4_G6_inline / sparse only.
     multi_ok, multi_detail = gate_multi_pr3_regression_subprocess()
     results.append({
         "gate": "G11_MULTI PR #3 regression subprocess",
@@ -524,6 +576,29 @@ def main() -> int:
         else:
             print(f"    {k}: {v}")
     if not multi_ok:
+        all_ok = False
+
+    # G11_ENGINE sibling: PR #1 foundation regression
+    # (verify_backtest_engine.py). Pulled out of multi by Jeff
+    # 2026-04-29 second-level split — multi's inline checks finish
+    # in seconds, so a fail at this point of Phase 2 5차 was the
+    # engine subproc itself hitting 1800s. Each verifier now owns
+    # its own 1800s budget independently.
+    engine_ok, engine_detail = gate_engine_pr1_regression_subprocess()
+    results.append({
+        "gate": "G11_ENGINE PR #1 foundation regression subprocess",
+        "verdict": "PASS" if engine_ok else "FAIL",
+        "detail": engine_detail,
+    })
+    print(f"\n[{'PASS' if engine_ok else 'FAIL'}] G11_ENGINE PR #1 foundation regression subprocess")
+    for k, v in engine_detail.items():
+        if k == "tail":
+            print(f"    {k}:")
+            for line in str(v).splitlines():
+                print(f"      {line}")
+        else:
+            print(f"    {k}: {v}")
+    if not engine_ok:
         all_ok = False
 
     summary_path = VERIF_DIR / f"d5_step2_baseline_{_now().replace(':', '_')}.json"
