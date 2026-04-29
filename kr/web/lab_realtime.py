@@ -100,6 +100,10 @@ class RealtimeSimulator:
 
         self._ranking = ranking
         self._start_time = time.time()
+        # ISO wall-clock for backdata (Jeff 2026-04-29 — start/stop time
+        # capture for downstream live-trading expansion analysis).
+        self._start_dt = datetime.now()
+        self._stop_dt = None
         self._tick_count = 0
         self._events = []
         self.price_cache.clear()
@@ -162,6 +166,7 @@ class RealtimeSimulator:
 
         self.running = False
         self._stop_time = time.time()
+        self._stop_dt = datetime.now()
 
         # Close all open positions at current price
         with self._lock:
@@ -442,8 +447,23 @@ class RealtimeSimulator:
                 "total_value": round(strat.cash + position_value),
             })
 
+        # Wall-clock start/stop (Jeff 2026-04-29 — backdata for live
+        # trading expansion). Falls back to current time if stop()
+        # wasn't called (defensive — _build_result is also reachable
+        # mid-flight via /api/lab/realtime/state).
+        _started_at = (
+            self._start_dt.strftime("%Y-%m-%d %H:%M:%S")
+            if self._start_dt is not None else ""
+        )
+        _stopped_at = (
+            self._stop_dt.strftime("%Y-%m-%d %H:%M:%S")
+            if self._stop_dt is not None
+            else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
         return {
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": _stopped_at,  # legacy alias for stopped_at
+            "started_at": _started_at,
+            "stopped_at": _stopped_at,
             "initial_cash": INITIAL_CASH,
             "ranking_count": len(self._ranking),
             "params": self.params,

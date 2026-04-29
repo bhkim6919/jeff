@@ -583,15 +583,27 @@ def run_simulation(ranking: List[Dict], params: Optional[Dict] = None) -> Dict:
         merged.update(params)
         params = merged
 
+    # Wall-clock start/stop (Jeff 2026-04-29 — backdata for live
+    # trading expansion). Lab simulate is ~instant compared to
+    # realtime, but we still capture both so downstream analysis
+    # has a uniform schema across modes.
+    _start_dt = datetime.now()
     result_a = _simulate_strategy_a(ranking, params)
     result_b = _simulate_strategy_b(ranking, params)
     result_c = _simulate_strategy_c(ranking, params)
+    _stop_dt = datetime.now()
 
+    _started_at = _start_dt.strftime("%Y-%m-%d %H:%M:%S")
+    _stopped_at = _stop_dt.strftime("%Y-%m-%d %H:%M:%S")
     result = {
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp": _stopped_at,  # legacy alias for stopped_at
+        "started_at": _started_at,
+        "stopped_at": _stopped_at,
         "initial_cash": INITIAL_CASH,
         "ranking_count": len(ranking),
         "params": params,
+        "mode": "simulate",
+        "elapsed_sec": round((_stop_dt - _start_dt).total_seconds(), 3),
         "strategies": [
             asdict(result_a),
             asdict(result_b),
@@ -625,6 +637,9 @@ def _save_result(result: Dict) -> None:
         logger.warning(f"[LAB_SAVE] JSON failed: {e}")
 
     # 2. CSV (거래내역 누적)
+    # Schema (Jeff 2026-04-29): started_at + stopped_at columns appended
+    # so per-trade rows carry the run window without joining sim_*.json.
+    # Pre-existing rows from older runs leave these two columns blank.
     csv_file = result_dir / "trades_history.csv"
     is_new = not csv_file.exists()
     try:
@@ -635,9 +650,12 @@ def _save_result(result: Dict) -> None:
                     "sim_time", "strategy", "rank", "code", "name",
                     "entry_price", "exit_price", "qty", "pnl", "pnl_pct",
                     "exit_reason", "source", "params_hash",
+                    "started_at", "stopped_at",
                 ])
             params_hash = ts  # simple identifier
             source = result.get("params", {}).get("ranking_source", "")
+            started_at = result.get("started_at", "")
+            stopped_at = result.get("stopped_at", result.get("timestamp", ""))
             for strat in result.get("strategies", []):
                 sname = strat.get("name", "")
                 for t in strat.get("trades", []):
@@ -648,10 +666,23 @@ def _save_result(result: Dict) -> None:
                         t.get("qty", 0), t.get("pnl", 0),
                         t.get("pnl_pct", 0), t.get("exit_reason", ""),
                         source, params_hash,
+                        started_at, stopped_at,
                     ])
         logger.info(f"[LAB_SAVE] CSV: {csv_file.name}")
     except Exception as e:
         logger.warning(f"[LAB_SAVE] CSV failed: {e}")
+        return  # CSV failure block fall-through; PG attempt below
+                # would only repeat the same data on a recovered DB,
+                # but we still want JSON to remain authoritative.
+
+    # 3. PG (lab_realtime_runs + lab_realtime_trades — Jeff 2026-04-29)
+    # Triple-write secondary. JSON + CSV stay authoritative; PG
+    # failures swallow silently (kill-switch: QTRON_LAB_REALTIME_PG=0).
+    try:
+        from web.lab_realtime_pg import save_result_pg
+        save_result_pg(result)
+    except Exception as e:
+        logger.warning(f"[LAB_SAVE] PG insert failed: {e}")
 
 
 def get_saved_results(limit: int = 20) -> List[Dict]:
