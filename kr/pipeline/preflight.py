@@ -345,8 +345,9 @@ def check_universe_healthy(run_type: str, state: Any) -> CheckResult:
     if not ohlcv_dir.exists():
         return CheckResult(
             ok=False,
-            error=f"OHLCV dir missing: {ohlcv_dir}",
-            detail={"stage": "1st", "issue": "dir_missing"},
+            error=f"[reason:dir_missing] OHLCV dir missing: {ohlcv_dir}",
+            detail={"stage": "1st", "issue": "dir_missing",
+                    "reason_code": "dir_missing", "ohlcv_dir": str(ohlcv_dir)},
         )
 
     csvs = list(ohlcv_dir.glob("*.csv"))
@@ -355,8 +356,9 @@ def check_universe_healthy(run_type: str, state: Any) -> CheckResult:
     if csv_count < MIN_CSV_COUNT:
         return CheckResult(
             ok=False,
-            error=f"CSV count {csv_count} < {MIN_CSV_COUNT}",
-            detail={"stage": "1st", "csv_count": csv_count},
+            error=f"[reason:csv_count_low] CSV count {csv_count} < {MIN_CSV_COUNT}",
+            detail={"stage": "1st", "csv_count": csv_count,
+                    "reason_code": "csv_count_low", "ohlcv_dir": str(ohlcv_dir)},
         )
 
     # Sample 50 files — check history length
@@ -393,7 +395,8 @@ def check_universe_healthy(run_type: str, state: Any) -> CheckResult:
     if history_ratio < MIN_HISTORY_PASS_RATIO:
         return CheckResult(
             ok=False,
-            error=(f"history sample: {history_pass}/{sample_size} "
+            error=(f"[reason:history_sample_low] history sample: "
+                   f"{history_pass}/{sample_size} "
                    f"({history_ratio:.1%}) < {MIN_HISTORY_PASS_RATIO:.0%}"),
             detail={
                 "stage": "1st",
@@ -402,6 +405,8 @@ def check_universe_healthy(run_type: str, state: Any) -> CheckResult:
                 "history_pass": history_pass,
                 "history_ratio": round(history_ratio, 3),
                 "read_failures": read_failures,
+                "reason_code": "history_sample_low",
+                "ohlcv_dir": str(ohlcv_dir),
             },
         )
 
@@ -409,10 +414,12 @@ def check_universe_healthy(run_type: str, state: Any) -> CheckResult:
     try:
         from data.universe_builder import build_universe_from_ohlcv  # noqa: WPS433
     except Exception as e:  # noqa: BLE001
+        # Code/env error — NOT recoverable by data restore.
         return CheckResult(
             ok=None,
             error=f"universe_builder import failed: {e!r}",
-            detail={"stage": "2nd", "issue": "import"},
+            detail={"stage": "2nd", "issue": "import",
+                    "reason_code": "import_failed"},
         )
 
     try:
@@ -426,22 +433,27 @@ def check_universe_healthy(run_type: str, state: Any) -> CheckResult:
             sector_map={},
         )
     except Exception as e:  # noqa: BLE001
+        # Logic crash — NOT recoverable by data restore.
         return CheckResult(
             ok=False,
             error=f"universe_builder crash: {e!r}",
-            detail={"stage": "2nd", "issue": "build_crash"},
+            detail={"stage": "2nd", "issue": "build_crash",
+                    "reason_code": "build_crash"},
         )
 
     if len(universe) < min_universe:
         return CheckResult(
             ok=False,
-            error=(f"universe too small: {len(universe)} < {min_universe}"),
+            error=(f"[reason:universe_size_low] universe too small: "
+                   f"{len(universe)} < {min_universe}"),
             detail={
                 "stage": "2nd",
                 "universe_count": len(universe),
                 "min_universe": min_universe,
                 "csv_count": csv_count,
                 "history_ratio": round(history_ratio, 3),
+                "reason_code": "universe_size_low",
+                "ohlcv_dir": str(ohlcv_dir),
             },
         )
 
@@ -681,23 +693,81 @@ def _run_checks(run_type: str, state: Any) -> PreflightOutcome:
     )
 
 
+def _maybe_auto_recover(
+    run_type: str, state: Any, outcome: PreflightOutcome,
+) -> PreflightOutcome:
+    """Item 2 (2026-04-30 RCA) — one-shot OHLCV recovery between checks.
+
+    If any failed check carries a recoverable reason_code (currently:
+    only ``universe_healthy``), invoke the restore script via
+    ``preflight_recovery.try_auto_recover`` and re-run preflight ONCE.
+    The single-shot behavior is enforced by ``preflight_recovery``'s
+    persisted marker, so this function may be called many times across
+    orchestrator ticks without triggering a recovery storm.
+
+    Returns the (possibly new) outcome. Original outcome on no-op.
+    Never raises.
+    """
+    if outcome.ok:
+        return outcome
+    if "universe_healthy" not in outcome.errors:
+        return outcome  # other failures — recovery would not help
+
+    try:
+        from . import preflight_recovery  # local import (lazy)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("[PREFLIGHT_AUTO_RECOVERY_IMPORT_FAIL] %r", e)
+        return outcome
+
+    # Re-run check_universe_healthy to capture the live CheckResult
+    # (with `detail.reason_code` needed for recovery classification).
+    try:
+        cr = check_universe_healthy(run_type, state)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("[PREFLIGHT_AUTO_RECOVERY_PROBE_FAIL] %r", e)
+        return outcome
+
+    if not preflight_recovery.is_recoverable(cr):
+        return outcome
+
+    recovered, evidence = preflight_recovery.try_auto_recover(
+        run_type=run_type, check_name="universe_healthy",
+        check_result=cr, state=state, logger=_log,
+    )
+    if not recovered:
+        return outcome  # original failure stands; recovery already logged
+
+    # Re-run ALL checks once after successful recovery.
+    new_outcome = _run_checks(run_type, state)
+    _log.warning(
+        "[PREFLIGHT_AUTO_RECOVERY_RECHECK] run_type=%s prev_ok=%s "
+        "new_ok=%s elapsed_recovery=%s",
+        run_type, outcome.ok, new_outcome.ok,
+        evidence.get("elapsed_sec"),
+    )
+    return new_outcome
+
+
 def run_and_record(run_type: str, state: Any) -> PreflightOutcome:
     """Public entry point called from StepBase.run() pre-execute hook.
 
     Responsibilities:
       1. Run all checks (never raises — any exception becomes a False check).
-      2. Compute fingerprint.
-      3. Re-verify prior fingerprint if marker already holds one (drift).
-      4. Write outcome into marker:
+      2. (Item 2) Auto-recover OHLCV via preflight_recovery if any failed
+         check is classified recoverable, then re-run checks ONCE.
+      3. Compute fingerprint.
+      4. Re-verify prior fingerprint if marker already holds one (drift).
+      5. Write outcome into marker:
            - all pass + no drift → attach fingerprint+checks to RUNNING run
            - any fail → transition RUNNING → PRE_FLIGHT_FAIL + incident
            - drift → transition RUNNING → PRE_FLIGHT_STALE_INPUT + incident
-      5. Return PreflightOutcome so caller can decide to skip _execute.
+      6. Return PreflightOutcome so caller can decide to skip _execute.
 
     Never propagates exceptions. Marker/incident failures are logged and
     swallowed (Jeff B §4 독립성).
     """
     outcome = _run_checks(run_type, state)
+    outcome = _maybe_auto_recover(run_type, state, outcome)
 
     # Load marker and possibly check drift
     try:

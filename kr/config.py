@@ -110,6 +110,22 @@ class Gen4Config:
         return self.BASE_DIR / "state"
 
     @property
+    def STATE_BACKUP_DIRS(self) -> List[Path]:
+        """Additional mirror locations for state files (Item 1, 2026-04-30 RCA).
+
+        Override with env QTRON_STATE_BACKUP_DIRS (semicolon-separated absolute paths).
+        Set to NONE / OFF / NULL to disable. Default is one external Windows path,
+        chosen so a single-directory wipe does not take backups with primary.
+        """
+        import os as _os
+        env = _os.environ.get("QTRON_STATE_BACKUP_DIRS")
+        if env is not None:
+            if env.strip().upper() in ("", "NONE", "NULL", "OFF", "DISABLED"):
+                return []
+            return [Path(p.strip()) for p in env.split(";") if p.strip()]
+        return [Path("C:/QtronBackup/kr/state")]
+
+    @property
     def LOG_DIR(self) -> Path:
         return self.BASE_DIR / "logs"
 

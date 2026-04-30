@@ -282,6 +282,18 @@ class Orchestrator:
         if not ok:
             return f"precondition:{reason}"
 
+        # Item 3 (2026-04-30 RCA): auto-unfreeze ABANDONED step if its last
+        # failure was a data/file-missing reason AND the data is healthy
+        # NOW. Single-shot per (trade_date, step) — see auto_unfreeze.py.
+        # Runs BEFORE the backoff gate so a successful unfreeze immediately
+        # passes the gate this same tick.
+        try:
+            from . import auto_unfreeze as _autounfreeze  # lazy import
+            _autounfreeze.maybe_unfreeze(step, state, logger=_log)
+        except Exception as e:  # noqa: BLE001
+            # Defensive: never let unfreeze logic block the orchestrator.
+            _log.warning(f"[PIPELINE_UNFREEZE_HOOK_CRASH] step={step.name} {e!r}")
+
         # R25 (2026-04-23): backoff pre-check BEFORE thread spawn.
         # Root cause audit found ~33s-interval PG pollution + daemon thread
         # spam because orchestrator spawned every tick even when backoff

@@ -136,6 +136,42 @@ def run_startup(config) -> LiveContext:
     mode_label = trading_mode.upper()
     logger.info(f"Mode: {mode_label}  (server={server_type})")
 
+    # ── Phase 0.5: State Canary (Jeff 2026-04-30) ───────────────
+    # Detect external deletion of critical files (kr/state, OHLCV
+    # cache, KOSPI index). 04-30 incident: portfolio_state_live.json
+    # + runtime_state_live.json + backtest/data_full/ohlcv/ all
+    # vanished overnight; root cause unidentified, recurrence HIGH.
+    # Read-only — never blocks startup. Forensic snapshot + Telegram
+    # CRITICAL on any failure so the next event is captured before
+    # RECON masks it.
+    try:
+        from lifecycle.state_canary import run_state_canary
+        run_state_canary(config, logger)
+    except Exception as _canary_err:  # noqa: BLE001
+        logger.warning(f"[STATE_CANARY] init failed: {_canary_err}")
+
+    # ── Phase 0.6: Periodic Health Probe (Item 4 — 2026-04-30) ──
+    # Same checks as the canary, but on a 1-hour daemon thread, so
+    # an in-flight deletion is noticed within the hour rather than
+    # at the next batch start. Live mode only — batch / mock / one-
+    # shot modes exit too quickly to benefit. Probe is daemon so it
+    # auto-cleans on process exit. Failures fire Telegram CRITICAL
+    # via notify.telegram_bot, with 6h dedup to avoid spam.
+    if trading_mode == "live":
+        try:
+            import os as _os
+            from lifecycle.health_probe import HealthProbe
+            _interval = int(_os.environ.get("QTRON_HEALTH_PROBE_INTERVAL_SEC", "3600"))
+            _probe = HealthProbe(config, interval_sec=_interval)
+            _probe.start()
+            # Stash on config so live shutdown can stop the probe.
+            try:
+                setattr(config, "_health_probe", _probe)
+            except Exception:
+                pass
+        except Exception as _probe_err:  # noqa: BLE001
+            logger.warning(f"[HEALTH_PROBE_INIT_FAIL] {_probe_err}")
+
     # ── Phase 1: State Restore + Broker Sync ─────────────────────
     state_mgr = StateManager(config.STATE_DIR, trading_mode=trading_mode)
     portfolio = PortfolioManager(
@@ -326,9 +362,17 @@ def run_startup(config) -> LiveContext:
     _RECON_RETRY_SLEEP = 30.0
     _recon_attempt = 0
     recon = None
+    # Capture the disk-side portfolio snapshot so RECON's BROKER_ONLY
+    # branch can preserve original entry_dates for positions that were
+    # transiently lost from in-memory state (Jeff 2026-04-30 fix).
+    # ``saved`` was already loaded above (line 174) for the in-memory
+    # restore; re-using it here avoids a second disk read AND
+    # guarantees the snapshot RECON sees is the same one the engine
+    # restored from.
     while _recon_attempt <= _RECON_MAX_RETRY:
         recon = _reconcile_with_broker(portfolio, provider, logger, trade_logger,
-                                        buy_cost=config.BUY_COST, guard=guard)
+                                        buy_cost=config.BUY_COST, guard=guard,
+                                        saved_state=saved)
         # Only retry on holdings_unreliable (PARTIAL snapshot). Other errors
         # (e.g. cash_spike, broker_fail) should fall through to existing handlers.
         _is_partial = bool(recon and not recon.get("ok", True)
