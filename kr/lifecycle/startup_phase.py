@@ -150,6 +150,28 @@ def run_startup(config) -> LiveContext:
     except Exception as _canary_err:  # noqa: BLE001
         logger.warning(f"[STATE_CANARY] init failed: {_canary_err}")
 
+    # ── Phase 0.6: Periodic Health Probe (Item 4 — 2026-04-30) ──
+    # Same checks as the canary, but on a 1-hour daemon thread, so
+    # an in-flight deletion is noticed within the hour rather than
+    # at the next batch start. Live mode only — batch / mock / one-
+    # shot modes exit too quickly to benefit. Probe is daemon so it
+    # auto-cleans on process exit. Failures fire Telegram CRITICAL
+    # via notify.telegram_bot, with 6h dedup to avoid spam.
+    if trading_mode == "live":
+        try:
+            import os as _os
+            from lifecycle.health_probe import HealthProbe
+            _interval = int(_os.environ.get("QTRON_HEALTH_PROBE_INTERVAL_SEC", "3600"))
+            _probe = HealthProbe(config, interval_sec=_interval)
+            _probe.start()
+            # Stash on config so live shutdown can stop the probe.
+            try:
+                setattr(config, "_health_probe", _probe)
+            except Exception:
+                pass
+        except Exception as _probe_err:  # noqa: BLE001
+            logger.warning(f"[HEALTH_PROBE_INIT_FAIL] {_probe_err}")
+
     # ── Phase 1: State Restore + Broker Sync ─────────────────────
     state_mgr = StateManager(config.STATE_DIR, trading_mode=trading_mode)
     portfolio = PortfolioManager(
