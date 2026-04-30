@@ -299,29 +299,71 @@ def run_batch():
 
         sv = f"{today_bd}_batch_{int(et_now.timestamp())}_{bd_marker}"
 
-        # 직접 파일 저장 (서버가 안 떠있을 때 대비)
-        import json as _json
-        rt_path = config.STATE_DIR / f"runtime_state_us_{config.TRADING_MODE}.json"
-        rt = {}
-        if rt_path.exists():
-            with open(rt_path, "r", encoding="utf-8") as f:
-                rt = _json.load(f)
-        rt["snapshot_version"] = sv
-        rt["snapshot_created_at"] = et_now.isoformat()
-        rt["last_batch_business_date"] = today_bd
-        rt["last_batch_post_close"] = post_close  # P0-001 marker
-        # batch_fresh는 compute_batch_fresh가 post-close 여부까지 검증하므로
-        # 여기서는 단순 참값만 저장 (execute 쪽에서 재평가).
-        rt["batch_fresh"] = bool(post_close)
-        rt["rebal_phase"] = "BATCH_DONE"
-        # 새 배치: attempt tracking 초기화
-        rt["last_rebal_attempt_snapshot"] = ""
-        rt["last_rebal_attempt_at"] = ""
-        rt["last_rebal_attempt_result"] = ""
-        rt["last_rebal_attempt_count"] = 0
-        rt["last_rebal_attempt_reason"] = ""
-        with open(rt_path, "w", encoding="utf-8") as f:
-            _json.dump(rt, f, ensure_ascii=False, indent=2, default=str)
+        # State write — route through StateManagerUS so the
+        # transition is atomic + the rebal-completion fields written
+        # by ``us/web/app.py`` (last_execute_*, last_rebalance_date,
+        # next_rebalance_date) are preserved across batch ticks.
+        #
+        # Pre-fix history (Jeff 2026-04-30): the original code did a
+        # direct ``json.load`` → mutate → ``json.dump`` cycle. That
+        # bypassed ``state_manager.save_all``'s ``_REBAL_DEFAULTS``
+        # merge entirely, so any inter-process race (batch run after
+        # rebal completion) clobbered the rebal-completion record.
+        # Live evidence: 04-30 batch ran post-close, then the
+        # dashboard regressed from EXECUTED → BATCH_DONE / Last:--
+        # / Execute: Ready, even though tray-side PR #36 was active.
+        #
+        # ``transition_phase_with_updates`` only writes the keys we
+        # explicitly pass plus the new phase, so non-batch state
+        # (last_execute_*, dd_label, regime_*, etc.) survives.
+        from core.state_manager import StateManagerUS
+        sm = StateManagerUS(config.STATE_DIR, config.TRADING_MODE)
+        batch_updates = {
+            "snapshot_version":           sv,
+            "snapshot_created_at":        et_now.isoformat(),
+            "last_batch_business_date":   today_bd,
+            "last_batch_post_close":      post_close,  # P0-001 marker
+            # batch_fresh: compute_batch_fresh re-validates post-close,
+            # this is the cached marker for restart-time normalization.
+            "batch_fresh":                bool(post_close),
+            # New batch — reset per-snapshot attempt tracking.
+            "last_rebal_attempt_snapshot": "",
+            "last_rebal_attempt_at":       "",
+            "last_rebal_attempt_result":   "",
+            "last_rebal_attempt_count":    0,
+            "last_rebal_attempt_reason":   "",
+        }
+        # Walk the phase machine to BATCH_DONE. The starting phase
+        # may be IDLE (cold), EXECUTED / PARTIAL_EXECUTED / FAILED
+        # (after a rebal day), or BATCH_DONE (re-run on the same
+        # day) — we step through whatever intermediates are needed.
+        # Each ``transition_phase_with_updates`` call is atomic under
+        # the state manager lock, so the rebal-completion fields
+        # (last_execute_*, last_rebalance_date, next_rebalance_date)
+        # are preserved by the load-merge-write contract.
+        current_phase = (sm.get_rebal_state() or {}).get("rebal_phase", "IDLE")
+        # Map current → ordered intermediates needed before BATCH_RUNNING.
+        _to_running_path = {
+            "IDLE":              ["BATCH_RUNNING"],
+            "BATCH_RUNNING":     [],                  # already there
+            "BATCH_DONE":        ["IDLE", "BATCH_RUNNING"],
+            "DUE":               [],                  # invalid — fall through
+            "EXECUTING":         [],                  # invalid — fall through
+            "EXECUTED":          ["BATCH_RUNNING"],
+            "PARTIAL_EXECUTED":  ["BATCH_RUNNING"],
+            "FAILED":            ["BATCH_RUNNING"],
+            "BLOCKED":           ["IDLE", "BATCH_RUNNING"],
+        }
+        steps = _to_running_path.get(current_phase, [])
+        for intermediate in steps:
+            ok, reason = sm.transition_phase_with_updates(intermediate, {})
+            if not ok:
+                print(f"  [US_BATCH_PHASE_REJECT] {current_phase} → "
+                      f"{intermediate}: {reason}")
+        # Final transition to BATCH_DONE with the full update payload.
+        ok, reason = sm.transition_phase_with_updates("BATCH_DONE", batch_updates)
+        if not ok:
+            print(f"  [US_BATCH_PHASE_REJECT] → BATCH_DONE: {reason}")
 
         print(f"  [US_BATCH_OK] snapshot={sv} post_close={post_close}")
         # P1-5: explicit marker for post-close confirmed batches (UI badge gate)

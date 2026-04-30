@@ -50,6 +50,7 @@ _REBAL_DEFAULTS = {
     "last_execute_result": "",
     "last_execute_snapshot_version": "",
     "last_batch_business_date": "",
+    "last_batch_post_close": False,        # P0-001 marker — set by batch path
     "batch_fresh": False,
     "snapshot_version": "",
     "snapshot_created_at": "",
