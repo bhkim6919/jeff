@@ -31,12 +31,52 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date
-from typing import Optional
+from datetime import date, datetime
+from typing import Optional, Union
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+# Accepted asof types — caller may pass either a stdlib ``date``
+# / ``datetime`` or a ``pd.Timestamp``. The gate normalises to a
+# common form internally so the OHLCV index dtype (object-of-date
+# vs DatetimeIndex) doesn't matter.
+AsofLike = Union[date, datetime, pd.Timestamp]
+
+
+def _normalize_index_and_asof(
+    btc_ohlcv: pd.DataFrame, asof: AsofLike
+) -> tuple[pd.DataFrame, pd.Timestamp]:
+    """Coerce the OHLCV frame to a ``DatetimeIndex`` and the asof to
+    a matching ``pd.Timestamp``.
+
+    Pre-fix bug (Jeff 2026-04-30 D6 Stage 2 verifier first end-to-end run):
+        ``OhlcvLoader.load_pair`` returns a frame whose index is
+        ``object`` dtype with ``datetime.date`` elements. The gate
+        was slicing it as ``btc_ohlcv.loc[:pd.Timestamp(asof)]``,
+        which raises ``TypeError('Cannot compare Timestamp with
+        datetime.date.')`` on every rebal — the engine logs a warning
+        and safe-defaults the gate to ``True`` (no gating). The bug
+        was silent because the Stage 1 smoke test only used always-on
+        / always-off mock gates; the real ``BTCRiskGate`` was never
+        exercised end-to-end before PR-2.
+
+    Post-fix:
+        * If the index is already a ``DatetimeIndex``, use it as-is.
+        * Otherwise, ``pd.to_datetime`` the index — this works for
+          object-dtype indexes containing ``date`` / ``datetime`` /
+          ISO-string elements.
+        * The asof becomes a ``pd.Timestamp`` aligned with the
+          normalised index. ``date`` arguments map to midnight; that
+          plus the ``loc[:asof]`` slice's right-inclusivity means a
+          rebal on date D still sees the close of D in the slice.
+    """
+    if not isinstance(btc_ohlcv.index, pd.DatetimeIndex):
+        btc_ohlcv = btc_ohlcv.copy()
+        btc_ohlcv.index = pd.to_datetime(btc_ohlcv.index)
+    return btc_ohlcv, pd.Timestamp(asof)
 
 
 @dataclass(frozen=True)
@@ -72,15 +112,20 @@ class BTCRiskGate:
                 f"({self.config.min_history_weeks} < {self.config.ema_period})"
             )
 
-    def is_active(self, btc_ohlcv: pd.DataFrame, asof: date) -> bool:
+    def is_active(self, btc_ohlcv: pd.DataFrame, asof: AsofLike) -> bool:
         """True = BULL (alt buys allowed), False = BEAR (alt buys blocked).
 
         Args:
             btc_ohlcv: DataFrame indexed by date with at least a 'close'
                        column. Daily OHLCV data; weekly resample is
-                       performed inside the gate.
-            asof:      Signal date. The gate reads weekly closes up to
-                       (and including) the week containing ``asof``.
+                       performed inside the gate. The index may be
+                       either a ``DatetimeIndex`` or an object-dtype
+                       index of ``datetime.date`` elements — both are
+                       normalised internally.
+            asof:      Signal date. May be ``datetime.date``,
+                       ``datetime.datetime``, or ``pd.Timestamp``.
+                       The gate reads weekly closes up to (and
+                       including) the week containing ``asof``.
 
         Returns:
             bool. ``True`` when the BTC weekly close at ``asof`` is
@@ -93,8 +138,12 @@ class BTCRiskGate:
         if "close" not in btc_ohlcv.columns:
             raise KeyError("btc_ohlcv must contain 'close' column")
 
-        # Weekly close — last close of each week up to asof
-        df = btc_ohlcv.loc[:pd.Timestamp(asof)].copy()
+        # Normalise both the index and asof to a common ``DatetimeIndex``
+        # / ``pd.Timestamp`` form. Pre-fix this was ``loc[:pd.Timestamp(
+        # asof)]`` against an object-dtype-of-``date`` index which
+        # raised TypeError every rebal.
+        df, asof_ts = _normalize_index_and_asof(btc_ohlcv, asof)
+        df = df.loc[:asof_ts].copy()
         if df.empty:
             logger.warning(
                 f"[BTC_RISK_GATE] no data on or before {asof} — defaulting to active=True"
@@ -121,11 +170,12 @@ class BTCRiskGate:
         )
         return active
 
-    def diagnostic(self, btc_ohlcv: pd.DataFrame, asof: date) -> dict:
+    def diagnostic(self, btc_ohlcv: pd.DataFrame, asof: AsofLike) -> dict:
         """Return raw values for backtesting/debugging."""
         if btc_ohlcv is None or btc_ohlcv.empty:
             return {"active": True, "reason": "empty_ohlcv"}
-        df = btc_ohlcv.loc[:pd.Timestamp(asof)]
+        df, asof_ts = _normalize_index_and_asof(btc_ohlcv, asof)
+        df = df.loc[:asof_ts]
         if df.empty:
             return {"active": True, "reason": "no_data_before_asof"}
         weekly = df["close"].resample(self.config.timeframe).last().dropna()
