@@ -336,11 +336,21 @@ function synthesizeStatus(data) {
         }
     } catch (_) { alerts = 0; }
 
-    // Build pill array — only abnormal states surface
+    // Build pill array — only abnormal states surface.
+    // Option A (Jeff 2026-05-01): post-15:30 KST and weekends, suppress
+    // engine/buy/recon chips entirely — those states are expected after
+    // market close and would otherwise spam the bar with three permanent
+    // criticals. Data-freshness and toast alerts still surface because
+    // they reflect ongoing data flow, not market activity.
+    const pillPhase = getKrMarketPhase();
+    // Market is "closed" for operator purposes any time it isn't OPEN —
+    // includes PRE_OPEN (overnight before next session), AFTER_HOURS,
+    // and WEEKEND.
+    const pillAfterHours = (pillPhase !== 'OPEN');
     const pills = [];
     const ICON = { ok: '✓', info: 'i', warn: '⚠', critical: '✗' };
 
-    if (engine !== 'OK') {
+    if (engine !== 'OK' && !pillAfterHours) {
         pills.push({
             key: 'engine',
             label: engine === 'OFFLINE' ? 'ENGINE OFFLINE' : 'ENGINE STALE',
@@ -350,7 +360,7 @@ function synthesizeStatus(data) {
             scrollTarget: 'hero',
         });
     }
-    if (buy !== 'OK') {
+    if (buy !== 'OK' && !pillAfterHours) {
         pills.push({
             key: 'buy',
             label: `신규 매수 차단 (${buyReason})`,
@@ -360,7 +370,7 @@ function synthesizeStatus(data) {
             scrollTarget: 'card-buy-permission',
         });
     }
-    if (recon !== 'OK') {
+    if (recon !== 'OK' && !pillAfterHours) {
         pills.push({
             key: 'recon',
             label: recon === 'UNAVAILABLE' ? 'RECON 불가' : 'RECON 불안정',
@@ -459,11 +469,23 @@ function renderStatusCards(synth, data) {
         return;
     }
 
-    // 1) Buy Permission
-    set('card-buy-permission',
-        synth.buy === 'OK' ? 'NORMAL' : `BLOCKED (${synth.buyReason})`,
-        synth.buy === 'OK' ? 'ok' : 'critical',
-        synth.buy === 'OK' ? '신규 매수 허용' : '신규 매수 차단');
+    // 1) Buy Permission — after-hours always renders MARKET CLOSED
+    // (Option A, Jeff 2026-05-01). After 15:30 KST no BUY is possible
+    // regardless of the underlying perm state, so masking ENGINE/DD
+    // reasons here is consistent. The DD STATUS card next door still
+    // surfaces the underlying numbers for diagnosis.
+    const buyPhase = getKrMarketPhase();
+    // Closed = anything other than OPEN (includes overnight PRE_OPEN).
+    const buyAfterHours = (buyPhase !== 'OPEN');
+    if (buyAfterHours) {
+        set('card-buy-permission', 'MARKET CLOSED', 'unknown',
+            '장 마감 — 거래 시간 외');
+    } else {
+        set('card-buy-permission',
+            synth.buy === 'OK' ? 'NORMAL' : `BLOCKED (${synth.buyReason})`,
+            synth.buy === 'OK' ? 'ok' : 'critical',
+            synth.buy === 'OK' ? '신규 매수 허용' : '신규 매수 차단');
+    }
 
     // 2) DD Status — pull from data.dd_guard
     const dd = (data && data.dd_guard) || {};
@@ -477,13 +499,11 @@ function renderStatusCards(synth, data) {
         ddLevel,
         'daily / monthly');
 
-    // 3) Rebalance Status — D-day from rebalance schedule (if available)
-    const reb = (data && data.rebalance) || {};
-    const dDay = reb.d_day != null ? `D-${reb.d_day}` : (reb.next ? `next ${reb.next}` : '--');
-    let rebLevel = 'ok';
-    if (reb.d_day === 0) rebLevel = 'warn';   // today
-    else if (reb.d_day === 1) rebLevel = 'info';
-    set('card-rebal-status', dDay, rebLevel, reb.window || '');
+    // 3) Rebalance Status — owned by updateRebalStatus() which polls
+    // /api/rebalance/status every 30s. SSE data.rebalance is sparse
+    // (no d_day/next), so writing here would race against the
+    // updateRebalStatus mirror and cause the card to flash D-N → --.
+    // Skip this card entirely; updateRebalStatus is the single owner.
 
     // 4) Data / RECON Freshness
     const cacheAge = Math.round(Number((data && data.cache_age_sec) || 0));
@@ -615,33 +635,55 @@ function updateHero(data) {
         const label = document.getElementById('health-label');
         const reason = document.getElementById('health-reason');
 
-        // After-hours softening: when status is RED purely because the
-        // engine is OFFLINE and we're past 15:30 KST (or weekend), the
-        // engine being idle is expected, not an incident. Show a friendly
-        // "End of Market" label with yellow dot instead of the alarming
-        // red "오류 발생" banner. Underlying engine_status, blockers, and
-        // BUY:BLOCKED guards are unchanged.
+        // After-hours awareness (Option A, Jeff 2026-05-01):
+        //   * After-hours always renders "End of Market" hero regardless
+        //     of the underlying status. Engine OFFLINE is the expected
+        //     post-EOD state, so "오류 발생" is operator-misleading; any
+        //     real fault that occurs after market close is still
+        //     surfaced through the alert pill row, the BUY/RISK badges,
+        //     and the DD card numerics.
+        // The after-hours window is 15:30 KST onward + weekends (matches
+        // KR market close).
         const phase = getKrMarketPhase();
         const reasonText = (health.reason || '');
         const isEngineOffline = reasonText.startsWith('ENGINE_OFFLINE');
-        const isAfterHours = (phase === 'AFTER_HOURS' || phase === 'WEEKEND');
-        const eodMode = (statusLower === 'red' && isEngineOffline && isAfterHours);
+        // Market closed for operator purposes = anything other than OPEN
+        // (PRE_OPEN overnight + AFTER_HOURS + WEEKEND all count).
+        const isAfterHours = (phase !== 'OPEN');
 
-        const visualStatus = eodMode ? 'eod' : statusLower;
-        dot.className = 'health-dot health-' + visualStatus;
-
-        const statusLabels = {
+        const baseStatusLabels = {
             green: '시스템 정상',
             yellow: '주의 필요',
             red: '오류 발생',
             black: '연결 안됨',
+        };
+
+        let visualStatus = statusLower;
+        let reasonOverride = null;
+        if (isAfterHours) {
+            visualStatus = 'eod';
+            if (statusLower === 'red' && isEngineOffline) {
+                reasonOverride = '장 마감 — 엔진 대기 모드 (다음 영업일 준비)';
+            } else if (statusLower === 'red') {
+                // Real fault during after-hours — keep the eod hero but
+                // append the underlying reason so the operator can still
+                // act on it.
+                reasonOverride = `장 마감 — 점검 필요: ${reasonText || health.status}`;
+            } else {
+                const base = baseStatusLabels[statusLower] || health.status;
+                reasonOverride = `장 마감 — ${base}`;
+            }
+        }
+
+        dot.className = 'health-dot health-' + visualStatus;
+
+        const statusLabels = {
+            ...baseStatusLabels,
             eod: 'End of Market',
         };
         if (label) label.textContent = statusLabels[visualStatus] || health.status;
         if (reason) {
-            reason.textContent = eodMode
-                ? '장 마감 — 엔진 대기 모드 (다음 영업일 준비)'
-                : health.reason;
+            reason.textContent = reasonOverride || health.reason;
         }
 
         // Hero meta
@@ -836,6 +878,40 @@ function updateRebalStatus() {
                 }
             }
 
+            // CORE OPS REBALANCE card mirror (Jeff 2026-05-01).
+            // The top Rebal widget reads /api/rebalance/status' server-
+            // computed d_day. SSE data.rebalance.d_day was missing →
+            // card showed "--" while widget showed "D-N". Mirror the
+            // d_day here so both views agree.
+            //
+            // Backend now returns d_day=null when last_rebalance_date
+            // is unset (post-04-30 incident state). Show "--" with the
+            // operator-actionable blocked_reason as the sub.
+            const cardEl = document.getElementById('card-rebal-status');
+            if (cardEl) {
+                const valueEl = cardEl.querySelector('.status-card-value');
+                const subEl = cardEl.querySelector('.status-card-sub');
+                let label, level, sub;
+                if (data.d_day === null || data.d_day === undefined) {
+                    label = '--'; level = 'warn';
+                    sub = data.blocked_reason
+                        || 'last_rebalance_date 미설정';
+                } else if (data.d_day > 0) {
+                    label = `D-${data.d_day}`;
+                    level = data.d_day <= 1 ? 'info' : 'ok';
+                    sub = data.phase ? `Phase: ${data.phase}` : '';
+                } else if (data.d_day === 0) {
+                    label = 'D-DAY'; level = 'warn';
+                    sub = data.phase ? `Phase: ${data.phase}` : '오늘 리밸런스';
+                } else {
+                    label = `D+${Math.abs(data.d_day)}`; level = 'warn';
+                    sub = '리밸런스 지연';
+                }
+                if (valueEl) valueEl.textContent = label;
+                if (subEl) subEl.textContent = sub;
+                cardEl.className = 'status-card status-card-' + level;
+            }
+
             // Mode button
             if (modeBtn) {
                 const mode = data.mode || 'manual';
@@ -963,29 +1039,35 @@ function rebalPreview() {
             _rebalPreviewHash = data.preview_hash || '';
             _rebalCycleId = data.cycle_id || '';
 
-            // Sell list
+            // Sell list — code + Korean name (if backend supplied) + P&L %
             const sellList = document.getElementById('rebal-sell-list');
             const sellCount = document.getElementById('rebal-sell-count');
             sellCount.textContent = data.sells.length;
-            sellList.innerHTML = data.sells.map(s =>
-                `<div class="rebal-order-item">
-                    <span class="code">${s.code}</span>
+            sellList.innerHTML = data.sells.map(s => {
+                const label = s.name ? `${s.code} ${s.name}` : s.code;
+                return `<div class="rebal-order-item">
+                    <span class="code">${label}</span>
                     <span class="qty">${s.qty}@${Math.round(s.price).toLocaleString()}</span>
                     <span class="${s.pnl_pct >= 0 ? 'pnl-pos' : 'pnl-neg'}">${(s.pnl_pct*100).toFixed(1)}%</span>
-                </div>`
-            ).join('') || '<div style="color:#718096">No sells</div>';
+                </div>`;
+            }).join('') || '<div style="color:#718096">No sells</div>';
 
-            // Buy list
+            // Buy list — code + Korean name + mom rendered as +/-NN% (Jeff
+            // 2026-05-01: mom_12_1 = 11-month return, so 0.97 = +97%, not
+            // a probability or low score; render with % to match SELL P&L).
             const buyList = document.getElementById('rebal-buy-list');
             const buyCount = document.getElementById('rebal-buy-count');
             buyCount.textContent = data.buys.length;
-            buyList.innerHTML = data.buys.map(b =>
-                `<div class="rebal-order-item">
-                    <span class="code">${b.code}</span>
+            buyList.innerHTML = data.buys.map(b => {
+                const label = b.name ? `${b.code} ${b.name}` : b.code;
+                const momPct = (b.mom * 100).toFixed(0);
+                const momSign = b.mom >= 0 ? '+' : '';
+                return `<div class="rebal-order-item">
+                    <span class="code">${label}</span>
                     <span class="qty">${b.est_qty}@${Math.round(b.price).toLocaleString()}</span>
-                    <span style="color:#718096">mom:${b.mom.toFixed(2)}</span>
-                </div>`
-            ).join('') || '<div style="color:#718096">No buys</div>';
+                    <span style="color:#718096">mom:${momSign}${momPct}%</span>
+                </div>`;
+            }).join('') || '<div style="color:#718096">No buys</div>';
 
             // Errors
             const errEl = document.getElementById('rebal-preview-errors');
@@ -2644,9 +2726,24 @@ function updateHeroBadges(data) {
     // ENGINE_OFFLINE overrides buy_permission to BLOCKED server-side, so
     // this map already handles it; the key is that 'NORMAL' must never
     // render while the engine is down.
-    const buyClass = {NORMAL:'badge-normal', REDUCED:'badge-reduced', BLOCKED:'badge-blocked'}[perm] || 'badge-unknown';
-    buyBadge.className = 'status-badge ' + buyClass;
-    buyBadge.textContent = 'BUY: ' + perm;
+    //
+    // After-hours rendering (Option A, Jeff 2026-05-01): after KR market
+    // close (15:30 KST+) and on weekends, BUY is *always* MARKET CLOSED
+    // regardless of the underlying perm. No BUY is possible in this
+    // window so the operator-facing pill stays consistent. DD/ENGINE
+    // diagnostics remain visible elsewhere (DD STATUS card, hero
+    // reason, RISK pill).
+    const heroPhase = getKrMarketPhase();
+    // Closed = anything other than OPEN (includes overnight PRE_OPEN).
+    const heroAfterHours = (heroPhase !== 'OPEN');
+    if (heroAfterHours) {
+        buyBadge.className = 'status-badge badge-unknown';
+        buyBadge.textContent = 'BUY: MARKET CLOSED';
+    } else {
+        const buyClass = {NORMAL:'badge-normal', REDUCED:'badge-reduced', BLOCKED:'badge-blocked'}[perm] || 'badge-unknown';
+        buyBadge.className = 'status-badge ' + buyClass;
+        buyBadge.textContent = 'BUY: ' + perm;
+    }
 
     // SYSTEM RISK
     const sr = data.system_risk || {};
@@ -2654,19 +2751,36 @@ function updateHeroBadges(data) {
     // ENGINE_OFFLINE reuses the red READ_FAIL styling — both mean "do
     // not trust auto-trading right now". Keeping the class name scheme
     // simple so no new CSS is needed.
-    const riskClass = {OK:'badge-ok', STALE:'badge-stale', RECON_WARN:'badge-recon',
-                       SAFE_MODE:'badge-safemode', READ_FAIL:'badge-readfail',
-                       ENGINE_OFFLINE:'badge-readfail'}[primary] || 'badge-unknown';
-    riskBadge.className = 'status-badge ' + riskClass;
-    riskBadge.textContent = 'RISK: ' + primary;
+    //
+    // After-hours rendering (Option A, Jeff 2026-05-01): post-15:30 KST
+    // and weekends, RISK is *always* MARKET CLOSED regardless of
+    // primary. Real after-hours faults (DB write fail, disk full, etc.)
+    // still surface via the alert pill row + the hero reason text +
+    // DD card numerics, so operator visibility is preserved without
+    // letting the badge scream "ENGINE_OFFLINE" when that state is
+    // expected.
+    if (heroAfterHours) {
+        riskBadge.className = 'status-badge badge-unknown';
+        riskBadge.textContent = 'RISK: MARKET CLOSED';
+    } else {
+        const riskClass = {OK:'badge-ok', STALE:'badge-stale', RECON_WARN:'badge-recon',
+                           SAFE_MODE:'badge-safemode', READ_FAIL:'badge-readfail',
+                           ENGINE_OFFLINE:'badge-readfail'}[primary] || 'badge-unknown';
+        riskBadge.className = 'status-badge ' + riskClass;
+        riskBadge.textContent = 'RISK: ' + primary;
+    }
     if (sr.reason_codes && sr.reason_codes.length > 1) {
         riskBadge.title = sr.reason_codes.join(', ');
     } else if (primary === 'ENGINE_OFFLINE' && sr.reason) {
         riskBadge.title = sr.reason;
     }
 
-    // Emergency badge
-    if (primary === 'SAFE_MODE' || primary === 'READ_FAIL' || primary === 'ENGINE_OFFLINE') {
+    // Emergency badge — Option A (Jeff 2026-05-01): suppress
+    // ENGINE_OFFLINE during after-hours (it's an expected post-EOD
+    // state). SAFE_MODE / READ_FAIL still surface because they signal
+    // real risk regardless of market hours.
+    if ((primary === 'SAFE_MODE' || primary === 'READ_FAIL')
+        || (primary === 'ENGINE_OFFLINE' && !heroAfterHours)) {
         emergBadge.style.display = 'inline-flex';
         emergBadge.textContent = {
             SAFE_MODE: 'SAFE MODE',

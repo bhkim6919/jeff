@@ -143,9 +143,56 @@
             </div>
         </section>
 
-        <!-- ====== Rebalance Actions (P3 moved here, 2026-04-26) =====
-             Was below Target Portfolio; promoted to right after Summary
-             because it is the highest-frequency operator action. -->
+        <!-- ====== Holdings List (Jeff 2026-05-01: moved up so the
+             rebalance-related sections cluster below it) ============ -->
+        <section id="holdings-section" class="holdings-section">
+            <div class="holdings-header">
+                <h3 class="section-title" data-i18n="dash.title.holdings">보유종목</h3>
+                <div class="holdings-view-switch">
+                    <button class="view-btn active" data-view="list" id="view-list-btn">종목</button>
+                    <button class="view-btn" data-view="sector" id="view-sector-btn">섹터</button>
+                </div>
+            </div>
+            <!-- Donut Chart -->
+            <div id="donut-container" class="donut-container">
+                <div id="donut-chart" class="donut-chart"></div>
+                <div id="donut-legend" class="donut-legend"></div>
+            </div>
+
+            <!-- Sector View -->
+            <div id="sector-view" class="sector-view" style="display:none">
+            </div>
+            <div id="holdings-list" class="holdings-list">
+                <div class="holdings-empty">데이터 로딩 중...</div>
+            </div>
+        </section>
+
+        <!-- ====== Rebalance Cluster (Jeff 2026-05-01) ===============
+             Status bar → action buttons → preview lists, all grouped
+             directly below Holdings so the operator sees current
+             holdings, then the rebalance context, then the actions.
+             Target Portfolio (신규/제외/유지) follows next.        -->
+        <section id="rebal-section" class="rebal-section">
+            <!-- Status Summary (US-style compact panel) -->
+            <div class="rebal-status-bar" style="grid-column:1/-1;background:var(--card-bg,#111827);border:1px solid var(--border-color,#1f2937);border-radius:10px;padding:14px 18px;margin-bottom:8px;">
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                    <span style="font-size:11px;color:#6b7280;">Mode:</span>
+                    <button id="rebal-mode-btn" class="rebal-mode-btn" onclick="toggleRebalMode()">MANUAL</button>
+                    <span style="font-size:11px;color:#6b7280;">Phase:</span>
+                    <span id="rebal-phase" style="font-size:12px;font-weight:600;color:#a0aec0;">IDLE</span>
+                    <span id="rebal-dday" class="rebal-dday">D-?</span>
+                    <span id="rebal-next" style="font-size:11px;color:#6b7280;"></span>
+                </div>
+                <div style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap;font-size:11px;">
+                    <span>Last: <span id="rebal-last" style="color:#a0aec0;">--</span></span>
+                    <span>Sell: <span id="rebal-sell-status" style="color:#a0aec0;">--</span></span>
+                    <span>Buy: <span id="rebal-buy-status" style="color:#a0aec0;">--</span></span>
+                    <span>Window: <span id="rebal-window-status" style="color:#a0aec0;">--</span></span>
+                </div>
+                <div id="rebal-block-reasons" style="margin-top:6px;font-size:10px;color:#e53e3e;display:none;"></div>
+            </div>
+        </section>
+
         <section id="rebal-actions" class="rebal-actions">
             <div class="rebal-actions-header">
                 <span id="rebal-actions-title">Rebalance</span>
@@ -176,51 +223,6 @@
                 <div id="rebal-preview-errors" class="rebal-errors"></div>
             </div>
             <div id="rebal-result" class="rebal-result" style="display:none"></div>
-        </section>
-
-        <!-- ====== Holdings List ================== -->
-        <section id="holdings-section" class="holdings-section">
-            <div class="holdings-header">
-                <h3 class="section-title" data-i18n="dash.title.holdings">보유종목</h3>
-                <div class="holdings-view-switch">
-                    <button class="view-btn active" data-view="list" id="view-list-btn">종목</button>
-                    <button class="view-btn" data-view="sector" id="view-sector-btn">섹터</button>
-                </div>
-            </div>
-            <!-- Donut Chart -->
-            <div id="donut-container" class="donut-container">
-                <div id="donut-chart" class="donut-chart"></div>
-                <div id="donut-legend" class="donut-legend"></div>
-            </div>
-
-            <!-- Sector View -->
-            <div id="sector-view" class="sector-view" style="display:none">
-            </div>
-            <div id="holdings-list" class="holdings-list">
-                <div class="holdings-empty">데이터 로딩 중...</div>
-            </div>
-        </section>
-
-        <!-- ====== Rebalance Control Panel ======== -->
-        <section id="rebal-section" class="rebal-section">
-            <!-- Status Summary (US-style compact panel) -->
-            <div class="rebal-status-bar" style="grid-column:1/-1;background:var(--card-bg,#111827);border:1px solid var(--border-color,#1f2937);border-radius:10px;padding:14px 18px;margin-bottom:8px;">
-                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-                    <span style="font-size:11px;color:#6b7280;">Mode:</span>
-                    <button id="rebal-mode-btn" class="rebal-mode-btn" onclick="toggleRebalMode()">MANUAL</button>
-                    <span style="font-size:11px;color:#6b7280;">Phase:</span>
-                    <span id="rebal-phase" style="font-size:12px;font-weight:600;color:#a0aec0;">IDLE</span>
-                    <span id="rebal-dday" class="rebal-dday">D-?</span>
-                    <span id="rebal-next" style="font-size:11px;color:#6b7280;"></span>
-                </div>
-                <div style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap;font-size:11px;">
-                    <span>Last: <span id="rebal-last" style="color:#a0aec0;">--</span></span>
-                    <span>Sell: <span id="rebal-sell-status" style="color:#a0aec0;">--</span></span>
-                    <span>Buy: <span id="rebal-buy-status" style="color:#a0aec0;">--</span></span>
-                    <span>Window: <span id="rebal-window-status" style="color:#a0aec0;">--</span></span>
-                </div>
-                <div id="rebal-block-reasons" style="margin-top:6px;font-size:10px;color:#e53e3e;display:none;"></div>
-            </div>
         </section>
 
         <section id="target-portfolio-section" class="section">

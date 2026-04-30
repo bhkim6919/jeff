@@ -230,15 +230,43 @@ def get_rebalance_status(state_mgr, config, guard=None) -> Dict:
         last_rebal = runtime.get("last_rebalance_date", "")
         today_dt = date.today()
 
-        trading_days = 0
-        if last_rebal:
-            try:
-                last_dt = datetime.strptime(last_rebal, "%Y%m%d").date()
-                trading_days = _count_trading_days(last_dt, today_dt, config)
-            except (ValueError, TypeError):
-                trading_days = 999
-
         threshold = config.REBAL_DAYS
+        # 2026-05-01 (Jeff): when last_rebalance_date is unset (e.g.,
+        # post-04-30 incident), the prior code defaulted trading_days=0
+        # and returned d_day=threshold(21), making the dashboard show
+        # a fake "D-21" countdown instead of acknowledging the data gap.
+        # Now: d_day=None signals "unknown" so the UI can render "--".
+        # in_window stays False so no rebal accidentally arms.
+        if not last_rebal:
+            return {
+                "mode": _state.mode,
+                "phase": _state.phase,
+                "cycle_id": _state.cycle_id,
+                "in_window": False,
+                "d_day": None,
+                "trading_days_since": None,
+                "threshold": threshold,
+                "last_rebalance": "",
+                "can_preview": False, "can_sell": False,
+                "can_buy": False, "can_skip": False,
+                "blocked": True,
+                "blocked_reason": "last_rebalance_date 미설정 — 운영자 수동 설정 필요",
+                "sell_disable_reason": "last_rebalance_date 미설정",
+                "buy_disable_reason": "last_rebalance_date 미설정",
+                "sell_status": "", "buy_status": "",
+                "preview_hash": "",
+                "pending_buys_count": 0,
+                "pending_age_days": 0,
+                "pending_age_warn": False,
+                "is_running": False,
+            }
+
+        try:
+            last_dt = datetime.strptime(last_rebal, "%Y%m%d").date()
+            trading_days = _count_trading_days(last_dt, today_dt, config)
+        except (ValueError, TypeError):
+            trading_days = 999
+
         d_day = threshold - trading_days
         in_window = trading_days >= (threshold - WINDOW_ADVANCE_DAYS)
 
@@ -396,12 +424,30 @@ def create_preview(state_mgr, config, provider) -> Dict:
             except Exception:
                 pass
 
+        # Stock name cache (Jeff 2026-05-01) — preview was only showing
+        # 6-digit codes. Inject Korean names from stock_name_cache.json
+        # using the same lookup pattern as daily_report._name_of, with
+        # silent fallback to "" so the FE renders "code" alone if a
+        # name is missing.
+        import json as _json
+        name_cache: Dict[str, str] = {}
+        try:
+            _ncp = Path(__file__).resolve().parent.parent / "data" / "stock_name_cache.json"
+            if _ncp.exists():
+                name_cache = _json.loads(_ncp.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            name_cache = {}
+
+        def _name(code: str) -> str:
+            return str(name_cache.get(str(code).zfill(6), "") or "")
+
         # Build preview data
         sells = []
         for o in sell_orders:
             pos = portfolio.positions.get(o.ticker)
             sells.append({
                 "code": o.ticker,
+                "name": _name(o.ticker),
                 "qty": o.quantity,
                 "price": prices.get(o.ticker, 0),
                 "amount": int(o.quantity * prices.get(o.ticker, 0)),
@@ -414,6 +460,7 @@ def create_preview(state_mgr, config, provider) -> Dict:
             p = prices.get(o.ticker, 0)
             buys.append({
                 "code": o.ticker,
+                "name": _name(o.ticker),
                 "target_amount": int(o.target_amount),
                 "est_qty": int(o.target_amount / p) if p > 0 else 0,
                 "price": p,
