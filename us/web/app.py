@@ -2431,6 +2431,25 @@ def create_app() -> FastAPI:
             }
             if exec_result in ("SUCCESS", "PARTIAL"):
                 final_updates["last_rebalance_date"] = today_bd
+                # Approach A — persist next_rebalance_date so
+                # ``compute_execute_allowed`` Gate 6 (NOT_DUE)
+                # actually enforces the 21-day cycle. Without this,
+                # the field stays "" forever, the gate short-circuits
+                # on the empty string, and AUTO mode could re-execute
+                # on the very next business date (Jeff 2026-04-30
+                # rebal_cycle_protection_design memo).
+                try:
+                    _, next_rd, _, _, _ = _calc_d_day(
+                        today_bd, _config.REBAL_DAYS, _get_provider(),
+                    )
+                    if next_rd:
+                        final_updates["next_rebalance_date"] = next_rd
+                except Exception as _e_nrd:
+                    logger.warning(
+                        f"[US_REBAL_NEXT_DATE_CALC_FAIL] {_e_nrd} "
+                        "— cycle gate will rely on the dashboard's"
+                        " D-? counter until next rebal completes"
+                    )
 
             sm.transition_phase_with_updates(exec_phase, final_updates)
 
