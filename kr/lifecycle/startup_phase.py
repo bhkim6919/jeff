@@ -136,6 +136,20 @@ def run_startup(config) -> LiveContext:
     mode_label = trading_mode.upper()
     logger.info(f"Mode: {mode_label}  (server={server_type})")
 
+    # ── Phase 0.5: State Canary (Jeff 2026-04-30) ───────────────
+    # Detect external deletion of critical files (kr/state, OHLCV
+    # cache, KOSPI index). 04-30 incident: portfolio_state_live.json
+    # + runtime_state_live.json + backtest/data_full/ohlcv/ all
+    # vanished overnight; root cause unidentified, recurrence HIGH.
+    # Read-only — never blocks startup. Forensic snapshot + Telegram
+    # CRITICAL on any failure so the next event is captured before
+    # RECON masks it.
+    try:
+        from lifecycle.state_canary import run_state_canary
+        run_state_canary(config, logger)
+    except Exception as _canary_err:  # noqa: BLE001
+        logger.warning(f"[STATE_CANARY] init failed: {_canary_err}")
+
     # ── Phase 1: State Restore + Broker Sync ─────────────────────
     state_mgr = StateManager(config.STATE_DIR, trading_mode=trading_mode)
     portfolio = PortfolioManager(
