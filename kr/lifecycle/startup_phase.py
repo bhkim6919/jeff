@@ -340,9 +340,17 @@ def run_startup(config) -> LiveContext:
     _RECON_RETRY_SLEEP = 30.0
     _recon_attempt = 0
     recon = None
+    # Capture the disk-side portfolio snapshot so RECON's BROKER_ONLY
+    # branch can preserve original entry_dates for positions that were
+    # transiently lost from in-memory state (Jeff 2026-04-30 fix).
+    # ``saved`` was already loaded above (line 174) for the in-memory
+    # restore; re-using it here avoids a second disk read AND
+    # guarantees the snapshot RECON sees is the same one the engine
+    # restored from.
     while _recon_attempt <= _RECON_MAX_RETRY:
         recon = _reconcile_with_broker(portfolio, provider, logger, trade_logger,
-                                        buy_cost=config.BUY_COST, guard=guard)
+                                        buy_cost=config.BUY_COST, guard=guard,
+                                        saved_state=saved)
         # Only retry on holdings_unreliable (PARTIAL snapshot). Other errors
         # (e.g. cash_spike, broker_fail) should fall through to existing handlers.
         _is_partial = bool(recon and not recon.get("ok", True)

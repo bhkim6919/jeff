@@ -7,9 +7,23 @@ from datetime import date, datetime, timedelta
 
 
 def _reconcile_with_broker(portfolio, provider, logger, trade_logger=None,
-                            buy_cost: float = 0.00115, guard=None):
+                            buy_cost: float = 0.00115, guard=None,
+                            saved_state: dict | None = None):
     """
     Sync internal state TO broker truth (limited, guarded).
+
+    Args:
+        saved_state: Pre-RECON snapshot from ``state_mgr.load_portfolio()`` —
+            used by the BROKER_ONLY branch to preserve a position's
+            historical ``entry_date`` when the engine temporarily lost
+            track of it. Without this, a hiccup that briefly empties the
+            engine's portfolio (e.g. the 2026-04-30 incident where the
+            entire ``portfolio_state_live.json`` vanished overnight)
+            resets every position's entry_date to ``today``, losing
+            trail-stop day counters and 21-day cycle tracking. ``None``
+            falls back to the pre-fix behaviour (entry_date=today for
+            every BROKER_ONLY add) — only callers that have a stable
+            disk-side snapshot should pass this.
 
     Returns:
         dict with keys:
@@ -117,24 +131,68 @@ def _reconcile_with_broker(portfolio, provider, logger, trade_logger=None,
         del portfolio.positions[code]
 
     # 2b. BROKER-ONLY → add to engine (manual buy or missed fill)
+    #
+    # entry_date preservation (Jeff 2026-04-30 — RECON BROKER_ONLY fix):
+    # When the engine temporarily lost a position from in-memory state
+    # but the broker still holds it, the pre-fix code created a fresh
+    # Position with ``entry_date=today``. On the 04-30 incident the
+    # entire portfolio_state_live.json vanished overnight, RECON re-added
+    # all 17 positions, and every position's entry_date was reset to
+    # 2026-04-30 — wiping trail-stop day counters and 21-day cycle
+    # tracking. The fix: if the caller passed a ``saved_state`` snapshot
+    # (the disk-side portfolio state captured before this RECON sweep),
+    # use that ``entry_date`` for any matching code; fall back to today
+    # only for genuinely new tickers.
     today = str(date.today())
+    saved_positions: dict = {}
+    if saved_state and isinstance(saved_state, dict):
+        # ``state_mgr.load_portfolio()`` returns ``{"cash": ..., "positions": {code: {...}}}``
+        saved_positions = saved_state.get("positions") or {}
     for code in broker_codes - internal_codes:
         h = broker_holdings[code]
         corrections += 1
+        # Preserved entry_date if the disk snapshot saw this code
+        # before; today otherwise.
+        prev_entry = (
+            saved_positions.get(code, {}).get("entry_date")
+            if isinstance(saved_positions.get(code), dict)
+            else None
+        )
+        # Reject obviously-bad saved values (empty string, garbage) so a
+        # corrupted snapshot can't poison the new position.
+        try:
+            if prev_entry:
+                date.fromisoformat(prev_entry)
+                effective_entry = prev_entry
+            else:
+                effective_entry = today
+        except (TypeError, ValueError):
+            effective_entry = today
         pos = Position(
             code=code,
             quantity=h["qty"],
             avg_price=h["avg_price"],
-            entry_date=today,
+            entry_date=effective_entry,
             high_watermark=h.get("cur_price", h["avg_price"]),
             current_price=h.get("cur_price", 0),
             invested_total=h["qty"] * h["avg_price"] * (1 + buy_cost),
         )
         portfolio.positions[code] = pos
         correction_details.append(("BROKER_ONLY", code, "0", str(h["qty"])))
-        logger.warning(f"[RECON_BROKER_ONLY] Added {code}: "
-                       f"qty={h['qty']}, avg={h['avg_price']:,.0f} — "
-                       f"verify: manual buy or missed fill?")
+        if effective_entry != today:
+            logger.warning(
+                f"[RECON_BROKER_ONLY] Added {code}: "
+                f"qty={h['qty']}, avg={h['avg_price']:,.0f}, "
+                f"entry_date={effective_entry} (preserved from disk) — "
+                f"likely transient state loss + recovery"
+            )
+        else:
+            logger.warning(
+                f"[RECON_BROKER_ONLY] Added {code}: "
+                f"qty={h['qty']}, avg={h['avg_price']:,.0f}, "
+                f"entry_date={today} (no prior record) — "
+                f"verify: manual buy or missed fill?"
+            )
         if trade_logger:
             trade_logger.log_reconcile(
                 code, "BROKER_ONLY",
