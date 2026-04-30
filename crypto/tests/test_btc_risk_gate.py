@@ -8,10 +8,17 @@ Coverage targets (per d6_regime_switching_spec.md §6.3):
     * Empty/missing data → safe default
     * Determinism (same inputs → same output)
     * Configuration validation
+    * **Index/asof type polymorphism** (Jeff 2026-04-30 D6 PR-2 finding):
+      production ``OhlcvLoader.load_pair`` returns an object-dtype index
+      of ``datetime.date`` elements; pre-fix the gate crashed on every
+      rebal with ``TypeError: Cannot compare Timestamp with
+      datetime.date.`` and silently safe-defaulted to active=True. The
+      ``test_object_index_*`` and ``test_asof_*`` cases below pin the
+      working post-fix behaviour.
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -180,3 +187,121 @@ def test_custom_ema_period():
     btc = _trending_up(weeks=100)
     asof = btc.index[-1].date()
     assert gate.is_active(btc, asof) is True
+
+
+# ── Index / asof type polymorphism (Jeff 2026-04-30 PR-2 finding) ────
+
+
+def _trending_up_object_index(weeks: int = 250) -> pd.DataFrame:
+    """Production-shape DataFrame: object-dtype index with
+    ``datetime.date`` elements (this is what
+    ``OhlcvLoader.load_pair`` returns — and exactly the case that
+    crashed pre-fix)."""
+    df = _trending_up(weeks=weeks)
+    # Force object-dtype index of ``datetime.date`` to mirror prod.
+    df.index = pd.Index([d.date() for d in df.index], dtype=object)
+    return df
+
+
+def _trending_down_object_index(weeks: int = 250,
+                                  start_price: float = 60000.0,
+                                  weekly_decline: float = 0.98) -> pd.DataFrame:
+    df = _trending_down(weeks=weeks, start_price=start_price,
+                        weekly_decline=weekly_decline)
+    df.index = pd.Index([d.date() for d in df.index], dtype=object)
+    return df
+
+
+def test_object_index_with_date_elements_bull():
+    """Pre-fix this raised ``TypeError: Cannot compare Timestamp with
+    datetime.date.`` and silently safe-defaulted to active=True. The
+    gate now normalises the index internally and returns the real
+    BULL/BEAR decision."""
+    gate = BTCRiskGate()
+    btc = _trending_up_object_index()
+    assert btc.index.dtype == object   # production shape
+    asof = btc.index[-1]               # this is a datetime.date
+    assert isinstance(asof, date) and not isinstance(asof, datetime)
+    assert gate.is_active(btc, asof) is True
+
+
+def test_object_index_with_date_elements_bear():
+    """Same fix path on the BEAR side — confirms the gate decision
+    is genuinely computed, not just safe-defaulted."""
+    gate = BTCRiskGate()
+    btc = _trending_down_object_index()
+    asof = btc.index[-1]
+    assert gate.is_active(btc, asof) is False
+
+
+def test_object_index_diagnostic_returns_computed():
+    """Pre-fix the diagnostic showed ``reason='no_data_before_asof'``
+    on every call (the slice came back empty after the TypeError-
+    swallowing fallback). Post-fix it returns ``computed`` with real
+    EMA / close numbers."""
+    gate = BTCRiskGate()
+    btc = _trending_up_object_index()
+    asof = btc.index[-1]
+    diag = gate.diagnostic(btc, asof)
+    assert diag["reason"] == "computed"
+    assert diag["latest_weekly_close"] > 0
+    assert diag["latest_ema"] > 0
+
+
+def test_asof_as_pd_timestamp_works_on_object_index():
+    """Some callers may pass ``pd.Timestamp`` directly. Both index
+    types must accept that."""
+    gate = BTCRiskGate()
+    btc = _trending_up_object_index()
+    asof = pd.Timestamp(btc.index[-1])
+    assert gate.is_active(btc, asof) is True
+
+
+def test_asof_as_datetime_works_on_object_index():
+    """``datetime.datetime`` is also accepted (covers the case where a
+    caller appends a clock time before passing)."""
+    gate = BTCRiskGate()
+    btc = _trending_up_object_index()
+    asof = datetime.combine(btc.index[-1], datetime.min.time())
+    assert gate.is_active(btc, asof) is True
+
+
+def test_asof_polymorphism_round_trip():
+    """All three asof types yield the SAME decision for the same
+    underlying date — proving the normalisation is identity-preserving
+    rather than introducing off-by-one drift."""
+    gate = BTCRiskGate()
+    btc = _trending_up_object_index()
+    d_asof = btc.index[-1]                                   # datetime.date
+    dt_asof = datetime.combine(d_asof, datetime.min.time())  # datetime
+    ts_asof = pd.Timestamp(d_asof)                           # Timestamp
+    r_d  = gate.is_active(btc, d_asof)
+    r_dt = gate.is_active(btc, dt_asof)
+    r_ts = gate.is_active(btc, ts_asof)
+    assert r_d == r_dt == r_ts
+
+
+def test_datetimeindex_still_works():
+    """Belt + suspenders: the path that ALREADY worked (pd.DatetimeIndex
+    with date-typed asof) must still pass the same regression."""
+    gate = BTCRiskGate()
+    btc = _trending_up()                # pd.DatetimeIndex
+    asof = btc.index[-1].date()
+    assert gate.is_active(btc, asof) is True
+
+
+def test_no_safe_default_on_normal_inputs():
+    """Catch the silent-fallback regression directly — a normal (non-
+    edge-case) input must produce a real BULL/BEAR decision, never the
+    'unable to compute → default True' fallback. Pre-fix this assertion
+    would have failed because every call returned True via the
+    TypeError-swallowing fallback regardless of the underlying trend."""
+    gate = BTCRiskGate()
+    # A trend so unambiguously DOWN that gating MUST return False.
+    btc = _trending_down_object_index(weeks=300, weekly_decline=0.95)
+    asof = btc.index[-1]
+    decision = gate.is_active(btc, asof)
+    assert decision is False, (
+        "gate fell back to True on a clear BEAR input — "
+        "TypeError-swallow regression has returned"
+    )
