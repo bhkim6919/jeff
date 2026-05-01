@@ -137,6 +137,83 @@ def startup_block_should_fire() -> bool:
     return True
 
 
+# ── Trail-near per-symbol throttle (Jeff 2026-05-01) ──────────
+# Pre-fix bug: ``us/main.py`` deduped trail-near alerts by a process-
+# memory ``_notified_near`` set with reset-on-recovery semantics. When
+# a position oscillates around the near boundary (current_price ≈ HWM
+# × 0.92 with ``trail_ratio=12%``), it enters/exits the set every
+# tick → alert fires every loop. 165 DELL "Trail Stop Near" alerts in
+# 24h was the live evidence (2026-05-01 ~04:30 KST screenshot).
+#
+# Fix: time-based per-symbol throttle.
+#   * First entry → fire.
+#   * Re-entry after a confirmed recovery gap → fire.
+#   * Re-entry without sufficient recovery (jitter) → suppress.
+#   * Continuous near for ≥ throttle window → fire reminder once
+#     per window (so the operator still sees a stale near).
+TRAIL_NEAR_THROTTLE_SEC = 3600          # 1h between same-symbol re-alerts
+TRAIL_NEAR_RECOVERY_GRACE_SEC = 300     # 5min out-of-zone before re-arming
+
+_trail_near_state: "dict[str, dict]" = {}
+
+
+def trail_near_should_fire(
+    symbol: str, in_near_zone: bool, *, now: "float | None" = None,
+) -> bool:
+    """Decide whether to send a Trail Stop Near alert for ``symbol``.
+
+    State machine (per symbol):
+      * ``last_alert_at = None``  → never alerted; first in-zone fires.
+      * ``out_since = None``      → currently in zone (or never seen).
+      * ``out_since = <ts>``      → currently out of zone since <ts>.
+
+    Re-entry fires only when the out_since gap meets the recovery
+    grace; otherwise (jitter) the alert is throttled by the 1h
+    cooldown.
+    """
+    if now is None:
+        now = time.time()
+    st = _trail_near_state.setdefault(symbol, {
+        "last_alert_at": None,
+        "out_since": None,
+    })
+
+    if not in_near_zone:
+        # First detection of leaving the zone records the out_since.
+        # Subsequent out-of-zone ticks keep the original out_since so
+        # the recovery gap accumulates correctly.
+        if st["out_since"] is None:
+            st["out_since"] = now
+        return False
+
+    # In-zone path.
+    last_alert_at = st["last_alert_at"]
+    out_since     = st["out_since"]
+    out_duration  = (now - out_since) if out_since is not None else None
+
+    # Re-entered the zone — clear out_since so the next exit can re-mark it.
+    st["out_since"] = None
+
+    fire = False
+    if last_alert_at is None:
+        fire = True                                        # first sighting
+    elif out_duration is not None and out_duration >= TRAIL_NEAR_RECOVERY_GRACE_SEC:
+        fire = True                                        # confirmed re-entry after recovery
+    elif (now - last_alert_at) >= TRAIL_NEAR_THROTTLE_SEC:
+        fire = True                                        # 1h reminder
+    # else: jitter or within-cooldown — suppress.
+
+    if fire:
+        st["last_alert_at"] = now
+
+    return fire
+
+
+def trail_near_clear(symbol: str) -> None:
+    """Forget all state for one symbol — used when its position closes."""
+    _trail_near_state.pop(symbol, None)
+
+
 # ── Test helper ────────────────────────────────────────────────
 
 def reset_for_test() -> None:
@@ -148,3 +225,4 @@ def reset_for_test() -> None:
     _prev_equity = 0.0
     _equity_drop_active = False
     _startup_alert_sent = False
+    _trail_near_state.clear()
