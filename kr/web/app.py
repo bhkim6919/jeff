@@ -803,25 +803,30 @@ def create_app() -> FastAPI:
 
     @application.get("/api/rebalance")
     async def get_rebalance():
-        """Rebalance schedule from state file."""
+        """Rebalance schedule from state file.
+
+        2026-05-01 fix (Jeff): the prior implementation read
+        ``last_rebalance_date`` from ``portfolio_state_*.json`` (where
+        the field has never lived) and fell back to a kr-legacy path
+        that no longer exists since the Gen3→Gen4 folder rename. As a
+        result the field always resolved to ``""`` and the dashboard
+        D-day defaulted to the full cycle threshold (21), making the
+        REBALANCE card show D-21 indefinitely. ``last_rebalance_date``
+        is canonically written to ``runtime_state_live.json`` by
+        ``state_manager.set_last_rebalance_date``.
+        """
         try:
             state_dir = Path(__file__).resolve().parent.parent / "state"
-            # Try REST state first, then COM state
-            for name in ["portfolio_state_live.json", "portfolio_state_paper.json"]:
-                sf = state_dir / name
-                if sf.exists():
-                    import json as _json
-                    with open(sf, "r", encoding="utf-8") as f:
-                        state = _json.load(f)
-                    last_rebal = state.get("last_rebalance_date", "")
-                    # Also check kr-legacy COM state
-                    # Runtime state has rebalance date
-                    com_rt = Path(__file__).resolve().parent.parent.parent / "kr-legacy" / "state" / "runtime_state_live.json"
-                    if com_rt.exists():
-                        with open(com_rt, "r", encoding="utf-8") as f:
-                            rt = _json.load(f)
-                        last_rebal = rt.get("last_rebalance_date", last_rebal)
-                    return {"last_rebalance": last_rebal, "cycle_days": 21}
+            import json as _json
+            for name in ["runtime_state_live.json", "runtime_state_paper.json"]:
+                rf = state_dir / name
+                if rf.exists():
+                    with open(rf, "r", encoding="utf-8") as f:
+                        rt = _json.load(f)
+                    return {
+                        "last_rebalance": rt.get("last_rebalance_date", ""),
+                        "cycle_days": 21,
+                    }
             return {"last_rebalance": "", "cycle_days": 21}
         except Exception as e:
             return {"last_rebalance": "", "cycle_days": 21, "error": str(e)}
