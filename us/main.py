@@ -860,17 +860,33 @@ def run_live():
                     logger.error(f"[TRAIL] SELL order failed for {sym}: {result}")
                     notify.notify_error(f"SELL order failed: {sym}")
 
-            # Near notifications (with reset on recovery)
+            # Near notifications — per-symbol time-based throttle so a
+            # position oscillating around the near boundary doesn't spam
+            # the channel (Jeff 2026-05-01: DELL fired 165 times in 24h
+            # with the prior reset-on-recovery dedup).
             near_syms = {s for s, _ in near}
-            # Reset on price recovery
-            recovered = _notified_near - near_syms
-            for sym in recovered:
-                _notified_near.discard(sym)
-
-            for sym, dd_pct in near:
-                if sym not in _notified_near:
-                    _notified_near.add(sym)
-                    notify.notify_trail_near(sym, dd_pct)
+            try:
+                from notify import alert_dedup as _ad_near
+                # Mark exits — every tracked symbol that's no longer in
+                # the zone is told so the helper can compute recovery.
+                for sym in list(_notified_near):
+                    if sym not in near_syms:
+                        _ad_near.trail_near_should_fire(sym, in_near_zone=False)
+                        _notified_near.discard(sym)
+                for sym, dd_pct in near:
+                    if _ad_near.trail_near_should_fire(sym, in_near_zone=True):
+                        notify.notify_trail_near(sym, dd_pct)
+                    _notified_near.add(sym)  # track membership for recovery
+            except Exception:
+                # Defensive — fall back to old behavior if helper missing
+                # or import fails.
+                recovered = _notified_near - near_syms
+                for sym in recovered:
+                    _notified_near.discard(sym)
+                for sym, dd_pct in near:
+                    if sym not in _notified_near:
+                        _notified_near.add(sym)
+                        notify.notify_trail_near(sym, dd_pct)
 
             # 7. Periodic save (5 min)
             now = time.time()

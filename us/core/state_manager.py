@@ -65,7 +65,33 @@ _REBAL_DEFAULTS = {
     "last_rebal_attempt_reason": "",       # reject/fail 사유
 }
 
-MAX_STALENESS_HOURS = 12
+# Staleness ceiling for ``compute_batch_fresh`` (Jeff 2026-04-29
+# escalation — third day in a row showing BATCH_NOT_FRESH between
+# the post-close batch and the next morning's market open).
+#
+# Background:
+#   * US batch runs after 16:00 ET (post-close), typically
+#     completing 16:00~20:00 ET.
+#   * The previous 12h ceiling marked the snapshot stale halfway
+#     through the next trading day — the dashboard's
+#     ``BATCH_NOT_FRESH`` banner appeared daily from KST ~17:00
+#     until the next batch finished (~KST 09:00 next day), about
+#     12h of false-positive every cycle.
+#   * Operators saw "Failed: Batch not fresh" daily for 3 days even
+#     though the batch itself was running and completing on schedule.
+#
+# 26h covers a full trading-day cycle plus a 2h buffer:
+#   batch finishes ET 20:00 (worst case)
+#       → KST 09:00 next day, age 13h  → FRESH ✓
+#       → next-day market close ET 16:00, age 20h  → FRESH ✓
+#       → next-day batch finish ET 20:00, age 24h
+#       → 26h gives a 2h grace before the next batch arrives
+#
+# A snapshot older than 26h is genuinely abandoned (the next batch
+# never ran), so the gate keeps protecting against silently-stale
+# state — just with a window that matches the US batch cadence
+# instead of cutting it in half.
+MAX_STALENESS_HOURS = 26
 LOCK_TIMEOUT_MINUTES = 10
 
 
