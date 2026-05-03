@@ -4,8 +4,10 @@ Batch mode entry point extracted from main.py.
 from __future__ import annotations
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from lifecycle.utils import is_weekday
 
@@ -13,6 +15,134 @@ try:
     from notify.helpers import alert_data_failure as _alert_data
 except Exception:
     def _alert_data(*a, **kw): pass  # notify 미초기화 시 no-op
+
+
+# ── Inter-process Lock (PR 3 / AUD-P1-D) ─────────────────────────────
+#
+# Tray scheduler + web manual button + CLI invocation all converge on
+# run_batch(). Without a lock, two concurrent invocations can interleave
+# checkpoint reads/writes and corrupt OHLCV CSV append. Mirror pattern
+# from us/lab/forward.py:_acquire_lock — PID liveness + 30-min stale
+# recovery + atomic JSON write.
+
+LOCK_STALE_SECONDS = 1800  # 30 min — match us/lab/forward.py
+
+
+def _atomic_write_json(path: Path, data: dict) -> None:
+    """Atomic JSON write: tmp → fsync → os.replace. Survives crash mid-write."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    content = json.dumps(data, indent=2, ensure_ascii=False, default=str)
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(content)
+        f.flush()
+        try:
+            os.fsync(f.fileno())  # durability — ignored on platforms that
+        except Exception:         # don't support fsync on regular files
+            pass
+    os.replace(str(tmp), str(path))
+
+
+def _batch_lock_path(config) -> Path:
+    return Path(config.OHLCV_DIR).parent / "batch.lock"
+
+
+def _pid_alive(pid: int) -> bool:
+    """Best-effort PID liveness probe. Tolerant on Windows + POSIX."""
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def _acquire_batch_lock(config, logger) -> bool:
+    """Try to acquire batch lock. Returns True if acquired, False if held by
+    another active process. Stale locks (dead PID OR > 30 min old) are
+    cleared automatically.
+    """
+    lock_p = _batch_lock_path(config)
+    try:
+        lock_p.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    if lock_p.exists():
+        existing = None
+        try:
+            existing = json.loads(lock_p.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning(f"[BATCH_LOCK_PARSE_FAIL] {e} — treating as stale")
+
+        if isinstance(existing, dict):
+            pid = int(existing.get("pid", 0) or 0)
+            started = existing.get("started_at", "") or ""
+
+            alive = _pid_alive(pid)
+            stale_time = True
+            if started:
+                try:
+                    dt = datetime.fromisoformat(started)
+                    age = (datetime.now() - dt.replace(tzinfo=None)).total_seconds()
+                    stale_time = age > LOCK_STALE_SECONDS
+                except Exception:
+                    stale_time = True
+
+            if alive and not stale_time:
+                logger.critical(
+                    f"[BATCH_LOCK_HELD] another batch is active "
+                    f"(pid={pid} since={started}) — refusing to start"
+                )
+                return False
+
+            logger.warning(
+                f"[BATCH_LOCK_STALE] clearing stale lock "
+                f"(pid={pid} alive={alive} stale_time={stale_time})"
+            )
+        else:
+            logger.warning("[BATCH_LOCK_INVALID] unparseable lock — clearing")
+
+        try:
+            lock_p.unlink()
+        except Exception as e:
+            logger.warning(f"[BATCH_LOCK_UNLINK_FAIL] {e}")
+            return False
+
+    try:
+        _atomic_write_json(lock_p, {
+            "pid": os.getpid(),
+            "started_at": datetime.now().isoformat(timespec="seconds"),
+            "host": os.environ.get("COMPUTERNAME", "") or os.environ.get("HOSTNAME", ""),
+        })
+        return True
+    except Exception as e:
+        logger.error(f"[BATCH_LOCK_ACQUIRE_FAIL] {e}")
+        return False
+
+
+def _release_batch_lock(config, logger) -> None:
+    """Release batch lock if owned by current PID. No-op if not owner
+    (avoid stomping a stale-recovered concurrent run)."""
+    lock_p = _batch_lock_path(config)
+    if not lock_p.exists():
+        return
+    try:
+        data = json.loads(lock_p.read_text(encoding="utf-8"))
+        if int(data.get("pid", 0) or 0) != os.getpid():
+            logger.warning(
+                f"[BATCH_LOCK_RELEASE_SKIP] lock_pid={data.get('pid')} "
+                f"self={os.getpid()} — not owner, leaving lock"
+            )
+            return
+    except Exception:
+        # Unreadable lock — proceed with unlink (we're cleaning up, not
+        # claiming ownership).
+        pass
+    try:
+        lock_p.unlink(missing_ok=True)
+    except Exception as e:
+        logger.warning(f"[BATCH_LOCK_RELEASE_FAIL] {e}")
 
 
 # R16 (2026-04-23): Fundamental snapshot hard timeout
@@ -150,14 +280,16 @@ def _load_checkpoint(config) -> dict:
 
 
 def _save_checkpoint(config, step: str, cp: dict) -> None:
-    """완료 단계를 체크포인트에 기록."""
+    """완료 단계를 체크포인트에 기록. PR 3: atomic write (tmp → os.replace)
+    to survive crash / concurrent reader without partial-JSON corruption.
+    """
     cp_path = Path(config.OHLCV_DIR).parent / "batch_checkpoint.json"
     if step not in cp.get("completed_steps", []):
         cp.setdefault("completed_steps", []).append(step)
     cp["last_step"] = step
     cp["last_ts"] = datetime.now().isoformat(timespec="seconds")
     try:
-        cp_path.write_text(json.dumps(cp, indent=2, ensure_ascii=False), encoding="utf-8")
+        _atomic_write_json(cp_path, cp)
     except Exception:
         pass
 
@@ -166,13 +298,36 @@ def run_batch(config, fast: bool = False):
     """Batch: pykrx update → universe → scoring → target portfolio.
 
     중단 후 재시작 시 완료 단계는 skip (batch_checkpoint.json 기반).
+
+    PR 3 (AUD-P1-D): inter-process lock prevents tray + web manual
+    + CLI invocations from interleaving. Returns None and logs CRITICAL
+    on lock conflict (existing callers treat falsy return as "no result").
     """
+    logger = logging.getLogger("gen4.batch")
+
+    # Acquire inter-process lock — fail fast if another batch is active.
+    # Stale locks (dead PID or > 30 min old) are cleared automatically.
+    if not _acquire_batch_lock(config, logger):
+        logger.critical(
+            "[BATCH_LOCK_REJECTED] batch declined: another batch is "
+            "running. See [BATCH_LOCK_HELD] log entry for owner PID."
+        )
+        return None
+
+    try:
+        return _run_batch_inner(config, fast=fast, logger=logger)
+    finally:
+        _release_batch_lock(config, logger)
+
+
+def _run_batch_inner(config, fast: bool, logger):
+    """Original run_batch body — extracted so the outer wrapper can manage
+    the inter-process lock without indenting the entire body."""
     from data.pykrx_provider import update_ohlcv_incremental, get_stock_list
     from data.universe_builder import build_universe_from_ohlcv
     from strategy.factor_ranker import build_target_portfolio, save_target_portfolio
     import pandas as pd
 
-    logger = logging.getLogger("gen4.batch")
     logger.info("=" * 60)
     logger.info("  Gen4 Batch Mode")
     logger.info("=" * 60)
