@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -57,10 +58,96 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
+def _process_start_ts(pid: int) -> Optional[float]:
+    """Best-effort process creation time (epoch seconds) for a PID.
+
+    Used to detect PID reuse across long uptime: if the lock metadata
+    stored a process_start_ts and the current PID's process_start_ts
+    differs, the PID was recycled (lock owner crashed, OS reused PID).
+
+    Returns None on any failure — caller falls back to PID liveness +
+    timestamp staleness only (existing behavior). Never raises.
+    """
+    if pid <= 0:
+        return None
+    try:
+        # Windows: GetProcessTimes via ctypes
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+            kernel32.OpenProcess.restype = wintypes.HANDLE
+            kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+            kernel32.GetProcessTimes.restype = wintypes.BOOL
+
+            handle = kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return None
+            try:
+                class _FILETIME(ctypes.Structure):
+                    _fields_ = [
+                        ("dwLowDateTime", wintypes.DWORD),
+                        ("dwHighDateTime", wintypes.DWORD),
+                    ]
+                create = _FILETIME()
+                exit_ = _FILETIME()
+                kern = _FILETIME()
+                user = _FILETIME()
+                ok = kernel32.GetProcessTimes(
+                    handle,
+                    ctypes.byref(create), ctypes.byref(exit_),
+                    ctypes.byref(kern), ctypes.byref(user))
+                if not ok:
+                    return None
+                # FILETIME = 100-ns intervals since 1601-01-01 UTC.
+                t = (create.dwHighDateTime << 32) | create.dwLowDateTime
+                # Convert to epoch seconds (subtract 1601→1970 offset).
+                return (t - 116444736000000000) / 10_000_000.0
+            finally:
+                kernel32.CloseHandle(handle)
+        # POSIX: /proc/<pid>/stat field 22 = starttime in clock ticks
+        # since boot. Combine with /proc/uptime + boot time.
+        else:
+            stat_path = Path(f"/proc/{pid}/stat")
+            if not stat_path.exists():
+                return None
+            raw = stat_path.read_text(encoding="ascii", errors="replace")
+            # field layout: pid (comm) state ppid ... starttime is field 22
+            # comm may contain spaces, so split on closing paren first.
+            close_paren = raw.rfind(")")
+            if close_paren < 0:
+                return None
+            after = raw[close_paren + 1 :].split()
+            # field 22 = index 19 in `after` (state is index 0)
+            if len(after) < 20:
+                return None
+            ticks = int(after[19])
+            clk_tck = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+            uptime_path = Path("/proc/uptime")
+            if not uptime_path.exists():
+                return None
+            uptime_sec = float(uptime_path.read_text().split()[0])
+            boot_time = time.time() - uptime_sec
+            return boot_time + (ticks / clk_tck)
+    except Exception:
+        return None
+
+
 def _acquire_batch_lock(config, logger) -> bool:
     """Try to acquire batch lock. Returns True if acquired, False if held by
-    another active process. Stale locks (dead PID OR > 30 min old) are
-    cleared automatically.
+    another active process.
+
+    Stale recovery rules (any one triggers clear):
+      - PID dead (os.kill(pid, 0) fails)
+      - started_at > 30 min old
+      - PID reused: stored process_start_ts differs from current
+        process_start_ts of that PID (best-effort; gracefully degrades
+        when start-time probe fails — falls back to existing checks).
     """
     lock_p = _batch_lock_path(config)
     try:
@@ -78,6 +165,7 @@ def _acquire_batch_lock(config, logger) -> bool:
         if isinstance(existing, dict):
             pid = int(existing.get("pid", 0) or 0)
             started = existing.get("started_at", "") or ""
+            stored_proc_ts = existing.get("process_start_ts")
 
             alive = _pid_alive(pid)
             stale_time = True
@@ -89,7 +177,18 @@ def _acquire_batch_lock(config, logger) -> bool:
                 except Exception:
                     stale_time = True
 
-            if alive and not stale_time:
+            # PID-reuse detection (JUG follow-up): if lock stored a
+            # process_start_ts and we can read the current one for that
+            # PID, a mismatch (>1s tolerance) means the original process
+            # died and the OS recycled the PID for a different process.
+            pid_reused = False
+            if alive and isinstance(stored_proc_ts, (int, float)):
+                current_proc_ts = _process_start_ts(pid)
+                if current_proc_ts is not None:
+                    if abs(current_proc_ts - float(stored_proc_ts)) > 1.0:
+                        pid_reused = True
+
+            if alive and not stale_time and not pid_reused:
                 logger.critical(
                     f"[BATCH_LOCK_HELD] another batch is active "
                     f"(pid={pid} since={started}) — refusing to start"
@@ -98,7 +197,8 @@ def _acquire_batch_lock(config, logger) -> bool:
 
             logger.warning(
                 f"[BATCH_LOCK_STALE] clearing stale lock "
-                f"(pid={pid} alive={alive} stale_time={stale_time})"
+                f"(pid={pid} alive={alive} stale_time={stale_time} "
+                f"pid_reused={pid_reused})"
             )
         else:
             logger.warning("[BATCH_LOCK_INVALID] unparseable lock — clearing")
@@ -110,10 +210,15 @@ def _acquire_batch_lock(config, logger) -> bool:
             return False
 
     try:
+        own_proc_ts = _process_start_ts(os.getpid())
         _atomic_write_json(lock_p, {
             "pid": os.getpid(),
             "started_at": datetime.now().isoformat(timespec="seconds"),
             "host": os.environ.get("COMPUTERNAME", "") or os.environ.get("HOSTNAME", ""),
+            # process_start_ts: epoch seconds when the lock-owner process
+            # was created. None if probe failed (degrades gracefully —
+            # PID-reuse detection becomes a no-op, existing checks remain).
+            "process_start_ts": own_proc_ts,
         })
         return True
     except Exception as e:

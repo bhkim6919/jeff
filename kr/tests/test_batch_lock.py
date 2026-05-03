@@ -242,3 +242,95 @@ def test_run_batch_returns_none_on_lock_conflict(cfg, monkeypatch):
     assert result is None
     # Lock should still be held by "the other process" — release manually
     lock_p.unlink()
+
+
+# ── PID-reuse detection (JUG follow-up) ───────────────────────────────
+
+
+def test_process_start_ts_returns_float_or_none():
+    """Smoke test: function never raises; returns float or None."""
+    out = batch_mod._process_start_ts(os.getpid())
+    assert out is None or isinstance(out, float)
+
+
+def test_process_start_ts_invalid_pid_returns_none():
+    assert batch_mod._process_start_ts(0) is None
+    assert batch_mod._process_start_ts(-1) is None
+    # Very large PID: process won't exist, returns None
+    assert batch_mod._process_start_ts(999_999_999) is None
+
+
+def test_acquire_lock_recovers_on_pid_reuse(cfg, logger):
+    """Lock stores process_start_ts. If a later acquire sees the SAME
+    PID alive but a DIFFERENT process_start_ts, that means the original
+    process died and the OS recycled the PID for a different process.
+    Lock should be treated as stale and recovered."""
+    lock_p = batch_mod._batch_lock_path(cfg)
+    lock_p.parent.mkdir(parents=True, exist_ok=True)
+    # Pretend the lock was created by a process that started 1 hour ago
+    stored_ts = time.time() - 3600.0
+    batch_mod._atomic_write_json(lock_p, {
+        "pid": os.getpid(),
+        "started_at": datetime.now().isoformat(timespec="seconds"),
+        "process_start_ts": stored_ts,
+    })
+
+    # Force "current" process_start_ts to be different (simulating PID reuse)
+    with patch.object(batch_mod, "_process_start_ts", return_value=time.time()):
+        with patch.object(batch_mod, "_pid_alive", return_value=True):
+            assert batch_mod._acquire_batch_lock(cfg, logger) is True
+
+    new = json.loads(lock_p.read_text(encoding="utf-8"))
+    assert new["pid"] == os.getpid()
+
+
+def test_acquire_lock_blocks_when_pid_alive_and_start_ts_matches(cfg, logger):
+    """If PID alive AND process_start_ts matches → genuinely held → reject."""
+    lock_p = batch_mod._batch_lock_path(cfg)
+    lock_p.parent.mkdir(parents=True, exist_ok=True)
+    fixed_ts = 1_700_000_000.0
+    batch_mod._atomic_write_json(lock_p, {
+        "pid": os.getpid(),
+        "started_at": datetime.now().isoformat(timespec="seconds"),
+        "process_start_ts": fixed_ts,
+    })
+    with patch.object(batch_mod, "_process_start_ts", return_value=fixed_ts):
+        with patch.object(batch_mod, "_pid_alive", return_value=True):
+            assert batch_mod._acquire_batch_lock(cfg, logger) is False
+
+
+def test_acquire_lock_legacy_lock_without_process_start_ts(cfg, logger):
+    """Older locks (written before this PR) lack process_start_ts.
+    Behavior must not regress — fall back to existing PID + time checks."""
+    lock_p = batch_mod._batch_lock_path(cfg)
+    lock_p.parent.mkdir(parents=True, exist_ok=True)
+    batch_mod._atomic_write_json(lock_p, {
+        "pid": os.getpid(),
+        "started_at": datetime.now().isoformat(timespec="seconds"),
+        # NO process_start_ts field
+    })
+    with patch.object(batch_mod, "_pid_alive", return_value=True):
+        assert batch_mod._acquire_batch_lock(cfg, logger) is False
+
+
+def test_acquire_lock_when_start_ts_probe_fails(cfg, logger):
+    """If _process_start_ts returns None (probe failed), don't trust the
+    PID-reuse signal — fall back to existing alive + time checks."""
+    lock_p = batch_mod._batch_lock_path(cfg)
+    lock_p.parent.mkdir(parents=True, exist_ok=True)
+    batch_mod._atomic_write_json(lock_p, {
+        "pid": os.getpid(),
+        "started_at": datetime.now().isoformat(timespec="seconds"),
+        "process_start_ts": 1_700_000_000.0,
+    })
+    with patch.object(batch_mod, "_process_start_ts", return_value=None):
+        with patch.object(batch_mod, "_pid_alive", return_value=True):
+            assert batch_mod._acquire_batch_lock(cfg, logger) is False
+
+
+def test_acquire_lock_writes_process_start_ts(cfg, logger):
+    """Newly acquired locks must include process_start_ts (or None on
+    probe failure) for future PID-reuse detection."""
+    assert batch_mod._acquire_batch_lock(cfg, logger) is True
+    data = json.loads(batch_mod._batch_lock_path(cfg).read_text(encoding="utf-8"))
+    assert "process_start_ts" in data
