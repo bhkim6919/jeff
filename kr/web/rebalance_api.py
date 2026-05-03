@@ -28,7 +28,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("gen4.rest")
 
@@ -140,9 +140,82 @@ def _set_phase(phase: str, action: str, state_mgr):
 
 # ── Gate Checks ───────────────────────────────────────────────
 
+# Cash drift tolerances (KRW)
+# Soft: warn + override at preview. Strict: reject at execute.
+_CASH_DRIFT_SOFT_KRW = 1_000          # always warn above this
+_CASH_DRIFT_SOFT_PCT = 0.001          # 0.1% of saved cash
+_CASH_DRIFT_STRICT_KRW = 10_000       # reject execute above this
+_CASH_DRIFT_STRICT_PCT = 0.005        # 0.5% of saved cash
+
+
+def _check_monitor_only(state_mgr) -> Optional[str]:
+    """Reject if runtime is in MONITOR-ONLY mode (broker state unreliable)."""
+    try:
+        rt = state_mgr.load_runtime()
+    except Exception as e:
+        return f"MONITOR_ONLY_CHECK_FAILED: {e}"
+    reason = rt.get("monitor_only_reason", "")
+    if reason:
+        return f"MONITOR_ONLY: {reason}"
+    if rt.get("recon_unreliable") is True:
+        return "MONITOR_ONLY: recon_unreliable"
+    return None
+
+
+def _broker_sync(provider) -> Tuple[Optional[str], Optional[Dict]]:
+    """Query broker for canonical cash/holdings. Returns (error_reason, data).
+
+    On failure / holdings_unreliable → (reason, None) so caller rejects.
+    On success → (None, summary_dict).
+    """
+    try:
+        summary = provider.query_account_summary()
+    except Exception as e:
+        return f"BROKER_SYNC_FAILED: query_account_summary exception: {e}", None
+
+    if not isinstance(summary, dict):
+        return "BROKER_SYNC_FAILED: invalid summary format", None
+    err = summary.get("error")
+    if err:
+        return f"BROKER_SYNC_FAILED: {err}", None
+    if summary.get("holdings_reliable") is False:
+        return "BROKER_SYNC_FAILED: holdings_reliable=False (PARTIAL snapshot)", None
+
+    cash = summary.get("available_cash")
+    if not isinstance(cash, (int, float)) or cash < 0:
+        return f"BROKER_SYNC_FAILED: invalid available_cash={cash!r}", None
+
+    return None, summary
+
+
+def _cash_drift_reason(saved_cash: float, broker_cash: float, strict: bool) -> Optional[str]:
+    """Return reason string if cash drift exceeds tolerance. None otherwise."""
+    drift = abs(broker_cash - saved_cash)
+    if strict:
+        threshold = max(_CASH_DRIFT_STRICT_KRW, abs(saved_cash) * _CASH_DRIFT_STRICT_PCT)
+    else:
+        threshold = max(_CASH_DRIFT_SOFT_KRW, abs(saved_cash) * _CASH_DRIFT_SOFT_PCT)
+    if drift > threshold:
+        return (f"BROKER_MISMATCH: cash drift={drift:,.0f} "
+                f"(saved={saved_cash:,.0f} broker={broker_cash:,.0f} "
+                f"threshold={'strict' if strict else 'soft'}={threshold:,.0f})")
+    return None
+
+
 def _check_gates(state_mgr, config, provider, guard=None) -> Optional[str]:
-    """Check all pre-conditions. Returns rejection reason or None."""
-    # BuyPermission
+    """Check all pre-conditions. Returns rejection reason or None.
+
+    NOTE: This is the SHARED gate for both SELL and BUY rebalance paths.
+    Rebalance SELL is conceptually distinct from Safety SELL (Trail Stop / DD trim) —
+    Safety SELL goes through eod_phase / rebalance_phase and is intentionally
+    unguarded. This gate guards Rebalance SELL only.
+    """
+    # MONITOR_ONLY (broker state unreliable) — reject all rebalance ops
+    mo = _check_monitor_only(state_mgr)
+    if mo:
+        return mo
+
+    # BuyPermission (BLOCKED = broker uncertainty; covers rebal SELL too by design)
     if guard:
         try:
             from risk.exposure_guard import BuyPermission
@@ -323,6 +396,11 @@ def get_rebalance_status(state_mgr, config, guard=None) -> Dict:
         elif not can_buy:
             buy_disable_reason = f"Phase: {phase}"
 
+        # Monitor-only visibility (PR 1: surface to dashboard for PR 4-ext UI)
+        monitor_only_reason = runtime.get("monitor_only_reason", "") or ""
+        if not monitor_only_reason and runtime.get("recon_unreliable") is True:
+            monitor_only_reason = "recon_unreliable"
+
         return {
             "mode": _state.mode,
             "phase": phase,
@@ -332,14 +410,22 @@ def get_rebalance_status(state_mgr, config, guard=None) -> Dict:
             "trading_days_since": trading_days,
             "threshold": threshold,
             "last_rebalance": last_rebal,
-            "can_preview": can_preview,
-            "can_sell": can_sell,
-            "can_buy": can_buy,
+            "can_preview": can_preview and not monitor_only_reason,
+            "can_sell": can_sell and not monitor_only_reason,
+            "can_buy": can_buy and not monitor_only_reason,
             "can_skip": can_skip,
-            "blocked": blocked,
-            "blocked_reason": blocked_reason,
-            "sell_disable_reason": sell_disable_reason,
-            "buy_disable_reason": buy_disable_reason,
+            "blocked": blocked or bool(monitor_only_reason),
+            "blocked_reason": blocked_reason or (
+                f"MONITOR_ONLY: {monitor_only_reason}" if monitor_only_reason else ""
+            ),
+            "monitor_only": bool(monitor_only_reason),
+            "monitor_only_reason": monitor_only_reason,
+            "sell_disable_reason": sell_disable_reason or (
+                f"MONITOR_ONLY: {monitor_only_reason}" if monitor_only_reason else ""
+            ),
+            "buy_disable_reason": buy_disable_reason or (
+                f"MONITOR_ONLY: {monitor_only_reason}" if monitor_only_reason else ""
+            ),
             "sell_status": _state.sell_status,
             "buy_status": _state.buy_status,
             "preview_hash": _state.preview_hash[:8] if _state.preview_hash else "",
@@ -351,12 +437,33 @@ def get_rebalance_status(state_mgr, config, guard=None) -> Dict:
 
 
 def create_preview(state_mgr, config, provider) -> Dict:
-    """Create preview snapshot. Locks preview_hash for subsequent execute."""
+    """Create preview snapshot. Locks preview_hash for subsequent execute.
+
+    Preview-time guards (PR 1):
+      - MONITOR_ONLY rejection (runtime["monitor_only_reason"] / recon_unreliable)
+      - Broker sync: query_account_summary() must succeed and report
+        holdings_reliable=True. Otherwise reject with BROKER_SYNC_FAILED.
+      - Cash override: if broker cash drifts > soft tolerance from saved cash,
+        broker truth replaces saved (with warn log) before sizing.
+    """
     with _lock:
         _ensure_init(state_mgr)
 
         if _state.phase not in ("WINDOW_OPEN", "PREVIEW_READY"):
             return {"error": f"Cannot preview in phase {_state.phase}"}
+
+        # MONITOR_ONLY guard (preview is read-only, but reject anyway —
+        # rendering targets vs unreliable broker state is misleading)
+        mo = _check_monitor_only(state_mgr)
+        if mo:
+            logger.warning(f"[REBAL_PREVIEW_REJECTED] {mo}")
+            return {"error": mo}
+
+        # Broker sync — fail-closed: any failure rejects preview
+        bs_err, broker_data = _broker_sync(provider)
+        if bs_err:
+            logger.warning(f"[REBAL_PREVIEW_REJECTED] {bs_err}")
+            return {"error": bs_err}
 
         from strategy.factor_ranker import load_target_portfolio
         from strategy.rebalancer import compute_orders
@@ -376,6 +483,15 @@ def create_preview(state_mgr, config, provider) -> Dict:
             config.INITIAL_CASH, config.DAILY_DD_LIMIT,
             config.MONTHLY_DD_LIMIT, config.N_STOCKS)
         portfolio.restore_from_dict(saved, buy_cost=config.BUY_COST)
+
+        # Cash sync: broker truth wins on drift (soft threshold: warn + override)
+        broker_cash = broker_data.get("available_cash")
+        if isinstance(broker_cash, (int, float)) and broker_cash >= 0:
+            saved_cash = float(portfolio.cash)
+            drift_reason = _cash_drift_reason(saved_cash, float(broker_cash), strict=False)
+            if drift_reason:
+                logger.warning(f"[REBAL_PREVIEW_BROKER_CASH_SYNC] {drift_reason}")
+                portfolio.cash = float(broker_cash)
 
         # Prices
         target_tickers = target["target_tickers"]
@@ -505,7 +621,13 @@ def create_preview(state_mgr, config, provider) -> Dict:
 def execute_sell(state_mgr, config, provider, executor, trade_logger,
                  tracker, guard=None, name_cache=None,
                  request_id: str = "", preview_hash: str = "") -> Dict:
-    """Execute SELL orders from locked preview."""
+    """Execute SELL orders from locked preview.
+
+    Execute-time guards are stricter than preview (PR 1):
+      - MONITOR_ONLY (via _check_sell_gates → _check_gates)
+      - Broker sync must succeed (explicit re-query at execute)
+      - Cash drift vs saved portfolio must be within STRICT tolerance
+    """
     with _lock:
         _ensure_init(state_mgr)
 
@@ -527,11 +649,30 @@ def execute_sell(state_mgr, config, provider, executor, trade_logger,
             logger.warning(f"[REBAL_PREVIEW_STALE] expected={_state.preview_hash[:8]} got={preview_hash[:8]}")
             return {"ok": False, "error": "Preview outdated. Run Preview again."}
 
-        # Gate checks
+        # Gate checks (includes MONITOR_ONLY, BuyPermission, open_orders, target)
         gate_fail = _check_sell_gates(state_mgr, config, provider, guard)
         if gate_fail:
             logger.warning(f"[REBAL_SELL_REJECTED] {gate_fail}")
             return {"ok": False, "error": gate_fail}
+
+        # Strict broker sync at execute time (re-query, not preview's)
+        bs_err, broker_data = _broker_sync(provider)
+        if bs_err:
+            logger.warning(f"[REBAL_SELL_REJECTED] {bs_err}")
+            return {"ok": False, "error": bs_err}
+
+        # Strict cash drift check vs saved portfolio
+        try:
+            saved = state_mgr.load_portfolio() or {}
+            saved_cash = float(saved.get("cash", 0))
+            broker_cash = float(broker_data.get("available_cash", 0))
+            drift_reason = _cash_drift_reason(saved_cash, broker_cash, strict=True)
+            if drift_reason:
+                logger.warning(f"[REBAL_SELL_REJECTED] {drift_reason}")
+                return {"ok": False, "error": drift_reason + " — Run Preview again."}
+        except Exception as e:
+            logger.warning(f"[REBAL_SELL_REJECTED] cash drift check failed: {e}")
+            return {"ok": False, "error": f"BROKER_MISMATCH: cash check failed: {e}"}
 
         _set_phase("SELL_RUNNING", "sell_started", state_mgr)
 
@@ -601,7 +742,13 @@ def execute_sell(state_mgr, config, provider, executor, trade_logger,
 def execute_buy(state_mgr, config, provider, executor, trade_logger,
                 tracker, guard=None, name_cache=None,
                 request_id: str = "", preview_hash: str = "") -> Dict:
-    """Execute BUY orders from pending buys."""
+    """Execute BUY orders from pending buys.
+
+    Execute-time guards (PR 1):
+      - MONITOR_ONLY (via _check_buy_gates → _check_gates)
+      - Broker sync must succeed at execute (explicit re-query)
+      - Strict cash drift vs saved portfolio (BUY uses cash, drift critical)
+    """
     with _lock:
         _ensure_init(state_mgr)
 
@@ -617,11 +764,30 @@ def execute_buy(state_mgr, config, provider, executor, trade_logger,
             logger.warning(f"[REBAL_BUY_REJECTED] {reason}")
             return {"ok": False, "error": reason}
 
-        # Gate checks
+        # Gate checks (includes MONITOR_ONLY, BuyPermission, open_orders, target)
         gate_fail = _check_buy_gates(state_mgr, config, provider, guard)
         if gate_fail:
             logger.warning(f"[REBAL_BUY_REJECTED] {gate_fail}")
             return {"ok": False, "error": gate_fail}
+
+        # Strict broker sync at execute time
+        bs_err, broker_data = _broker_sync(provider)
+        if bs_err:
+            logger.warning(f"[REBAL_BUY_REJECTED] {bs_err}")
+            return {"ok": False, "error": bs_err}
+
+        # Strict cash drift check (BUY: cash drift = sizing error → reject hard)
+        try:
+            saved = state_mgr.load_portfolio() or {}
+            saved_cash = float(saved.get("cash", 0))
+            broker_cash = float(broker_data.get("available_cash", 0))
+            drift_reason = _cash_drift_reason(saved_cash, broker_cash, strict=True)
+            if drift_reason:
+                logger.warning(f"[REBAL_BUY_REJECTED] {drift_reason}")
+                return {"ok": False, "error": drift_reason + " — Re-run cycle."}
+        except Exception as e:
+            logger.warning(f"[REBAL_BUY_REJECTED] cash drift check failed: {e}")
+            return {"ok": False, "error": f"BROKER_MISMATCH: cash check failed: {e}"}
 
         _set_phase("BUY_RUNNING", "buy_started", state_mgr)
 
