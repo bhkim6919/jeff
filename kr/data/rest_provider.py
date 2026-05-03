@@ -134,6 +134,16 @@ class KiwoomRestProvider(BrokerProvider):
         if sector_map_path:
             self._load_sector_map(sector_map_path)
 
+        # Price-fetch failure tracking (PR 2 / AUD-P1-E)
+        # Per-process counter for get_current_price() failures. Existing 0.0
+        # return semantics preserved (callers' `if p > 0` paths continue to
+        # work) — this adds operator-visible logging + a counter that future
+        # guards (RG3) can consult to flag broker-unhealthy state.
+        self._price_fail_lock = threading.Lock()
+        self._price_fail_streak: int = 0
+        self._price_fail_total: int = 0
+        self._last_price_fail_log_streak: int = 0
+
         logger.info(
             f"[REST_PROVIDER] init: server={server_type}, "
             f"account={self._account_no[:4]}****, base={self._base_url}"
@@ -617,8 +627,16 @@ class KiwoomRestProvider(BrokerProvider):
         }
 
     def get_current_price(self, code: str) -> float:
+        """Return current price (mid of best bid/ask), or 0.0 on failure.
+
+        PR 2 / AUD-P1-E: 0.0 return is preserved for backward compat with
+        all existing callers (`if p > 0` skip). Failures are now logged
+        with a per-process streak counter so operators / future guards can
+        detect broker-unhealthy state instead of silent equity drift.
+        """
         data = self._request("ka10004", "/api/dostk/mrkcond", {"stk_cd": code})
         if data.get("return_code") != 0:
+            self._record_price_fail(code, reason=f"return_code={data.get('return_code')!r}")
             return 0.0
         # Use best bid/ask midpoint or first available price
         buy1 = data.get("buy_fpr_bid", "0")
@@ -626,8 +644,57 @@ class KiwoomRestProvider(BrokerProvider):
         buy_p = abs(int(buy1 or "0"))
         sell_p = abs(int(sell1 or "0"))
         if buy_p and sell_p:
+            self._record_price_success()
             return float((buy_p + sell_p) // 2)
-        return float(buy_p or sell_p)
+        result = float(buy_p or sell_p)
+        if result > 0:
+            self._record_price_success()
+        else:
+            self._record_price_fail(code, reason="empty_orderbook")
+        return result
+
+    # ── Price-fetch health (PR 2 / AUD-P1-E) ───────────────────────────
+
+    def _record_price_fail(self, code: str, reason: str) -> None:
+        """Increment fail streak + log. Throttled to every 5th failure to
+        avoid log spam during sustained API outage."""
+        with self._price_fail_lock:
+            self._price_fail_streak += 1
+            self._price_fail_total += 1
+            streak = self._price_fail_streak
+            should_log = (
+                streak == 1
+                or streak - self._last_price_fail_log_streak >= 5
+            )
+            if should_log:
+                self._last_price_fail_log_streak = streak
+        if should_log:
+            logger.warning(
+                f"[PRICE_FAIL] code={code} reason={reason} "
+                f"streak={streak} total={self._price_fail_total}"
+            )
+
+    def _record_price_success(self) -> None:
+        with self._price_fail_lock:
+            if self._price_fail_streak > 0:
+                logger.info(
+                    f"[PRICE_RECOVER] streak_cleared={self._price_fail_streak}"
+                )
+            self._price_fail_streak = 0
+            self._last_price_fail_log_streak = 0
+
+    def get_price_fail_streak(self) -> int:
+        """Read-only accessor for current consecutive get_current_price
+        failure streak. RG3 / future BuyPermission guard can consult this
+        to flag broker-unhealthy state."""
+        with self._price_fail_lock:
+            return self._price_fail_streak
+
+    def get_price_fail_total(self) -> int:
+        """Read-only accessor for cumulative get_current_price failures
+        since process start."""
+        with self._price_fail_lock:
+            return self._price_fail_total
 
     # ── Account Queries ───────────────────────────────────────
 
