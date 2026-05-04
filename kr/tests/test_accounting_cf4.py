@@ -23,6 +23,7 @@ import pytest
 
 from accounting import (
     CANONICAL_SCENARIOS,
+    REQUIRED_PARITY_LABELS,
     CapitalConfig,
     CashflowEvent,
     EventType,
@@ -31,6 +32,7 @@ from accounting import (
     ScenarioReport,
     compute_dashboard_snapshot,
     run_canonical_scenarios,
+    scan_forbidden_keys,
     snapshot_to_dict,
     verify_report_api_parity,
     verify_scenario,
@@ -167,18 +169,134 @@ def test_invariant_no_forbidden_adjusted_equity_keys():
     payload = snapshot_to_dict(compute_dashboard_snapshot(
         s9.equity_series, s9.cashflow_events, cfg))
 
-    def _scan(obj):
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                assert k not in FORBIDDEN_KEYS, (
-                    f"forbidden key {k!r} found — CF0/CF3 anti-pattern guard broken"
-                )
-                _scan(v)
-        elif isinstance(obj, list):
-            for item in obj:
-                _scan(item)
+    # Public scanner must report zero offenders on a normal payload
+    assert scan_forbidden_keys(payload) == []
 
-    _scan(payload)
+
+def test_forbidden_key_injection_caught_by_scanner():
+    """Negative test (Jeff fix-up): inject a forbidden adjusted-equity-series
+    key into a payload and confirm scan_forbidden_keys reports the offender.
+    This proves the scanner is wired up and would catch a regression."""
+    s9 = next(s for s in CANONICAL_SCENARIOS if s.id == "S9")
+    cfg = CapitalConfig(
+        initial_capital=s9.initial_capital, currency="KRW",
+        strategy_start_date="2026-04-15",
+    )
+    payload = snapshot_to_dict(compute_dashboard_snapshot(
+        s9.equity_series, s9.cashflow_events, cfg))
+
+    # Inject the anti-pattern key under modified_dietz
+    payload["modified_dietz"]["adjusted_equity"] = [
+        ["2026-04-15", 5_000_000],
+        ["2026-04-19", 5_700_000],
+    ]
+    offenders = scan_forbidden_keys(payload)
+    assert offenders, "scanner failed to detect injected adjusted_equity key"
+    assert any("adjusted_equity" in o for o in offenders), offenders
+
+
+def test_forbidden_key_injection_surfaces_via_verify_scenario():
+    """Stronger negative test: build a Scenario whose snapshot would carry
+    a forbidden key, run verify_scenario, expect FAIL on the
+    `no_forbidden_adjusted_equity_keys` check.
+
+    Since compute_dashboard_snapshot does not produce forbidden keys
+    naturally, we simulate the regression by monkey-patching
+    `snapshot_to_dict` to inject the key. Restore after the assertion.
+    """
+    from accounting import dashboard as dashboard_mod
+    from accounting import verifier as verifier_mod
+
+    s9 = next(s for s in CANONICAL_SCENARIOS if s.id == "S9")
+
+    original_to_dict = dashboard_mod.snapshot_to_dict
+
+    def corrupted_to_dict(snapshot):
+        d = original_to_dict(snapshot)
+        d["modified_dietz"]["adjusted_equity"] = [
+            ["2026-04-15", 5_000_000],
+            ["2026-04-19", 5_700_000],
+        ]
+        return d
+
+    # Patch the binding inside the verifier module (which imported the
+    # symbol at module-load time).
+    verifier_mod.snapshot_to_dict = corrupted_to_dict
+    try:
+        report = verify_scenario(s9)
+        forbidden_check = next(
+            (c for c in report.checks if c.name == "no_forbidden_adjusted_equity_keys"),
+            None,
+        )
+        assert forbidden_check is not None
+        assert forbidden_check.status == STATUS_FAIL, (
+            "regression: verifier did not flag injected adjusted_equity key"
+        )
+        assert forbidden_check.severity == SEV_CRITICAL
+    finally:
+        verifier_mod.snapshot_to_dict = original_to_dict
+
+
+def test_zero_cashflow_dietz_eq_raw_simple_at_tight_tolerance():
+    """Jeff fix-up: assert that for zero-cashflow scenarios (S3/S4), the
+    verifier checks dietz vs raw_simple at 1e-12 tolerance, not 0.02.
+
+    The chain product over (V_curr / V_prev) telescopes to V_end / V_start,
+    so dietz cumulative_return must equal raw_simple_return at fp precision
+    (no 2% slop). We assert this by inspecting the check result on S3 and
+    S4 directly.
+    """
+    for sid in ("S3", "S4"):
+        scenario = next(s for s in CANONICAL_SCENARIOS if s.id == sid)
+        report = verify_scenario(scenario)
+        check = next(
+            (c for c in report.checks if c.name == "zero_cashflow_dietz_eq_raw_simple"),
+            None,
+        )
+        assert check is not None, (
+            f"{sid}: zero_cashflow_dietz_eq_raw_simple check missing"
+        )
+        assert check.status == STATUS_PASS
+        # The numeric drift must be tiny — much tighter than the 1e-9
+        # bound Jeff specified, comfortably inside fp noise (<1e-12).
+        cfg = CapitalConfig(
+            initial_capital=scenario.initial_capital, currency="KRW",
+            strategy_start_date="2026-04-15",
+        )
+        snap = compute_dashboard_snapshot(
+            scenario.equity_series, scenario.cashflow_events, cfg)
+        diff = abs(
+            snap.modified_dietz.cumulative_return
+            - snap.raw_simple_return.value
+        )
+        assert diff < 1e-9, (
+            f"{sid}: dietz vs raw_simple drift {diff:e} > 1e-9 tolerance"
+        )
+
+
+def test_zero_cashflow_trading_pnl_eq_raw_delta_exact():
+    """Jeff fix-up — exact integer invariant for zero-cashflow scenarios.
+
+    With no cashflow, cumulative trading_pnl must equal raw_end - raw_start
+    exactly (integer math, 0 tolerance).
+    """
+    for sid in ("S2", "S3", "S4"):
+        scenario = next(s for s in CANONICAL_SCENARIOS if s.id == sid)
+        if len(scenario.equity_series) < 2:
+            continue
+        cfg = CapitalConfig(
+            initial_capital=scenario.initial_capital, currency="KRW",
+            strategy_start_date="2026-04-15",
+        )
+        snap = compute_dashboard_snapshot(
+            scenario.equity_series, scenario.cashflow_events, cfg)
+        raw_delta = (
+            scenario.equity_series[-1][1] - scenario.equity_series[0][1]
+        )
+        assert snap.modified_dietz.cumulative_trading_pnl == raw_delta, (
+            f"{sid}: trading_pnl {snap.modified_dietz.cumulative_trading_pnl} "
+            f"!= raw_delta {raw_delta} (zero-cashflow exact invariant)"
+        )
 
 
 # ─── Section 3: Verifier surfaces a useful failure when contract drifts ───
@@ -243,7 +361,11 @@ def _generate_report_html(scenario: Scenario) -> tuple[Path, dict]:
 
 def test_parity_jeff_mandatory_case():
     """Render Jeff mandatory case to HTML and assert every numeric value
-    in the rendered "회계 (CF3)" section matches the payload exactly."""
+    in the rendered "회계 (CF3)" section matches the payload exactly.
+
+    Strict: values_compared MUST equal the full required-label count
+    (Jeff fix-up 2026-05-04). No mismatches allowed.
+    """
     s9 = next(s for s in CANONICAL_SCENARIOS if s.id == "S9")
     out_path, payload = _generate_report_html(s9)
     try:
@@ -253,11 +375,12 @@ def test_parity_jeff_mandatory_case():
             f"Parity FAIL: {report.values_compared} compared, "
             f"mismatches={report.mismatches}"
         )
-        # The accounting section emits 7 dual-display rows; we expect
-        # at least the 4 numeric ones (raw, init cap, net flow, invested
-        # cap) plus the 3 percent ones (raw simple, dietz cumret, dd) =
-        # 7 comparable values.
-        assert report.values_compared >= 5
+        # Strict: every required label must have parsed and compared.
+        assert report.values_compared == len(REQUIRED_PARITY_LABELS), (
+            f"values_compared={report.values_compared} != "
+            f"len(REQUIRED_PARITY_LABELS)={len(REQUIRED_PARITY_LABELS)}"
+        )
+        assert report.mismatches == []
     finally:
         out_path.unlink()
 
@@ -270,6 +393,141 @@ def test_parity_zero_cashflow_uptrend():
         html = out_path.read_text(encoding="utf-8")
         report = verify_report_api_parity(payload, html)
         assert report.status == STATUS_PASS, report.mismatches
+    finally:
+        out_path.unlink()
+
+
+def test_parity_compares_all_required_rows():
+    """Successful parity must touch every required label (Jeff fix-up).
+    A run on the Jeff mandatory case must report values_compared == 7.
+    """
+    s9 = next(s for s in CANONICAL_SCENARIOS if s.id == "S9")
+    out_path, payload = _generate_report_html(s9)
+    try:
+        html = out_path.read_text(encoding="utf-8")
+        report = verify_report_api_parity(payload, html)
+        assert report.status == STATUS_PASS
+        assert report.values_compared == len(REQUIRED_PARITY_LABELS) == 7
+    finally:
+        out_path.unlink()
+
+
+def test_parity_fails_when_accounting_section_missing():
+    """If the Daily Report has NO accounting section at all, parity must
+    FAIL with one missing-label mismatch per required label."""
+    # Render with accounting=None (CF3 backward-compat: no section).
+    import sys
+    sys.path.insert(0, str(REPO_ROOT / "kr"))
+    from report.rest_daily_report import generate_eod_report
+
+    s9 = next(s for s in CANONICAL_SCENARIOS if s.id == "S9")
+    cfg = CapitalConfig(
+        initial_capital=s9.initial_capital, currency="KRW",
+        strategy_start_date="2026-04-15",
+    )
+    payload = snapshot_to_dict(compute_dashboard_snapshot(
+        s9.equity_series, s9.cashflow_events, cfg))
+
+    out_path = generate_eod_report(
+        portfolio={
+            "total_asset": payload["raw_equity"]["value"],
+            "pnl_pct": 0.0, "total_pnl": 0,
+            "cash": 0, "holdings_count": 0,
+        },
+        accounting=None,  # accounting section omitted
+    )
+    assert out_path is not None and out_path.exists()
+    try:
+        html = out_path.read_text(encoding="utf-8")
+        report = verify_report_api_parity(payload, html)
+        assert report.status == STATUS_FAIL
+        assert report.values_compared == 0
+        # Every required label must surface as missing
+        missing_labels = {m.field for m in report.mismatches if m.field.endswith("missing")}
+        for label in REQUIRED_PARITY_LABELS:
+            assert f"{label} missing" in missing_labels, (
+                f"expected '{label} missing' in mismatches"
+            )
+        # All payload_value markers should be "required"
+        for m in report.mismatches:
+            if m.field.endswith("missing"):
+                assert m.payload_value == "required"
+                assert m.html_value is None
+    finally:
+        out_path.unlink()
+
+
+def test_parity_fails_when_required_row_missing():
+    """If exactly one required row is removed from the HTML, parity must
+    FAIL and surface a single missing-label mismatch for that label."""
+    s9 = next(s for s in CANONICAL_SCENARIOS if s.id == "S9")
+    out_path, payload = _generate_report_html(s9)
+    try:
+        html = out_path.read_text(encoding="utf-8")
+        # Surgically remove the Net external flow row (find the <tr> that
+        # contains the label cell and replace it with empty string).
+        import re as _re
+        target_label = "Net external flow"
+        # Remove the entire <tr>..</tr> block that contains the label cell.
+        pattern = _re.compile(
+            r"<tr>\s*<td[^>]*>\s*"
+            + _re.escape(target_label)
+            + r"\s*</td>.*?</tr>",
+            _re.DOTALL,
+        )
+        corrupted = pattern.sub("", html, count=1)
+        assert corrupted != html, "test setup broken: row removal did not occur"
+        # Sanity: label must no longer appear in the corrupted HTML (in
+        # the value-cell context). The label may persist in CSS class
+        # names etc., but the row containing it should be gone.
+        report = verify_report_api_parity(payload, corrupted)
+        assert report.status == STATUS_FAIL
+        # Exactly one missing label expected (the row we removed)
+        missing = [m for m in report.mismatches if m.field.endswith("missing")]
+        assert len(missing) == 1
+        assert missing[0].field == f"{target_label} missing"
+        assert missing[0].payload_value == "required"
+        assert missing[0].html_value is None
+        # values_compared must be one less than full
+        assert report.values_compared == len(REQUIRED_PARITY_LABELS) - 1
+    finally:
+        out_path.unlink()
+
+
+def test_parity_fails_when_required_value_unparseable():
+    """If a required cell exists but contains text we can't parse as the
+    expected numeric type, parity must FAIL with a 'parse failed' mismatch."""
+    s9 = next(s for s in CANONICAL_SCENARIOS if s.id == "S9")
+    out_path, payload = _generate_report_html(s9)
+    try:
+        html = out_path.read_text(encoding="utf-8")
+        # Replace the Initial capital row's value cell content with garbage
+        # that does NOT match the KRW-number regex.
+        target_label = "Initial capital"
+        idx = html.index(target_label)
+        before = html[:idx]
+        after = html[idx:]
+        # Replace the next "<td>...</td>" after the label-cell closing tag.
+        # The structure is: ...{label}</td><td...>{value}</td>...
+        # Use a regex anchored on the label's closing tag.
+        import re as _re
+        replaced = _re.sub(
+            r"(</td>\s*<td[^>]*>)([^<]*)",
+            r"\1NOTANUMBER",
+            after,
+            count=1,
+        )
+        corrupted = before + replaced
+        assert corrupted != html
+        report = verify_report_api_parity(payload, corrupted)
+        assert report.status == STATUS_FAIL
+        parse_failures = [
+            m for m in report.mismatches if "parse failed" in m.field
+        ]
+        assert any("Initial capital" in m.field for m in parse_failures), (
+            f"expected an 'Initial capital ... parse failed' mismatch; "
+            f"got {report.mismatches}"
+        )
     finally:
         out_path.unlink()
 

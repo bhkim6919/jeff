@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from typing import Optional
 
 from .config import CapitalConfig
@@ -408,29 +409,25 @@ def _build_scenarios() -> list[Scenario]:
     )
 
     # S12: high-frequency cashflow (30 days alternating ±10K)
-    s12_eq: list[tuple[str, int]] = [("2026-04-15", 5_000_000)]
+    # Dates generated with date + timedelta to avoid manual month-rollover logic.
+    s12_start = date(2026, 4, 15)
+    s12_eq: list[tuple[str, int]] = [(s12_start.isoformat(), 5_000_000)]
     s12_events: list[CashflowEvent] = []
     eq = 5_000_000
     for i in range(1, 31):
+        d_iso = (s12_start + timedelta(days=i)).isoformat()
         # Alternate +10K (odd i) / -10K (even i)
         if i % 2 == 1:
             eq += 10_000
             s12_events.append(CashflowEvent(
-                event_date=f"2026-04-{15+i:02d}" if 15 + i <= 30 else f"2026-05-{15+i-30:02d}",
-                type=EventType.DEPOSIT,
-                amount=10_000,
+                event_date=d_iso, type=EventType.DEPOSIT, amount=10_000,
             ))
         else:
             eq -= 10_000
             s12_events.append(CashflowEvent(
-                event_date=f"2026-04-{15+i:02d}" if 15 + i <= 30 else f"2026-05-{15+i-30:02d}",
-                type=EventType.WITHDRAWAL,
-                amount=10_000,
+                event_date=d_iso, type=EventType.WITHDRAWAL, amount=10_000,
             ))
-        s12_eq.append((
-            f"2026-04-{15+i:02d}" if 15 + i <= 30 else f"2026-05-{15+i-30:02d}",
-            eq,
-        ))
+        s12_eq.append((d_iso, eq))
     s12 = Scenario(
         id="S12",
         name="high-frequency cashflow",
@@ -497,18 +494,27 @@ def _check_approx(
     )
 
 
-def _scan_forbidden_keys(payload: dict, *, path: str = "root") -> list[str]:
-    """Recursively scan payload for any forbidden adjusted-equity-series keys."""
+def scan_forbidden_keys(payload, *, path: str = "root") -> list[str]:
+    """Recursively scan payload for any forbidden adjusted-equity-series keys.
+
+    Public surface — tests inject these keys into a payload to confirm the
+    scanner catches them (CF0/CF3 anti-pattern regression).
+    """
     offenders: list[str] = []
     if isinstance(payload, dict):
         for k, v in payload.items():
             if k in FORBIDDEN_KEYS:
                 offenders.append(f"{path}.{k}")
-            offenders.extend(_scan_forbidden_keys(v, path=f"{path}.{k}"))
+            offenders.extend(scan_forbidden_keys(v, path=f"{path}.{k}"))
     elif isinstance(payload, list):
         for i, item in enumerate(payload):
-            offenders.extend(_scan_forbidden_keys(item, path=f"{path}[{i}]"))
+            offenders.extend(scan_forbidden_keys(item, path=f"{path}[{i}]"))
     return offenders
+
+
+# Backward-compatible private alias — older callers may use the
+# leading-underscore spelling. Public callers must use scan_forbidden_keys.
+_scan_forbidden_keys = scan_forbidden_keys
 
 
 def verify_scenario(scenario: Scenario) -> ScenarioReport:
@@ -615,7 +621,7 @@ def verify_scenario(scenario: Scenario) -> ScenarioReport:
         rs_source,
     ))
 
-    forbidden_hits = _scan_forbidden_keys(payload)
+    forbidden_hits = scan_forbidden_keys(payload)
     checks.append(_check(
         "no_forbidden_adjusted_equity_keys", SEV_CRITICAL,
         [], forbidden_hits,
@@ -624,6 +630,36 @@ def verify_scenario(scenario: Scenario) -> ScenarioReport:
             "(CF0/CF3 anti-pattern guard)"
         ),
     ))
+
+    # ── Zero-cashflow exact invariants ──────────────────────────────────
+    # When the scenario has no cashflow events, two strong invariants hold:
+    #   (a) trading_pnl == raw_end - raw_start   (exact integer math)
+    #   (b) dietz cumulative_return == raw_simple_return  (chain product
+    #       of (V_curr / V_prev) telescopes to V_end / V_start, so the
+    #       geometric chain equals the simple ratio at fp precision)
+    # These checks pin the engine's behavior at TIGHT tolerance (1e-12),
+    # not the prior 0.02 lax bound — Jeff doctrine 2026-05-04.
+    if not scenario.cashflow_events and len(scenario.equity_series) >= 2:
+        raw_start = scenario.equity_series[0][1]
+        raw_end = scenario.equity_series[-1][1]
+        checks.append(_check(
+            "zero_cashflow_trading_pnl_eq_raw_delta",
+            SEV_CRITICAL,
+            raw_end - raw_start,
+            snapshot.modified_dietz.cumulative_trading_pnl,
+            detail="zero-cashflow: trading_pnl must exactly equal raw_end - raw_start",
+        ))
+        checks.append(_check_approx(
+            "zero_cashflow_dietz_eq_raw_simple",
+            SEV_CRITICAL,
+            snapshot.raw_simple_return.value,
+            snapshot.modified_dietz.cumulative_return,
+            abs_tol=1e-12,
+            detail=(
+                "zero-cashflow: dietz cumret must equal raw_simple_return "
+                "at fp precision (chain telescopes to V_end/V_start)"
+            ),
+        ))
 
     # ── Conditional / pinned per-scenario expectations ───────────────────
     exp = scenario.expected
@@ -684,26 +720,20 @@ def verify_scenario(scenario: Scenario) -> ScenarioReport:
             exp["raw_simple_return"],
             snapshot.raw_simple_return.value,
         ))
+    # Note: zero-cashflow consistency is now pinned by the universal
+    # invariants `zero_cashflow_trading_pnl_eq_raw_delta` (exact integer)
+    # and `zero_cashflow_dietz_eq_raw_simple` (1e-12 tolerance) above —
+    # always applied when scenario.cashflow_events is empty. The legacy
+    # per-scenario flag with 0.02 tolerance was removed (Jeff fix-up
+    # 2026-05-04: chain product telescopes to V_end/V_start exactly, so
+    # no large tolerance is justified).
     if exp.get("zero_cashflow_dietz_eq_raw_simple"):
-        # When no cashflow, geometric chain on raw equity should equal raw_simple
-        # only if equity_series starts at initial_capital. For S3/S4 it does.
-        # We assert dietz cumret deviates from raw simple by < 1bp (chain vs simple).
-        diff = abs(
-            snapshot.modified_dietz.cumulative_return
-            - snapshot.raw_simple_return.value
-        )
-        # Geometric chain ≠ simple ratio in general, but for monotone tiny
-        # daily returns the spread is negligible. Use 1% tolerance for the
-        # 5-day +/- 10% scenarios.
-        threshold = 0.02
-        checks.append(CheckResult(
-            name="scenario_zero_cashflow_dietz_close_to_raw_simple",
-            severity=SEV_CRITICAL,
-            status=STATUS_PASS if diff < threshold else STATUS_FAIL,
-            expected=f"|dietz - raw_simple| < {threshold}",
-            actual=diff,
-            detail="zero-cashflow scenario: cashflow-aware engine must collapse to naive",
-        ))
+        # Compatibility: scenarios still in CANONICAL_SCENARIOS may carry
+        # this flag (S3/S4); the universal check above already covers them
+        # at 1e-12. This branch is now a no-op kept only so the expected
+        # dict can carry the flag for documentation without triggering
+        # KeyError; the actual assertion is the universal one above.
+        pass
     if "net_external_flow" in exp:
         checks.append(_check(
             "scenario_net_external_flow", SEV_CRITICAL,
@@ -802,6 +832,24 @@ _KRW_NUMBER_DATED_RE = re.compile(r"([+-]?[\d,]+)\s*원\s*@\s*(\d{4}-\d{2}-\d{2}
 _PERCENT_RE = re.compile(r"([+-]?\d+(?:\.\d+)?)\s*%")
 
 
+# The seven labels the Daily Report's "회계 (CF3)" section emits. Every
+# label here MUST be found in the rendered HTML for parity to PASS; any
+# missing or unparseable cell is a FAIL. Tests import this constant.
+REQUIRED_PARITY_LABELS: tuple[str, ...] = (
+    "Raw equity (broker truth)",
+    "Initial capital",
+    "Net external flow",
+    "Invested capital",
+    "Raw simple return",
+    "Modified Dietz cumulative return",
+    "Modified Dietz max DD",
+)
+
+# Tolerance for percentage comparisons. The Daily Report formats with
+# %.2f, so any drift > 0.005 of a percentage point is a real mismatch.
+_PERCENT_ABS_TOL = 0.01
+
+
 def _strip_thousands(s: str) -> int:
     return int(s.replace(",", ""))
 
@@ -824,126 +872,151 @@ def _extract_html_value_after_label(html: str, label: str) -> Optional[str]:
     return m.group(1).strip() if m else None
 
 
+def _check_label_raw_equity(cell: str, payload: dict) -> list[ParityMismatch]:
+    """Raw equity cell carries both value and date — emit per-field
+    mismatches with the label as field-name prefix so the test of
+    `m.field.startswith("raw_equity")` (legacy) AND the new
+    `m.field.startswith("Raw equity")` both work without ambiguity.
+    """
+    out: list[ParityMismatch] = []
+    m = _KRW_NUMBER_DATED_RE.search(cell)
+    if not m:
+        out.append(ParityMismatch(
+            "Raw equity (broker truth) (parse failed)",
+            payload["raw_equity"], cell,
+        ))
+        return out
+    html_value = _strip_thousands(m.group(1))
+    html_date = m.group(2)
+    if html_value != payload["raw_equity"]["value"]:
+        out.append(ParityMismatch(
+            "raw_equity.value (Raw equity (broker truth))",
+            payload["raw_equity"]["value"], html_value,
+        ))
+    if html_date != payload["raw_equity"]["as_of_date"]:
+        out.append(ParityMismatch(
+            "raw_equity.as_of_date (Raw equity (broker truth))",
+            payload["raw_equity"]["as_of_date"], html_date,
+        ))
+    return out
+
+
+def _check_label_krw_value(
+    cell: str, payload_value: int, label: str,
+) -> list[ParityMismatch]:
+    m = _KRW_NUMBER_RE.search(cell)
+    if not m:
+        return [ParityMismatch(
+            f"{label} (parse failed)", payload_value, cell,
+        )]
+    html_value = _strip_thousands(m.group(1))
+    if html_value != payload_value:
+        return [ParityMismatch(label, payload_value, html_value)]
+    return []
+
+
+def _check_label_percent(
+    cell: str, payload_ratio: float, label: str,
+) -> list[ParityMismatch]:
+    m = _PERCENT_RE.search(cell)
+    if not m:
+        return [ParityMismatch(
+            f"{label} (parse failed)", payload_ratio, cell,
+        )]
+    html_pct = float(m.group(1))
+    payload_pct = round(payload_ratio * 100, 2)
+    if abs(html_pct - payload_pct) > _PERCENT_ABS_TOL:
+        return [ParityMismatch(label, payload_pct, html_pct)]
+    return []
+
+
+def _label_handlers(payload: dict):
+    """Return the per-label parser/comparator dispatch table.
+
+    Each entry returns a list of ParityMismatch (empty if value matches).
+    Keys are the exact label strings emitted by `kr/report/rest_daily_report.py`.
+    Mismatch field names use the LABEL (not the internal payload key) so
+    operators see the same label they'd find in the report.
+    """
+    return {
+        "Raw equity (broker truth)":
+            lambda cell: _check_label_raw_equity(cell, payload),
+        "Initial capital":
+            lambda cell: _check_label_krw_value(
+                cell, payload["initial_capital"]["value"], "Initial capital",
+            ),
+        "Net external flow":
+            lambda cell: _check_label_krw_value(
+                cell, payload["cashflow"]["net_external_flow"], "Net external flow",
+            ),
+        "Invested capital":
+            lambda cell: _check_label_krw_value(
+                cell, payload["invested_capital"]["value"], "Invested capital",
+            ),
+        "Raw simple return":
+            lambda cell: _check_label_percent(
+                cell, payload["raw_simple_return"]["value"], "Raw simple return",
+            ),
+        "Modified Dietz cumulative return":
+            lambda cell: _check_label_percent(
+                cell, payload["modified_dietz"]["cumulative_return"],
+                "Modified Dietz cumulative return",
+            ),
+        "Modified Dietz max DD":
+            lambda cell: _check_label_percent(
+                cell, payload["modified_dietz"]["max_drawdown"],
+                "Modified Dietz max DD",
+            ),
+    }
+
+
 def verify_report_api_parity(payload: dict, html: str) -> ParityReport:
     """Compare numbers rendered in the Daily Report HTML against the payload dict.
 
-    The payload is the dict returned by `snapshot_to_dict`. The HTML is the
-    file content produced by `generate_eod_report(accounting=payload, ...)`.
-
-    Each row in the "회계 (CF3)" section is scanned for its numeric value and
-    compared against the corresponding payload field. Rounding tolerance for
-    percentage fields is 0.01 (the report formats with %.2f).
+    Contract (Jeff fix-up 2026-05-04):
+      - Every label in REQUIRED_PARITY_LABELS MUST be present in the HTML.
+        Missing label → ParityMismatch(field=f"{label} missing",
+        payload_value="required", html_value=None).
+      - Every located cell MUST parse against its expected pattern.
+        Parse failure → ParityMismatch with "(parse failed)" suffix.
+      - Every parsed value MUST match the payload (exact for KRW integers,
+        within `_PERCENT_ABS_TOL` for percent-formatted fields).
+      - `values_compared` counts cells that parsed successfully (whether
+        matching or mismatching). If `values_compared <
+        len(REQUIRED_PARITY_LABELS)`, status is FAIL.
+      - status == PASS iff: no mismatches AND
+        values_compared == len(REQUIRED_PARITY_LABELS).
     """
     mismatches: list[ParityMismatch] = []
-    compared = 0
+    values_compared = 0
+    handlers = _label_handlers(payload)
 
-    # Raw equity: "5,700,000원 @ 2026-04-19"
-    raw_text = _extract_html_value_after_label(html, "Raw equity (broker truth)")
-    if raw_text:
-        compared += 1
-        m = _KRW_NUMBER_DATED_RE.search(raw_text)
-        if m:
-            html_value = _strip_thousands(m.group(1))
-            html_date = m.group(2)
-            if html_value != payload["raw_equity"]["value"]:
-                mismatches.append(ParityMismatch(
-                    "raw_equity.value",
-                    payload["raw_equity"]["value"], html_value,
-                ))
-            if html_date != payload["raw_equity"]["as_of_date"]:
-                mismatches.append(ParityMismatch(
-                    "raw_equity.as_of_date",
-                    payload["raw_equity"]["as_of_date"], html_date,
-                ))
-        else:
+    for label in REQUIRED_PARITY_LABELS:
+        cell = _extract_html_value_after_label(html, label)
+        if cell is None:
             mismatches.append(ParityMismatch(
-                "raw_equity (parse failed)",
-                payload["raw_equity"], raw_text,
+                field=f"{label} missing",
+                payload_value="required",
+                html_value=None,
             ))
+            continue
+        handler = handlers[label]
+        cell_mismatches = handler(cell)
+        if any("parse failed" in m.field for m in cell_mismatches):
+            # Parse failed — count as not-compared and surface mismatch.
+            mismatches.extend(cell_mismatches)
+            continue
+        # Successful parse → counted as compared (mismatches surface
+        # value drift but the cell was understood).
+        values_compared += 1
+        mismatches.extend(cell_mismatches)
 
-    # Initial capital: "5,000,000원 (KRW)"
-    init_text = _extract_html_value_after_label(html, "Initial capital")
-    if init_text:
-        compared += 1
-        m = _KRW_NUMBER_RE.search(init_text)
-        if m:
-            html_value = _strip_thousands(m.group(1))
-            if html_value != payload["initial_capital"]["value"]:
-                mismatches.append(ParityMismatch(
-                    "initial_capital.value",
-                    payload["initial_capital"]["value"], html_value,
-                ))
-
-    # Net external flow: "+500,000원" (signed)
-    nf_text = _extract_html_value_after_label(html, "Net external flow")
-    if nf_text:
-        compared += 1
-        m = _KRW_NUMBER_RE.search(nf_text)
-        if m:
-            html_value = _strip_thousands(m.group(1))
-            if html_value != payload["cashflow"]["net_external_flow"]:
-                mismatches.append(ParityMismatch(
-                    "cashflow.net_external_flow",
-                    payload["cashflow"]["net_external_flow"], html_value,
-                ))
-
-    # Invested capital: "5,500,000원"
-    ic_text = _extract_html_value_after_label(html, "Invested capital")
-    if ic_text:
-        compared += 1
-        m = _KRW_NUMBER_RE.search(ic_text)
-        if m:
-            html_value = _strip_thousands(m.group(1))
-            if html_value != payload["invested_capital"]["value"]:
-                mismatches.append(ParityMismatch(
-                    "invested_capital.value",
-                    payload["invested_capital"]["value"], html_value,
-                ))
-
-    # Raw simple return: "+14.00%"
-    rs_text = _extract_html_value_after_label(html, "Raw simple return")
-    if rs_text:
-        compared += 1
-        m = _PERCENT_RE.search(rs_text)
-        if m:
-            html_pct = float(m.group(1))
-            payload_pct = round(payload["raw_simple_return"]["value"] * 100, 2)
-            if abs(html_pct - payload_pct) > 0.01:
-                mismatches.append(ParityMismatch(
-                    "raw_simple_return.value (%)",
-                    payload_pct, html_pct,
-                ))
-
-    # Modified Dietz cumulative return
-    md_text = _extract_html_value_after_label(html, "Modified Dietz cumulative return")
-    if md_text:
-        compared += 1
-        m = _PERCENT_RE.search(md_text)
-        if m:
-            html_pct = float(m.group(1))
-            payload_pct = round(payload["modified_dietz"]["cumulative_return"] * 100, 2)
-            if abs(html_pct - payload_pct) > 0.01:
-                mismatches.append(ParityMismatch(
-                    "modified_dietz.cumulative_return (%)",
-                    payload_pct, html_pct,
-                ))
-
-    # Modified Dietz max DD: "+0.00% @ --" or "-8.33% @ 2026-04-17"
-    dd_text = _extract_html_value_after_label(html, "Modified Dietz max DD")
-    if dd_text:
-        compared += 1
-        m = _PERCENT_RE.search(dd_text)
-        if m:
-            html_pct = float(m.group(1))
-            payload_pct = round(payload["modified_dietz"]["max_drawdown"] * 100, 2)
-            if abs(html_pct - payload_pct) > 0.01:
-                mismatches.append(ParityMismatch(
-                    "modified_dietz.max_drawdown (%)",
-                    payload_pct, html_pct,
-                ))
-
+    pass_status = (
+        not mismatches
+        and values_compared == len(REQUIRED_PARITY_LABELS)
+    )
     return ParityReport(
-        status=STATUS_PASS if not mismatches else STATUS_FAIL,
-        values_compared=compared,
+        status=STATUS_PASS if pass_status else STATUS_FAIL,
+        values_compared=values_compared,
         mismatches=mismatches,
     )

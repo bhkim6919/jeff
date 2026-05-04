@@ -54,12 +54,14 @@ from .returns import (
 from .summary import AccountingSummary, compute_summary
 from .verifier import (
     CANONICAL_SCENARIOS,
+    REQUIRED_PARITY_LABELS,
     CheckResult,
     ParityMismatch,
     ParityReport,
     Scenario,
     ScenarioReport,
     run_canonical_scenarios,
+    scan_forbidden_keys,
     verify_report_api_parity,
     verify_scenario,
 )
@@ -86,12 +88,14 @@ __all__ = [
     "compute_dashboard_snapshot",
     "snapshot_to_dict",
     "CANONICAL_SCENARIOS",
+    "REQUIRED_PARITY_LABELS",
     "CheckResult",
     "ParityMismatch",
     "ParityReport",
     "Scenario",
     "ScenarioReport",
     "run_canonical_scenarios",
+    "scan_forbidden_keys",
     "verify_report_api_parity",
     "verify_scenario",
 ]
