@@ -1,22 +1,57 @@
 """
-finance/capital_events.py — Capital event tracking
-====================================================
-External capital events (deposits, withdrawals, dividends, interest,
-fees, adjustments) that change account equity without trading P&L.
+finance/_deprecated_capital_events.py — QUARANTINED 2026-05-04 (CF0)
+=====================================================================
 
-Stored in PG `capital_events` table (migration v014).
+⚠️  DO NOT IMPORT FROM ACTIVE RUNTIME CODE  ⚠️
 
-Primary use case (2026-04-20):
+Status: QUARANTINED. New accounting code MUST live under `kr/accounting/`
+(see Accounting Correction Sprint, PR-CF1+).
+
+Quarantine reason
+-----------------
+The original module (introduced 2026-04-20 via commit 2b0ed97c) defined
+`adjust_equity(raw_equity, ...)` which computed:
+
+    adjusted = raw_equity - cumulative_net_deposits_in_window
+
+Per Jeff doctrine 2026-05-04 (Accounting Correction Sprint), this
+"raw minus cashflow" pattern is a footgun:
+  - replay divergence (recompute from ledger drifts from stored adj)
+  - dual truth (raw and adj coexisting → cache mismatch)
+  - DD peak continuity broken (deposit moves peak)
+  - intraday cashflow boundary undefined
+  - PG/CSV drift on rebuild
+
+Q-TRON's accounting truth doctrine instead:
+  - raw equity = immutable broker truth
+  - returns/DD = computed cashflow-aware (Modified Dietz, 1차)
+  - never store equity_adj as a separate time series
+
+Audit trail preserved
+---------------------
+- `record_event` / `list_events` / `cumulative_by_date` retained for
+  historical intent + migration continuity. PG table `capital_events`
+  (12 cols, currently 0 rows) is also retained — see migration v014.
+- `adjust_equity()` REMOVED entirely. Any future need to query a
+  cashflow-adjusted balance must go through the (forthcoming) accounting
+  module's Modified Dietz return engine, not by subtracting from raw.
+
+Web endpoints under `/api/capital/*` return HTTP 410 Gone with a pointer
+to the new accounting module (see `kr/web/app.py`).
+
+Original use case (preserved for audit context, 2026-04-20):
   Jeff plans to deposit additional cash to Kiwoom live account before
   5월 초 rebalance. Without tracking, daily return and cumulative
   return calculations would misinterpret the deposit as "+X% gain".
+  → Resolved by Accounting Correction Sprint (PR-CF1+), NOT by this
+  module's adjust_equity.
 
-API:
-  - record_event()      → insert one event (called from POST endpoint)
+API (retained, but DO NOT call from active code)
+-------------------------------------------------
+  - record_event()      → insert one event (test/audit only)
   - list_events()       → list events filtered by mode/market/date range
-  - cumulative_by_date() → {date: cumulative_net_deposits} for equity adjustment
-  - adjust_equity()     → (raw_equity - cumulative_deposits_until_date)
-                          for honest return calculation
+  - cumulative_by_date() → {date: cumulative_net_deposits}
+  - adjust_equity()     → REMOVED 2026-05-04 (CF0)
 """
 from __future__ import annotations
 
@@ -197,37 +232,11 @@ def cumulative_by_date(
     return cumulative
 
 
-def adjust_equity(
-    raw_equity: float,
-    *,
-    mode: str,
-    market: str,
-    as_of_date: str | date,
-    baseline_date: Optional[str | date] = None,
-) -> float:
-    """
-    Return equity adjusted by cumulative capital events from baseline_date
-    (exclusive) to as_of_date (inclusive).
-
-    adjusted = raw_equity - cumulative_net_deposits_in_window
-
-    Use to compute honest return: baseline=start_of_period, then the
-    returned value reflects pure trading P&L.
-    """
-    base = _to_date(baseline_date) if baseline_date else date(1970, 1, 1)
-    asof = _to_date(as_of_date)
-    cum = cumulative_by_date(
-        mode=mode, market=market, date_from=base, date_to=asof,
-    )
-    # cum is {date_str: running_total}. We want running_total at asof.
-    # If asof is after the last event, take the last cumulative value.
-    # If asof is before any event, zero adjustment.
-    if not cum:
-        return raw_equity
-    asof_str = asof.strftime("%Y-%m-%d")
-    eligible = [v for k, v in cum.items() if k <= asof_str]
-    adjustment = eligible[-1] if eligible else 0.0
-    return round(raw_equity - adjustment, 2)
+# adjust_equity() removed 2026-05-04 (CF0 quarantine).
+# The "raw_equity - cumulative_cashflow" pattern is forbidden in active
+# Q-TRON code. See module docstring for rationale; see kr/accounting/
+# (forthcoming PR-CF1+) for the cashflow-aware return engine that
+# replaces this approach.
 
 
 # ─── helpers ──────────────────────────────────────────────────────
