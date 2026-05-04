@@ -32,12 +32,18 @@ Command chain: **USER → JUG → TOM → Team Leads**
 ## Global Safety Rules
 
 1. **Broker = Truth** — RECON 결과가 최종 기준. Engine 상태 < Broker 조회.
-2. **SELL always allowed**, BUY may be blocked
+2. **SELL doctrine** (JUG 확정 2026-05-04, audit 결과 분류):
+   - **Safety SELL** — Trail Stop / DD trim. **항상 허용**. broker state 불확실해도 last known qty 로 fire (over-sell이 hold 보다 안전). `BuyPermission` / `monitor_only` 체크 우회.
+   - **Rebalance SELL** — 포트폴리오 재구성 (target 변경). **broker reliability 필요**. `BuyPermission BLOCKED/RECOVERING` / `monitor_only_reason` / batch stale 시 차단.
+   - 모든 BUY 는 차단 가능 (uncertainty 시 보수적).
 3. **NEVER trust single log source** — 반드시 복수 소스 cross-check
 4. **State must be backward-compatible** — old JSON → new JSON 로드 가능 필수
 5. **Engine layer is protected** — 아래 Engine Protection Rules 참조
 6. **No P0 execution without USER approval** — JUG → USER 승인 경로만 허용
 7. **Meta/Regime = advisory only** — 엔진 override 금지 (USER 승인 없이)
+8. **monitor_only clear policy** (JUG 확정 2026-05-04):
+   - 자동 클리어 금지 / 수동 web endpoint 금지 / **재시작만**.
+   - dashboard 가시성 + 30분 주기 CRITICAL 알림으로 운영자 인지 유도.
 
 ## Engine Protection Rules
 
