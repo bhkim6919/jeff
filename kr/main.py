@@ -399,7 +399,8 @@ def _execute_rebalance_live(portfolio, target, config, executor, provider,
                              regime: str = "",
                              mode_str: str = "LIVE",
                              tracker=None,
-                             name_cache=None) -> tuple:
+                             name_cache=None,
+                             guard=None) -> tuple:
     """Execute rebalance sells, generate pending buys for T+1.
 
     Returns: (price_fail_count, pending_buys_list, sell_status)
@@ -558,12 +559,15 @@ def _execute_rebalance_live(portfolio, target, config, executor, provider,
     time.sleep(2)
 
     # DD Graduated: Position Trim
+    # PR 5 / G5-a: pass guard + level so _execute_dd_trim can call
+    # mark_trim_executed only if actual trades happened (trimmed > 0).
     if risk_action and risk_action.get("trim_ratio", 0) > 0:
         trim_ratio = risk_action["trim_ratio"]
         level = risk_action["level"]
         logger.warning(f"[DD_TRIM_START] {level}: trimming {trim_ratio:.0%} of all positions")
         _execute_dd_trim(portfolio, trim_ratio, executor, config,
-                         trade_logger, mode_str, logger)
+                         trade_logger, mode_str, logger,
+                         guard=guard, level=level)
 
     # Generate Pending Buys (T+1 model)
     pending_buys_list = []

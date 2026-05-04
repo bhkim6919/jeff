@@ -9,9 +9,19 @@ logger = logging.getLogger(__name__)
 
 
 def _execute_dd_trim(portfolio, trim_ratio, executor, config,
-                      trade_logger, mode_str, logger):
+                      trade_logger, mode_str, logger,
+                      guard=None, level: str = "") -> int:
     """Trim all positions by trim_ratio during DD drawdown.
     Called once per rebalance — same-day duplicate trim prevented by caller.
+
+    Returns: int — number of positions actually trimmed (0 = no-op).
+
+    PR 5 (G5-a fix): If `guard` and `level` are passed, mark_trim_executed
+    is called HERE instead of by the caller, conditional on trimmed > 0.
+    Previously the caller (rebalance_phase.py) called mark_trim_executed
+    unconditionally on `risk_action["trim_ratio"] > 0`, which incorrectly
+    blocked same-day re-trim when all positions had qty * trim_ratio < 1
+    (no actual trades). Result: DD_TRIM marked done despite zero fills.
     """
     from report.reporter import make_event_id
 
@@ -46,6 +56,23 @@ def _execute_dd_trim(portfolio, trim_ratio, executor, config,
             logger.error(f"[DD_TRIM] {code}: sell failed: {result['error']}")
 
     logger.info(f"[DD_TRIM_DONE] trimmed {trimmed} positions by {trim_ratio:.0%}")
+
+    # PR 5 / G5-a: only mark executed if at least one position trimmed.
+    # Without this, re-trim on the same day is incorrectly blocked even
+    # when 0 actual fills happened.
+    if guard is not None and trimmed > 0 and level:
+        try:
+            guard.mark_trim_executed(level)
+        except Exception as e:
+            logger.warning(f"[DD_TRIM_MARK_FAIL] level={level}: {e}")
+    elif guard is not None and trimmed == 0 and level:
+        logger.info(
+            f"[DD_TRIM_NO_FILL] level={level} trim_ratio={trim_ratio:.0%} — "
+            f"no positions had qty * trim_ratio >= 1; mark_trim_executed SKIPPED, "
+            f"same-day re-trim remains allowed"
+        )
+
+    return trimmed
 
 
 # ── Emergency Rebalance (Ver.02: Strategy A) ─────────────────────────────────
