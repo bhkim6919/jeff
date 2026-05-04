@@ -206,24 +206,33 @@ def _check_gates(state_mgr, config, provider, guard=None) -> Optional[str]:
     """Check all pre-conditions. Returns rejection reason or None.
 
     NOTE: This is the SHARED gate for both SELL and BUY rebalance paths.
-    Rebalance SELL is conceptually distinct from Safety SELL (Trail Stop / DD trim) —
-    Safety SELL goes through eod_phase / rebalance_phase and is intentionally
-    unguarded. This gate guards Rebalance SELL only.
+    Rebalance SELL is conceptually distinct from Safety SELL (Trail Stop /
+    DD trim) — Safety SELL goes through eod_phase / rebalance_phase
+    direct paths and is intentionally unguarded. This gate guards
+    Rebalance SELL + BUY only (CLAUDE.md Global Safety Rule #2).
+
+    AUD-N1 (fail-closed): guard.get_buy_permission() exception previously
+    silently passed (treated guard call failure as 'not blocked'), letting
+    Rebalance SELL/BUY proceed when the guard machinery itself was broken.
+    Now any exception → explicit REJECT with reason. Safety SELL paths
+    are NOT affected (they don't route through here).
     """
     # MONITOR_ONLY (broker state unreliable) — reject all rebalance ops
     mo = _check_monitor_only(state_mgr)
     if mo:
         return mo
 
-    # BuyPermission (BLOCKED = broker uncertainty; covers rebal SELL too by design)
+    # BuyPermission — fail-closed on exception (AUD-N1)
+    # BLOCKED/RECOVERING covers rebal SELL too by design (broker uncertainty)
     if guard:
         try:
             from risk.exposure_guard import BuyPermission
             perm, reason = guard.get_buy_permission()
             if perm in (BuyPermission.BLOCKED, BuyPermission.RECOVERING):
                 return f"BuyPermission={perm.value}: {reason}"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[GATE_GUARD_EXC] {type(e).__name__}: {e}")
+            return f"GATE_GUARD_FAILED: {type(e).__name__}: {e}"
 
     # Open orders
     try:
@@ -254,18 +263,28 @@ def _check_gates(state_mgr, config, provider, guard=None) -> Optional[str]:
 
 
 def _check_sell_gates(state_mgr, config, provider, guard=None) -> Optional[str]:
-    """SELL-specific gates."""
+    """SELL-specific gates.
+
+    AUD-N2 (fail-closed): pending_external load exception previously
+    silently passed, allowing Rebalance SELL to fire even when we could
+    not verify there were no external pending orders. Now rejects with
+    explicit reason — operator must address the state issue before
+    SELL is allowed.
+
+    Safety SELL is unaffected (different code path).
+    """
     base = _check_gates(state_mgr, config, provider, guard)
     if base:
         return base
 
-    # Pending external
+    # Pending external — fail-closed on exception
     try:
         pe = state_mgr.load_pending_external()
         if pe and len(pe) > 0:
             return f"pending_external={len(pe)} (must be 0)"
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"[GATE_PENDING_EXTERNAL_EXC] {type(e).__name__}: {e}")
+        return f"GATE_PENDING_EXTERNAL_FAILED: {type(e).__name__}: {e}"
 
     return None
 
