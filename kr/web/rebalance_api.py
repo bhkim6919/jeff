@@ -75,6 +75,14 @@ class RebalCycleState:
     last_buy_result: Dict = field(default_factory=dict)
     # Mode
     mode: str = "manual"  # "manual" | "auto"
+    # ── Preview Snapshot Binding (drift detection) ──
+    # Captured at create_preview time. Verified at execute_sell / execute_buy.
+    # Mismatch → reject with 'PREVIEW_DRIFTED: re-run preview'.
+    preview_id: str = ""               # uuid4 hex per preview
+    snapshot_version: str = ""         # target.snapshot_version at preview time
+    target_hash: str = ""              # SHA256 of canonical target (tickers + scores)
+    order_hash: str = ""               # SHA256 of canonical sells + buys
+    created_at: str = ""               # ISO datetime — preview creation
 
 
 # ── Singleton State + Lock ────────────────────────────────────
@@ -199,6 +207,215 @@ def _cash_drift_reason(saved_cash: float, broker_cash: float, strict: bool) -> O
         return (f"BROKER_MISMATCH: cash drift={drift:,.0f} "
                 f"(saved={saved_cash:,.0f} broker={broker_cash:,.0f} "
                 f"threshold={'strict' if strict else 'soft'}={threshold:,.0f})")
+    return None
+
+
+# ── Preview Snapshot Binding (drift detection) ───────────────────────
+#
+# Goal (Jeff/JUG confirmed): preview 에서 본 주문과 execute 주문이 달라지는
+# 문제 차단. mismatch 면 reject — 저장된 preview order 로 직접 execute
+# 하지 않음, _execute_rebalance_live 의 핵심 흐름은 그대로 유지.
+#
+# 5 fields stored on preview, re-verified at execute:
+#   preview_id        — uuid per preview
+#   snapshot_version  — target.snapshot_version (data version)
+#   target_hash       — canonical hash of (target_tickers, scores)
+#   order_hash        — canonical hash of computed (sells, buys)
+#   created_at        — ISO datetime
+#
+# TTL: SELL/BUY across same cycle can span T+1 (BUY 다음 영업일).
+# 48h covers SELL within hours and BUY 16~20h later with margin.
+PREVIEW_TTL_SEC = 48 * 3600
+
+
+def _canonical_orders_for_hash(sells: List[Dict], buys: List[Dict]) -> Dict:
+    """Extract execution-relevant fields only — used by both preview-time
+    hash and execute-time drift hash. Ignoring display fields (name,
+    rank, mom, vol, est_qty, amount, pnl_pct) is intentional: they don't
+    affect what gets sent to the broker, so changing them between preview
+    and execute should NOT count as drift.
+    """
+    return {
+        "sells": sorted(
+            [(str(s.get("code")), int(s.get("qty", 0)), int(s.get("price", 0)))
+             for s in sells]
+        ),
+        "buys": sorted(
+            [(str(b.get("code")), int(b.get("target_amount", 0)))
+             for b in buys]
+        ),
+    }
+
+
+def _compute_target_hash(target: Dict) -> str:
+    """SHA-256 of canonical (target_tickers, scores). Stable across dict
+    reordering. Used to detect target portfolio changes between preview
+    and execute."""
+    tickers = sorted(target.get("target_tickers", []) or [])
+    scores_in = target.get("scores", {}) or {}
+    scores_canon = {k: scores_in.get(k, {}) for k in sorted(scores_in)}
+    blob = json.dumps(
+        {"tickers": tickers, "scores": scores_canon},
+        sort_keys=True, ensure_ascii=False, default=str,
+    )
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _compute_order_hash(sells: List[Dict], buys: List[Dict]) -> str:
+    """SHA-256 of canonical orders. Same canonicalization at preview and
+    execute time so identical orders produce identical hashes."""
+    canonical = _canonical_orders_for_hash(sells, buys)
+    blob = json.dumps(canonical, sort_keys=True)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _recompute_orders_for_drift(state_mgr, config, provider, target: Dict
+                                 ) -> Tuple[Optional[str], List[Dict], List[Dict]]:
+    """Re-derive (sells, buys) from current state — for drift hash compare.
+
+    Mirrors create_preview's order generation (load_portfolio +
+    update_prices + compute_orders + reconcile_pending isolation), but
+    only returns the minimal dicts needed for hash. Heavy: makes O(N)
+    broker calls. Acceptable cost for execute-time safety.
+
+    Returns (error_reason, sells, buys). On error, returned lists are empty
+    and the caller should propagate the reason as a drift-check failure
+    rather than a "match" result.
+    """
+    try:
+        from strategy.rebalancer import compute_orders
+        from core.portfolio_manager import PortfolioManager
+    except Exception as e:
+        return f"PREVIEW_DRIFT_CHECK_FAILED: import {type(e).__name__}: {e}", [], []
+
+    saved = state_mgr.load_portfolio()
+    if not saved:
+        return "PREVIEW_DRIFT_CHECK_FAILED: no portfolio state", [], []
+
+    try:
+        portfolio = PortfolioManager(
+            config.INITIAL_CASH, config.DAILY_DD_LIMIT,
+            config.MONTHLY_DD_LIMIT, config.N_STOCKS)
+        portfolio.restore_from_dict(saved, buy_cost=config.BUY_COST)
+    except Exception as e:
+        return f"PREVIEW_DRIFT_CHECK_FAILED: portfolio restore {type(e).__name__}: {e}", [], []
+
+    target_tickers = target.get("target_tickers", []) or []
+    all_codes = set(portfolio.positions.keys()) | set(target_tickers)
+    prices: Dict[str, float] = {}
+    for code in all_codes:
+        try:
+            p = provider.get_current_price(code)
+            if p > 0:
+                prices[code] = p
+        except Exception:
+            pass
+    portfolio.update_prices(prices)
+
+    try:
+        sell_orders, buy_orders = compute_orders(
+            current_positions={
+                c: {"quantity": p.quantity, "avg_price": p.avg_price}
+                for c, p in portfolio.positions.items()
+            },
+            target_tickers=target_tickers,
+            total_equity=portfolio.get_current_equity(),
+            current_cash=portfolio.cash,
+            buy_cost=config.BUY_COST,
+            sell_cost=config.SELL_COST,
+            prices=prices,
+            cash_buffer=config.CASH_BUFFER_RATIO,
+        )
+    except Exception as e:
+        return f"PREVIEW_DRIFT_CHECK_FAILED: compute_orders {type(e).__name__}: {e}", [], []
+
+    # Mirror create_preview's reconcile_pending isolation
+    pending_codes = {
+        c for c, p in portfolio.positions.items()
+        if getattr(p, "reconcile_pending", False)
+    }
+    if pending_codes:
+        sell_orders = [o for o in sell_orders if o.ticker not in pending_codes]
+        buy_orders = [o for o in buy_orders if o.ticker not in pending_codes]
+
+    sells_min = [
+        {"code": o.ticker, "qty": o.quantity,
+         "price": prices.get(o.ticker, 0)}
+        for o in sell_orders
+    ]
+    buys_min = [
+        {"code": o.ticker, "target_amount": int(o.target_amount)}
+        for o in buy_orders
+    ]
+    return None, sells_min, buys_min
+
+
+def _check_preview_drift(state_mgr, config, provider) -> Optional[str]:
+    """Verify the stored preview snapshot is still valid at execute time.
+
+    Reject conditions (in evaluation order):
+      1. No preview_id stored — must run preview first
+      2. created_at TTL exceeded
+      3. snapshot_version changed (new batch landed)
+      4. target_hash changed (target portfolio modified — re-batch or partial)
+      5. order_hash changed (orders would differ — price/portfolio drift)
+
+    All reject reasons start with 'PREVIEW_DRIFTED: ' so callers /
+    operators can recognize the class. Final advice: 're-run preview'.
+    Drift-check failure (exception during recompute) returns
+    'PREVIEW_DRIFT_CHECK_FAILED: ...' — distinct from drift to aid
+    operator triage.
+    """
+    # 1. Preview exists?
+    if not _state.preview_id:
+        return "PREVIEW_DRIFTED: no preview_id (run preview first)"
+
+    # 2. TTL
+    if _state.created_at:
+        try:
+            created = datetime.fromisoformat(_state.created_at)
+            age_sec = (datetime.now() - created).total_seconds()
+            if age_sec > PREVIEW_TTL_SEC:
+                return (f"PREVIEW_DRIFTED: age={int(age_sec)}s > "
+                        f"TTL={PREVIEW_TTL_SEC}s, re-run preview")
+        except Exception:
+            return "PREVIEW_DRIFTED: invalid created_at, re-run preview"
+    else:
+        # Legacy preview without created_at — treat as expired
+        return "PREVIEW_DRIFTED: created_at missing, re-run preview"
+
+    # 3. Re-load target + snapshot_version check
+    try:
+        from strategy.factor_ranker import load_target_portfolio
+        target = load_target_portfolio(config.SIGNALS_DIR)
+    except Exception as e:
+        return f"PREVIEW_DRIFT_CHECK_FAILED: target load {type(e).__name__}: {e}"
+
+    if not target:
+        return "PREVIEW_DRIFTED: target portfolio missing, re-run preview"
+
+    current_sv = target.get("snapshot_version", "") or ""
+    if _state.snapshot_version and current_sv != _state.snapshot_version:
+        return (f"PREVIEW_DRIFTED: snapshot_version changed "
+                f"(preview={_state.snapshot_version!r}, current={current_sv!r}), "
+                f"re-run preview")
+
+    # 4. Target hash
+    current_target_hash = _compute_target_hash(target)
+    if _state.target_hash and current_target_hash != _state.target_hash:
+        return ("PREVIEW_DRIFTED: target_hash changed "
+                "(target portfolio modified), re-run preview")
+
+    # 5. Order hash — recompute from current state and compare
+    err, current_sells, current_buys = _recompute_orders_for_drift(
+        state_mgr, config, provider, target)
+    if err:
+        return err
+    current_order_hash = _compute_order_hash(current_sells, current_buys)
+    if _state.order_hash and current_order_hash != _state.order_hash:
+        return ("PREVIEW_DRIFTED: order_hash changed "
+                "(orders would differ at execute), re-run preview")
+
     return None
 
 
@@ -608,6 +825,13 @@ def create_preview(state_mgr, config, provider) -> Dict:
         hash_input = json.dumps({"sells": sells, "buys": buys}, sort_keys=True)
         preview_hash = hashlib.sha256(hash_input.encode()).hexdigest()
 
+        # Preview Snapshot Binding (drift detection fields)
+        preview_id = uuid.uuid4().hex
+        snapshot_version = target.get("snapshot_version", "") or ""
+        target_hash = _compute_target_hash(target)
+        order_hash = _compute_order_hash(sells, buys)
+        created_at = datetime.now().isoformat(timespec="seconds")
+
         # Create cycle_id if new
         if not _state.cycle_id or _state.phase == "WINDOW_OPEN":
             _state.cycle_id = f"rebal_{date.today().strftime('%Y%m%d')}_{uuid.uuid4().hex[:6]}"
@@ -618,16 +842,28 @@ def create_preview(state_mgr, config, provider) -> Dict:
         _state.preview_hash = preview_hash
         _state.preview_sells = sells
         _state.preview_buys = buys
+        _state.preview_id = preview_id
+        _state.snapshot_version = snapshot_version
+        _state.target_hash = target_hash
+        _state.order_hash = order_hash
+        _state.created_at = created_at
         _set_phase("PREVIEW_READY", "preview_created", state_mgr)
 
         logger.info(
             f"[REBAL_PREVIEW_CREATED] cycle={_state.cycle_id} "
-            f"hash={preview_hash[:8]} sells={len(sells)} buys={len(buys)}")
+            f"preview_id={preview_id[:8]} hash={preview_hash[:8]} "
+            f"sv={snapshot_version[:24]} target_h={target_hash[:8]} "
+            f"order_h={order_hash[:8]} sells={len(sells)} buys={len(buys)}")
 
         return {
             "cycle_id": _state.cycle_id,
             "preview_hash": preview_hash,
             "preview_batch_id": _state.preview_batch_id,
+            "preview_id": preview_id,
+            "snapshot_version": snapshot_version,
+            "target_hash": target_hash[:16],
+            "order_hash": order_hash[:16],
+            "created_at": created_at,
             "target_date": target.get("date", "?"),
             "equity": int(portfolio.get_current_equity()),
             "cash": int(portfolio.cash),
@@ -642,10 +878,18 @@ def execute_sell(state_mgr, config, provider, executor, trade_logger,
                  request_id: str = "", preview_hash: str = "") -> Dict:
     """Execute SELL orders from locked preview.
 
-    Execute-time guards are stricter than preview (PR 1):
-      - MONITOR_ONLY (via _check_sell_gates → _check_gates)
-      - Broker sync must succeed (explicit re-query at execute)
-      - Cash drift vs saved portfolio must be within STRICT tolerance
+    Execute-time guards (in order):
+      - Phase + idempotency (existing)
+      - preview_hash (existing — covers cycle continuity)
+      - Preview snapshot binding (NEW): preview_id / snapshot_version /
+        target_hash / order_hash / created_at TTL — drift detection
+      - Gate checks (PR 1 monitor_only / AUD-N1 fail-closed / open_orders / target)
+      - Broker sync re-query (PR 1)
+      - Strict cash drift (PR 1)
+
+    Drift check is STRICTLY before gate checks. If drift is detected, no
+    further verification is needed — operator must re-run preview. This
+    keeps the existing _execute_rebalance_live flow untouched.
     """
     with _lock:
         _ensure_init(state_mgr)
@@ -667,6 +911,15 @@ def execute_sell(state_mgr, config, provider, executor, trade_logger,
         if preview_hash and preview_hash != _state.preview_hash:
             logger.warning(f"[REBAL_PREVIEW_STALE] expected={_state.preview_hash[:8]} got={preview_hash[:8]}")
             return {"ok": False, "error": "Preview outdated. Run Preview again."}
+
+        # Preview Snapshot Binding — drift detection
+        # Verifies target_hash / order_hash / snapshot_version / TTL all
+        # still match what the operator saw in the preview. Drift → reject
+        # with explicit reason; existing execute flow unchanged below.
+        drift_reason = _check_preview_drift(state_mgr, config, provider)
+        if drift_reason:
+            logger.warning(f"[REBAL_SELL_REJECTED] {drift_reason}")
+            return {"ok": False, "error": drift_reason}
 
         # Gate checks (includes MONITOR_ONLY, BuyPermission, open_orders, target)
         gate_fail = _check_sell_gates(state_mgr, config, provider, guard)
@@ -763,10 +1016,15 @@ def execute_buy(state_mgr, config, provider, executor, trade_logger,
                 request_id: str = "", preview_hash: str = "") -> Dict:
     """Execute BUY orders from pending buys.
 
-    Execute-time guards (PR 1):
-      - MONITOR_ONLY (via _check_buy_gates → _check_gates)
-      - Broker sync must succeed at execute (explicit re-query)
-      - Strict cash drift vs saved portfolio (BUY uses cash, drift critical)
+    Execute-time guards (in order):
+      - Phase + idempotency (existing)
+      - Preview snapshot binding (NEW): same drift detection as SELL
+      - Gate checks (PR 1 monitor_only / AUD-N1 fail-closed / open_orders / target / sell_status)
+      - Broker sync re-query (PR 1)
+      - Strict cash drift (PR 1)
+
+    BUY happens T+1 after SELL — drift TTL covers ~16-20h gap (48h TTL
+    in PREVIEW_TTL_SEC). Drift check fail → re-run preview required.
     """
     with _lock:
         _ensure_init(state_mgr)
@@ -782,6 +1040,14 @@ def execute_buy(state_mgr, config, provider, executor, trade_logger,
             reason = f"Phase={_state.phase}, need BUY_READY"
             logger.warning(f"[REBAL_BUY_REJECTED] {reason}")
             return {"ok": False, "error": reason}
+
+        # Preview Snapshot Binding — drift detection
+        # Same contract as execute_sell; rejects if target / orders /
+        # snapshot_version / TTL diverged since preview creation.
+        drift_reason = _check_preview_drift(state_mgr, config, provider)
+        if drift_reason:
+            logger.warning(f"[REBAL_BUY_REJECTED] {drift_reason}")
+            return {"ok": False, "error": drift_reason}
 
         # Gate checks (includes MONITOR_ONLY, BuyPermission, open_orders, target)
         gate_fail = _check_buy_gates(state_mgr, config, provider, guard)
