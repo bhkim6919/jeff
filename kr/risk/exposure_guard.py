@@ -18,9 +18,30 @@ DD Graduated Levels (STEP 5):
 BuyPermission (Phase 1 방어):
   NORMAL   — 리밸 정상 실행 (매도+매수)
   REDUCED  — 매도 정상 + 매수 축소 (buy_scale *= 0.5)
-  BLOCKED  — 리밸 전체 보류 (포지션 유지, trail stop도 금지)
+  RECOVERING — BLOCKED 복귀 중 — 신규 주문 금지, 관찰만
+  BLOCKED  — Rebalance 보류 (broker state 불확실)
 
 SAFE MODE release: DD >= -20% (configurable)
+
+SAFE MODE Levels (실제 enforcement, 2026-05-04 audit 결과):
+  L0 (=NORMAL)   — guard 진입 안 함
+  L1 (ALERT)     — 호출처 0건. 정의만 존재. 실 enforcement 부재
+                   (PR 5 / G2: alerter / advisory only — 동작 차이 없음).
+  L2 (RESTRICT)  — get_buy_permission() → BLOCKED
+  L3 (BLOCK)     — L2 + 추가 격리 (예약)
+
+SELL Doctrine (PR 5 / DOC, JUG 확정 2026-05-04):
+  Safety SELL = Trail Stop / DD trim — eod_phase 와 rebalance_phase 의
+                포지션 보호용 매도. broker state 불확실해도 last known
+                qty 로 fire (over-sell이 hold 보다 안전). 본 guard 의
+                BuyPermission 체크를 거치지 않음.
+  Rebalance SELL = 포트폴리오 재구성 (target 변경) — broker reliability
+                필요. monitor_only / BuyPermission BLOCKED 시 차단.
+                web rebal 경로 (kr/web/rebalance_api.py) 와 scheduled
+                rebal (kr/lifecycle/rebalance_phase.py) 모두 본 guard 의
+                BuyPermission 을 체크.
+  결론: BLOCKED 시 "trail 금지" 라는 docstring 표현은 부정확.
+        BLOCKED 는 Rebalance 경로만 차단함.
 """
 from __future__ import annotations
 import logging
@@ -32,11 +53,18 @@ logger = logging.getLogger("gen4.risk")
 
 
 class BuyPermission(Enum):
-    """리밸 허가 수준. get_buy_permission()에서만 결정."""
-    NORMAL = "NORMAL"          # 리밸 정상 실행
-    REDUCED = "REDUCED"        # 매도 정상 + 매수 축소
-    RECOVERING = "RECOVERING"  # BLOCKED에서 복귀 중 — 주문 금지 유지, 관찰만
-    BLOCKED = "BLOCKED"        # 리밸 전체 보류 + trail 금지 (주문 상태 불확실)
+    """리밸 허가 수준. get_buy_permission()에서만 결정.
+
+    NOTE (PR 5 / DOC): Trail Stop SELL 은 본 enum 의 영향을 받지 않음.
+    Trail Stop / DD trim 은 Safety SELL 로 분류되어 eod_phase /
+    rebalance_phase 에서 직접 fire — get_buy_permission() 우회.
+    Rebalance SELL (포트폴리오 재구성) 만 BLOCKED/RECOVERING 으로 차단됨.
+    """
+    NORMAL = "NORMAL"          # Rebalance 정상 실행
+    REDUCED = "REDUCED"        # Rebalance SELL 정상 + BUY 축소
+    RECOVERING = "RECOVERING"  # BLOCKED 복귀 중 — Rebalance 신규 주문 금지
+    BLOCKED = "BLOCKED"        # Rebalance 전체 보류 (broker state 불확실).
+                               # Safety SELL (Trail Stop / DD trim) 은 영향 없음.
 
 
 class ExposureGuard:
