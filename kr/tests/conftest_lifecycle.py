@@ -133,6 +133,65 @@ class LifecycleHarness:
         self.state_mgr = self._make_state_mgr()
         return self.state_mgr
 
+    # ── RECON outcome simulator (Phase 1 — monitor_only persistence) ──
+
+    def run_recon(self, *, status: str = "OK", reason: str = "") -> dict:
+        """Simulate a RECON phase outcome by writing runtime fields.
+
+        Does NOT call the real reconcile pathway — that's broker/state
+        coupling beyond Phase 1 scope. Instead writes the runtime fields
+        the engine would set so subsequent gate checks (web rebal,
+        rebalance_phase) see the intended state.
+
+        Args:
+            status:
+              'OK'      — clear monitor_only_reason + recon_unreliable
+              'PARTIAL' — set monitor_only_reason='holdings_unreliable',
+                          recon_unreliable=True (mimics RECON PARTIAL
+                          snapshot from kt00018 paginated query)
+              'ERROR'   — set monitor_only_reason=reason or 'recon_error',
+                          recon_unreliable=True (broker query exception path)
+            reason:    custom reason string (used with status='ERROR' or
+                       to override the default for 'PARTIAL')
+
+        Returns the post-RECON runtime dict for inspection.
+
+        IMPORTANT: monitor_only_reason is SESSION-SCOPED per JUG decision —
+        only restart clears it. This simulator does the write; whether the
+        next session sees it cleared depends on whether RECON('OK') is run
+        AFTER restart, not before.
+        """
+        from datetime import datetime as _dt
+        if status not in ("OK", "PARTIAL", "ERROR"):
+            raise ValueError(f"Unknown RECON status: {status!r}")
+
+        rt = self.state_mgr.load_runtime() or {}
+        if status == "OK":
+            rt.pop("monitor_only_reason", None)
+            rt.pop("recon_unreliable", None)
+            rt.pop("monitor_only_set_at", None)
+        elif status == "PARTIAL":
+            rt["monitor_only_reason"] = reason or "holdings_unreliable"
+            rt["recon_unreliable"] = True
+            rt["monitor_only_set_at"] = _dt.now().isoformat(timespec="seconds")
+        elif status == "ERROR":
+            rt["monitor_only_reason"] = reason or "recon_error"
+            rt["recon_unreliable"] = True
+            rt["monitor_only_set_at"] = _dt.now().isoformat(timespec="seconds")
+        self.state_mgr.save_runtime(rt)
+        return rt
+
+    def force_monitor_only(self, reason: str) -> dict:
+        """Set monitor_only_reason directly (for tests that don't need the
+        full RECON-status framing). Lower-level than run_recon — exposes
+        the raw runtime field write for entry-condition tests."""
+        from datetime import datetime as _dt
+        rt = self.state_mgr.load_runtime() or {}
+        rt["monitor_only_reason"] = reason
+        rt["monitor_only_set_at"] = _dt.now().isoformat(timespec="seconds")
+        self.state_mgr.save_runtime(rt)
+        return rt
+
     # ── Batch lock fixtures (PR 3 integration) ────────────────────────
 
     def batch_config(self) -> SimpleNamespace:
