@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, Request, Query
+from fastapi import FastAPI, Request, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -2408,38 +2408,29 @@ def create_app() -> FastAPI:
         except Exception as e:
             return {"code": code, "error": str(e), "closes": []}
 
-    # ── Capital Events API (2026-04-20 추가) ─────────────────────
-    # 실계좌 입금/출금/배당 등 외부 자본 이동 기록.
-    # 누적 수익률 계산 시 입금을 "수익" 으로 오인하지 않도록 보정에 사용.
-    # See: kr/finance/capital_events.py
+    # ── Capital Events API — DEPRECATED 2026-05-04 (CF0) ────────
+    # Originally added 2026-04-20 (commit 2b0ed97c) backed by
+    # kr/finance/capital_events.py + PG table `capital_events`.
+    #
+    # Quarantined 2026-05-04 per Jeff doctrine (Accounting Correction
+    # Sprint, CF0): the underlying module's deprecated equity-adjustment
+    # helper implemented the forbidden raw_equity - cumulative_cashflow
+    # pattern — replaced by the Modified Dietz return engine arriving
+    # in PR-CF1+.
+    #
+    # All three endpoints now return HTTP 410 Gone. The PG table is
+    # retained (currently 0 rows) for migration continuity. New cashflow
+    # accounting will live under `/api/accounting/*` (PR-CF1+).
+    _CAPITAL_GONE_DETAIL = (
+        "Endpoint deprecated 2026-05-04 (Accounting Correction Sprint, CF0). "
+        "Module kr/finance/capital_events.py was quarantined because its "
+        "equity-adjustment helper implemented the forbidden raw - cashflow "
+        "pattern. New endpoints will live under /api/accounting/* (PR-CF1+)."
+    )
 
     @application.post("/api/capital/events")
     async def capital_events_create(request: Request):
-        """Record a capital event. Body:
-          {"mode":"live","market":"KR","event_date":"2026-05-04",
-           "event_type":"deposit","amount":30000000,"currency":"KRW",
-           "note":"5월 리밸 전 추가 입금"}
-        """
-        try:
-            from finance.capital_events import record_event
-            body = await request.json()
-            rid = record_event(
-                mode=body.get("mode", "live"),
-                market=body.get("market", "KR"),
-                event_date=body["event_date"],
-                event_type=body["event_type"],
-                amount=float(body["amount"]),
-                currency=body.get("currency", "KRW"),
-                note=body.get("note", ""),
-                recorded_by=body.get("recorded_by", "jeff"),
-                source=body.get("source", "manual"),
-                external_ref=body.get("external_ref"),
-            )
-            return {"ok": True, "id": rid}
-        except (KeyError, ValueError) as e:
-            return {"ok": False, "error": f"invalid input: {e}"}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+        raise HTTPException(status_code=410, detail=_CAPITAL_GONE_DETAIL)
 
     @application.get("/api/capital/events")
     async def capital_events_list(
@@ -2449,59 +2440,16 @@ def create_app() -> FastAPI:
         date_to: str | None = Query(None),
         limit: int = Query(500, ge=1, le=5000),
     ):
-        """List capital events with optional filters."""
-        try:
-            from finance.capital_events import list_events
-            rows = list_events(
-                mode=mode, market=market,
-                date_from=date_from, date_to=date_to, limit=limit,
-            )
-            total_signed = sum(r["signed_amount"] for r in rows)
-            return {"ok": True, "count": len(rows), "total_signed": round(total_signed, 2), "rows": rows}
-        except Exception as e:
-            return {"ok": False, "error": str(e), "rows": []}
+        raise HTTPException(status_code=410, detail=_CAPITAL_GONE_DETAIL)
 
     @application.get("/api/capital/summary")
     async def capital_summary(
         mode: str = Query("live"),
         market: str = Query("KR"),
-        baseline_date: str | None = Query(None,
-            description="시작일 (없으면 전체). e.g. 2026-04-01"),
-        as_of_date: str | None = Query(None,
-            description="기준일 (없으면 today)"),
+        baseline_date: str | None = Query(None),
+        as_of_date: str | None = Query(None),
     ):
-        """
-        Cumulative capital events summary.
-        Returns: {cumulative_by_date, net_total, deposits, withdraws, etc.}
-        Used for equity adjustment.
-        """
-        try:
-            from datetime import date as _d
-            from finance.capital_events import cumulative_by_date, list_events
-            df = baseline_date or "1970-01-01"
-            dt = as_of_date or _d.today().strftime("%Y-%m-%d")
-            cum = cumulative_by_date(
-                mode=mode, market=market, date_from=df, date_to=dt,
-            )
-            rows = list_events(
-                mode=mode, market=market, date_from=df, date_to=dt,
-                limit=5000,
-            )
-            # per type totals
-            by_type: dict[str, float] = {}
-            for r in rows:
-                by_type[r["event_type"]] = by_type.get(r["event_type"], 0.0) + r["signed_amount"]
-            return {
-                "ok": True,
-                "mode": mode, "market": market,
-                "baseline_date": df, "as_of_date": dt,
-                "event_count": len(rows),
-                "cumulative_by_date": cum,
-                "net_total": cum[max(cum.keys())] if cum else 0.0,
-                "by_type": {k: round(v, 2) for k, v in by_type.items()},
-            }
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+        raise HTTPException(status_code=410, detail=_CAPITAL_GONE_DETAIL)
 
     @application.get("/api/charts/equity-unified")
     async def get_equity_unified(days: int = Query(90, ge=7, le=730)):
