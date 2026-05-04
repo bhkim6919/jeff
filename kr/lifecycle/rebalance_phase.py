@@ -389,13 +389,17 @@ def run_rebalance(ctx: LiveContext) -> None:
                             buy_scale=buy_scale, risk_action=risk_action,
                             regime=ctx.session_regime,
                             mode_str=mode_label, tracker=tracker,
-                            name_cache=name_cache)
+                            name_cache=name_cache,
+                            guard=guard)  # PR 5 / G5-a: trim mark moved inside
                         ctx.rebalance_executed = True
                         ctx.price_fail_count = pfail
 
-                        # Mark trim executed
-                        if risk_action.get("trim_ratio", 0) > 0:
-                            guard.mark_trim_executed(risk_action["level"])
+                        # PR 5 / G5-a: mark_trim_executed now lives inside
+                        # _execute_dd_trim() and is conditional on
+                        # trimmed > 0. The unconditional call here was the
+                        # bug — even when no positions had qty * trim_ratio
+                        # >= 1 (no actual trades), this marked the level
+                        # as executed and blocked same-day re-trim.
 
                         # Commit order
                         if sell_status == "COMPLETE":
