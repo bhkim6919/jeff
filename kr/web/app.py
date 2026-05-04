@@ -2451,6 +2451,110 @@ def create_app() -> FastAPI:
     ):
         raise HTTPException(status_code=410, detail=_CAPITAL_GONE_DETAIL)
 
+    # ── Accounting Summary API (PR-CF3) ─────────────────────────
+    # Read-only dual display: raw broker equity (truth) + Modified Dietz
+    # cashflow-aware return + cashflow ledger summary, with explicit
+    # source labels for every value. Composed by
+    # `kr.accounting.compute_dashboard_snapshot`.
+    #
+    # Hard contract (Jeff doctrine 2026-05-04, CF3 minimal scope):
+    #   - this endpoint NEVER writes to capital_state, ledger,
+    #     report_equity_log, exposure_guard, or any equity history file
+    #   - DD guard and the existing /api/charts/equity-unified are
+    #     untouched — the Modified Dietz numbers reported here are an
+    #     ADDITIONAL view, not a replacement
+    #   - if capital_state.json is absent, returns 503 (fail-closed)
+    #   - if report_equity_log has no LIVE rows yet, returns the snapshot
+    #     with empty equity series (graceful degrade) rather than 500
+    @application.get("/api/accounting/summary")
+    async def accounting_summary():
+        """Read-only accounting dual-display snapshot (CF3).
+
+        Response shape (stable, see `kr.accounting.snapshot_to_dict`):
+            {
+              "raw_equity":         {value, as_of_date, source},
+              "initial_capital":    {value, currency, strategy_start_date, source},
+              "cashflow":           {net_external_flow, total_deposits, ...,
+                                     event_count, last_event_date, source},
+              "invested_capital":   {value, formula, source},
+              "modified_dietz":     {cumulative_return, cumulative_trading_pnl,
+                                     max_drawdown, max_drawdown_date, peak_return,
+                                     peak_date, period_start, period_end,
+                                     input_equity_points, input_cashflow_events,
+                                     source},
+              "raw_simple_return":  {value, formula, source}  // NOT cashflow-aware
+            }
+
+        Errors:
+          503 — capital_state.json missing (operator must configure
+                 inception baseline; this is fail-closed by design).
+        """
+        from accounting import (
+            CashflowLedger,
+            compute_dashboard_snapshot,
+            load_capital_state,
+            snapshot_to_dict,
+        )
+        from shared.db.pg_base import connection
+
+        # 1. Capital config — fail-closed if missing
+        try:
+            cfg = await asyncio.to_thread(load_capital_state)
+        except FileNotFoundError as e:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Accounting not configured: kr/data/accounting/capital_state.json "
+                    "is missing. This file is the strategy inception baseline and must "
+                    "be present (manual configuration; never auto-derived). "
+                    f"Detail: {e}"
+                ),
+            )
+        except (ValueError,) as e:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Accounting capital_state malformed: {e}",
+            )
+
+        # 2. Cashflow events — empty list on missing ledger is fine
+        ledger = CashflowLedger()
+        try:
+            events = await asyncio.to_thread(ledger.load)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Cashflow ledger malformed: {e}",
+            )
+
+        # 3. Equity series from report_equity_log (LIVE mode = real account).
+        # Empty series → snapshot still builds with zeroed dietz section.
+        def _fetch_live_equity():
+            with connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT r.date, r.equity FROM report_equity_log r "
+                    "WHERE r.mode='LIVE' AND r.equity IS NOT NULL "
+                    "ORDER BY r.date ASC"
+                )
+                rows = cur.fetchall()
+                cur.close()
+            return [(str(r[0]), int(r[1])) for r in rows]
+
+        try:
+            equity_series = await asyncio.to_thread(_fetch_live_equity)
+        except Exception as e:
+            # PG hiccup must not 500 — return a graceful degrade with
+            # empty equity. Operator sees zeroed dietz + an explicit note.
+            logger.warning(f"[CF3] equity fetch failed, degrading: {e}")
+            equity_series = []
+
+        snapshot = compute_dashboard_snapshot(
+            equity_series=equity_series,
+            cashflow_events=events,
+            capital_config=cfg,
+        )
+        return snapshot_to_dict(snapshot)
+
     @application.get("/api/charts/equity-unified")
     async def get_equity_unified(days: int = Query(90, ge=7, le=730)):
         """Unified equity curve: Gen4 LIVE + 9 strategies + KOSPI, same baseline.
@@ -5134,6 +5238,51 @@ async def _regime_background_task() -> None:
                 from regime.storage import load_actual, load_latest_json
                 _actual = load_actual(_today_str)
                 _predict = load_latest_json()
+
+                # CF3: build the accounting dual-display snapshot for the
+                # Daily Report. Soft-fail — accounting unconfigured / ledger
+                # missing must NOT block the existing report sections.
+                _accounting_dict = None
+                try:
+                    from accounting import (
+                        CashflowLedger,
+                        compute_dashboard_snapshot,
+                        load_capital_state,
+                        snapshot_to_dict,
+                    )
+                    from shared.db.pg_base import connection as _pg_conn
+
+                    def _build_accounting_snapshot():
+                        cfg = load_capital_state()
+                        events = CashflowLedger().load()
+                        with _pg_conn() as _c:
+                            _cur = _c.cursor()
+                            _cur.execute(
+                                "SELECT r.date, r.equity FROM report_equity_log r "
+                                "WHERE r.mode='LIVE' AND r.equity IS NOT NULL "
+                                "ORDER BY r.date ASC"
+                            )
+                            _rows = _cur.fetchall()
+                            _cur.close()
+                        equity_series = [(str(r[0]), int(r[1])) for r in _rows]
+                        return snapshot_to_dict(
+                            compute_dashboard_snapshot(
+                                equity_series=equity_series,
+                                cashflow_events=events,
+                                capital_config=cfg,
+                            )
+                        )
+
+                    _accounting_dict = await asyncio.to_thread(_build_accounting_snapshot)
+                except FileNotFoundError as _af:
+                    logging.getLogger("web").info(
+                        f"[CF3] accounting unconfigured, skipping section: {_af}"
+                    )
+                except Exception as _af:
+                    logging.getLogger("web").warning(
+                        f"[CF3] accounting snapshot build failed, skipping section: {_af}"
+                    )
+
                 await asyncio.to_thread(
                     generate_eod_report,
                     portfolio=_portfolio_cache.get("data"),
@@ -5145,6 +5294,7 @@ async def _regime_background_task() -> None:
                     rebalance=_compute_rebal_schedule(
                         _portfolio_cache.get("rebal", ""), 21
                     ),
+                    accounting=_accounting_dict,
                 )
                 _portfolio_cache["_eod_report_date"] = _today_str
                 logging.getLogger("web").info("[EOD] REST daily report generated")

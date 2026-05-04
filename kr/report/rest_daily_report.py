@@ -26,8 +26,16 @@ def generate_eod_report(
     regime_actual: Optional[Dict] = None,
     regime_predict: Optional[Dict] = None,
     rebalance: Optional[Dict] = None,
+    accounting: Optional[Dict] = None,
 ) -> Optional[Path]:
-    """Generate REST EOD HTML report. Returns path to file."""
+    """Generate REST EOD HTML report. Returns path to file.
+
+    `accounting` (CF3): a dict produced by
+    `kr.accounting.snapshot_to_dict(...)` carrying raw + Modified Dietz
+    numbers + cashflow summary + source labels for dual display. If None,
+    the Daily Report renders without the accounting section (backward
+    compatible with pre-CF3 callers).
+    """
     eod_ts = time.time()
     eod_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     today_str = date.today().strftime("%Y-%m-%d")
@@ -82,6 +90,85 @@ def generate_eod_report(
                 <tr><td>보유종목</td><td>{portfolio.get('holdings_count',0)}종목</td></tr>
             </table>
             <p class="source">source: kt00018</p>
+        </div>
+        """)
+
+    # Accounting (CF3) — dual display: raw + Modified Dietz adjusted
+    # raw_equity / pnl_pct above remain the broker-truth display. This
+    # section adds the cashflow-aware view alongside, with explicit
+    # source labels so operators can see which figure ignores
+    # deposits/withdrawals and which one corrects for them.
+    if accounting:
+        raw_eq = accounting.get("raw_equity", {}) or {}
+        init_cap = accounting.get("initial_capital", {}) or {}
+        cashflow = accounting.get("cashflow", {}) or {}
+        invested = accounting.get("invested_capital", {}) or {}
+        dietz = accounting.get("modified_dietz", {}) or {}
+        raw_simple = accounting.get("raw_simple_return", {}) or {}
+
+        dietz_cum = (dietz.get("cumulative_return") or 0.0) * 100
+        dietz_dd = (dietz.get("max_drawdown") or 0.0) * 100
+        raw_simple_pct = (raw_simple.get("value") or 0.0) * 100
+        net_flow = cashflow.get("net_external_flow") or 0
+        period_start = dietz.get("period_start") or "--"
+        period_end = dietz.get("period_end") or "--"
+
+        sections.append(f"""
+        <div class="section">
+            <h2>회계 (CF3) — Raw vs Modified Dietz</h2>
+            <table>
+                <tr><th>지표</th><th>값</th><th>출처</th></tr>
+                <tr>
+                    <td>Raw equity (broker truth)</td>
+                    <td>{raw_eq.get('value', 0):,}원 @ {raw_eq.get('as_of_date','--')}</td>
+                    <td class="src">{raw_eq.get('source','')}</td>
+                </tr>
+                <tr>
+                    <td>Initial capital</td>
+                    <td>{init_cap.get('value', 0):,}원 ({init_cap.get('currency','KRW')})</td>
+                    <td class="src">{init_cap.get('source','')}</td>
+                </tr>
+                <tr>
+                    <td>Net external flow</td>
+                    <td>{net_flow:+,}원</td>
+                    <td class="src">{cashflow.get('source','')}</td>
+                </tr>
+                <tr>
+                    <td>Invested capital</td>
+                    <td>{invested.get('value', 0):,}원</td>
+                    <td class="src">{invested.get('formula','')} | {invested.get('source','')}</td>
+                </tr>
+                <tr>
+                    <td>Raw simple return</td>
+                    <td>{raw_simple_pct:+.2f}%</td>
+                    <td class="src">{raw_simple.get('formula','')} | {raw_simple.get('source','')}</td>
+                </tr>
+                <tr>
+                    <td>Modified Dietz cumulative return</td>
+                    <td>{dietz_cum:+.2f}%</td>
+                    <td class="src">{dietz.get('source','')}</td>
+                </tr>
+                <tr>
+                    <td>Modified Dietz max DD</td>
+                    <td>{dietz_dd:+.2f}% @ {dietz.get('max_drawdown_date') or '--'}</td>
+                    <td class="src">cashflow-aware (NOT used by exposure_guard)</td>
+                </tr>
+                <tr>
+                    <td>Cashflow events</td>
+                    <td>deposits={cashflow.get('total_deposits',0):,} / withdrawals={cashflow.get('total_withdrawals',0):,} / divs={cashflow.get('total_dividends',0):,} / count={cashflow.get('event_count',0)}</td>
+                    <td class="src">{cashflow.get('source','')}</td>
+                </tr>
+                <tr>
+                    <td>Period</td>
+                    <td>{period_start} → {period_end} ({dietz.get('input_equity_points',0)} pts, {dietz.get('input_cashflow_events',0)} events)</td>
+                    <td class="src">read-only derivative</td>
+                </tr>
+            </table>
+            <p class="source">
+                CF3 dual display — raw equity is broker truth, Modified Dietz is the
+                cashflow-aware derivative. exposure_guard / DD guard / report_equity_log
+                are NOT modified by this section. See kr/accounting/ for the engine.
+            </p>
         </div>
         """)
 
@@ -149,6 +236,7 @@ def generate_eod_report(
     td, th {{ padding:6px 8px; text-align:left; font-size:13px; border-bottom:1px solid #21262d; }}
     th {{ color:#8b949e; }}
     .source {{ color:#484f58; font-size:10px; margin-top:8px; }}
+    td.src {{ color:#8b949e; font-size:11px; }}
     b {{ color:#F04452; }}
 </style></head><body>
 {''.join(sections)}
