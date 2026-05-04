@@ -80,6 +80,28 @@ def _reset_state_singleton():
     ra._initialized = False
 
 
+def _populate_preview_binding_fields():
+    """Populate the preview snapshot binding fields so drift check passes.
+
+    Tests in this module pre-date the binding feature and intend to verify
+    PR 1 protections (monitor_only / broker_sync / cash drift) IN ISOLATION.
+    With binding shipped, drift check now runs FIRST in execute paths —
+    a missing preview_id would short-circuit before the PR 1 guards we
+    want to test. Populate the binding fields with values that will
+    cause drift check to pass, then the PR 1 guards execute and reject
+    on the conditions under test.
+
+    NOTE: this is fixture maintenance, not regression. The new drift
+    check is tested separately in test_preview_snapshot_binding.py.
+    """
+    from datetime import datetime as _dt
+    ra._state.preview_id = "test-preview-id"
+    ra._state.snapshot_version = "test-sv"
+    ra._state.target_hash = "deadbeef" * 8  # 64 hex chars
+    ra._state.order_hash = "cafef00d" * 8
+    ra._state.created_at = _dt.now().isoformat(timespec="seconds")
+
+
 # ── _check_monitor_only ──────────────────────────────────────────────
 
 
@@ -267,6 +289,9 @@ def test_execute_sell_blocks_on_monitor_only(monkeypatch):
     # Phase must be PREVIEW_READY for sell gate
     ra._state.phase = "PREVIEW_READY"
     ra._initialized = True
+    # Bypass new drift check (binding feature) — this test focuses on
+    # PR 1's monitor_only gate that runs AFTER drift check.
+    monkeypatch.setattr(ra, "_check_preview_drift", lambda *a, **kw: None)
     out = ra.execute_sell(sm, cfg, p, executor=MagicMock(),
                           trade_logger=MagicMock(), tracker=MagicMock())
     assert out["ok"] is False
@@ -285,6 +310,8 @@ def test_execute_sell_blocks_on_broker_sync_failure(monkeypatch):
     cfg = _config()
     ra._state.phase = "PREVIEW_READY"
     ra._initialized = True
+    # Bypass new drift check — focus on PR 1's broker_sync stage
+    monkeypatch.setattr(ra, "_check_preview_drift", lambda *a, **kw: None)
     # We need _check_gates to pass open_orders + target. Mock target loader.
     monkeypatch.setattr(
         "strategy.factor_ranker.load_target_portfolio",
@@ -316,6 +343,7 @@ def test_execute_sell_blocks_on_strict_cash_drift(monkeypatch):
     cfg = _config()
     ra._state.phase = "PREVIEW_READY"
     ra._initialized = True
+    monkeypatch.setattr(ra, "_check_preview_drift", lambda *a, **kw: None)
     monkeypatch.setattr(
         "strategy.factor_ranker.load_target_portfolio",
         lambda _d: {"target_tickers": [], "scores": {}, "date": "20260504"},
@@ -336,6 +364,7 @@ def test_execute_buy_blocks_on_monitor_only(monkeypatch):
     ra._state.phase = "BUY_READY"
     ra._state.sell_status = "COMPLETE"
     ra._initialized = True
+    monkeypatch.setattr(ra, "_check_preview_drift", lambda *a, **kw: None)
     out = ra.execute_buy(sm, cfg, p, executor=MagicMock(),
                          trade_logger=MagicMock(), tracker=MagicMock())
     assert out["ok"] is False
@@ -359,6 +388,7 @@ def test_execute_buy_blocks_on_strict_cash_drift(monkeypatch):
     ra._state.phase = "BUY_READY"
     ra._state.sell_status = "COMPLETE"
     ra._initialized = True
+    monkeypatch.setattr(ra, "_check_preview_drift", lambda *a, **kw: None)
     monkeypatch.setattr(
         "strategy.factor_ranker.load_target_portfolio",
         lambda _d: {"target_tickers": [], "scores": {}, "date": "20260504"},
