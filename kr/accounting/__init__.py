@@ -1,10 +1,13 @@
-"""kr.accounting — Accounting Correction Sprint (PR-CF1, PR-CF2).
+"""kr.accounting — Accounting Correction Sprint (PR-CF1, PR-CF2, PR-CF3).
 
 Greenfield accounting module for KR live. Provides:
   - Initial capital state (manual config, never auto-overwritten by broker)
   - Append-only immutable cashflow ledger (deposit / withdrawal / dividend / etc.)
   - Read-only summary (initial_capital, net_external_flow, invested_capital)
   - Modified Dietz cashflow-aware return + DD engine (CF2)
+  - Read-only dashboard snapshot composer (CF3): builds a single dataclass
+    that the Daily Report HTML and the /api/accounting/summary endpoint
+    serialize for dual display (raw + adjusted, source-labelled)
 
 Hard restrictions (Jeff doctrine 2026-05-04):
   - raw equity = immutable broker truth (untouched here)
@@ -16,12 +19,26 @@ Hard restrictions (Jeff doctrine 2026-05-04):
   - CF2 introduces a SEPARATE return / DD engine (does NOT replace
     existing exposure_guard or any production return path; downstream
     consumers can call this engine when they need cashflow-aware metrics)
+  - CF3 surfaces those CF1+CF2 numbers on the Daily Report and a new
+    read-only endpoint. It does NOT modify exposure_guard, the
+    report_equity_log write path, or the existing portfolio PnL display.
 
 Storage: JSONL primary (file under kr/data/accounting/cashflow_ledger.jsonl).
 PG-backed alternative deferred to a future PR if/when query volume
 warrants it. Single source of truth = JSONL.
 """
 from .config import CapitalConfig, get_initial_capital, load_capital_state
+from .dashboard import (
+    CashflowView,
+    DashboardSnapshot,
+    InitialCapitalView,
+    InvestedCapitalView,
+    ModifiedDietzView,
+    RawEquityView,
+    RawSimpleReturnView,
+    compute_dashboard_snapshot,
+    snapshot_to_dict,
+)
 from .ledger import CashflowEvent, CashflowLedger, EventType
 from .returns import (
     DailyMetric,
@@ -42,4 +59,13 @@ __all__ = [
     "DailyMetric",
     "ModifiedDietzResult",
     "compute_modified_dietz_returns",
+    "CashflowView",
+    "DashboardSnapshot",
+    "InitialCapitalView",
+    "InvestedCapitalView",
+    "ModifiedDietzView",
+    "RawEquityView",
+    "RawSimpleReturnView",
+    "compute_dashboard_snapshot",
+    "snapshot_to_dict",
 ]
